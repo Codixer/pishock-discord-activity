@@ -3,7 +3,6 @@ import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { DiscordSDK, Events, type Types } from '@discord/embedded-app-sdk';
 import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText } from 'lucide-react';
 import { PiShockController } from './components/PiShockController';
-import { ShockerSelector } from './components/ShockerSelector';
 import { SafetyWarning } from './components/SafetyWarning';
 import { UserSelector } from './components/UserSelector';
 import { ConnectionStatus } from './components/ConnectionStatus';
@@ -86,7 +85,6 @@ function getApiBaseUrl(): string {
 function MainApp() {
   const [auth, setAuth] = useState<any>(null);
   const [selectedUser, setSelectedUser] = useState<any>(null);
-  const [selectedShockerId, setSelectedShockerId] = useState<string | null>(null);
   const [piShockConnected, setPiShockConnected] = useState(false);
   const [safetyAccepted, setSafetyAccepted] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -585,14 +583,6 @@ function MainApp() {
                 userPiShockStatus={userPiShockStatus}
                 isCompactMode={isCompactMode}
               />
-              
-              <ShockerSelector
-                selectedShockerId={selectedShockerId}
-                onShockerSelect={setSelectedShockerId}
-                auth={auth}
-                addNotification={addNotification}
-                isCompactMode={isCompactMode}
-              />
             </div>
 
             {/* Main Controller */}
@@ -605,7 +595,6 @@ function MainApp() {
             } flex flex-col min-h-0 order-1 lg:order-none`}>
               <PiShockController
                 selectedUser={selectedUser}
-                selectedShockerId={selectedShockerId}
                 onConnectionChange={setPiShockConnected}
                 isConnected={piShockConnected}
                 addNotification={addNotification}

@@ -224,46 +224,63 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     try {
-      // Get target user's devices first to get their device IDs
-      console.log('EXECUTE: Getting target user devices...');
-      const devicesUrl = `https://ps.pishock.com/PiShock/GetUserDevices?userId=${targetCreds.piShockUserId || 0}&token=${encodeURIComponent(targetCreds.apiKey)}&api=true`;
+      // Use the target user's selected shocker if available
+      const selectedShockerId = targetCreds.selectedShockerId;
+      let targetShocker: any = null;
+      let deviceWithShockers: any = null;
       
-      const devicesResponse = await fetch(devicesUrl, {
-        method: 'GET',
-        headers: {
-          'User-Agent': 'PiShock-Discord-Activity/2.0',
-          'Accept': 'application/json'
+      if (selectedShockerId) {
+        console.log('EXECUTE: Using pre-selected shocker ID:', selectedShockerId);
+        targetShocker = { shockerId: selectedShockerId };
+      } else {
+        // Fallback to auto-discovery (existing logic)
+        console.log('EXECUTE: No pre-selected shocker, using auto-discovery...');
+        
+        // Get target user's devices first to get their device IDs
+        console.log('EXECUTE: Getting target user devices...');
+        const devicesUrl = `https://ps.pishock.com/PiShock/GetUserDevices?userId=${targetCreds.piShockUserId || 0}&token=${encodeURIComponent(targetCreds.apiKey)}&api=true`;
+        
+        const devicesResponse = await fetch(devicesUrl, {
+          method: 'GET',
+          headers: {
+            'User-Agent': 'PiShock-Discord-Activity/2.0',
+            'Accept': 'application/json'
+          }
+        });
+
+        if (!devicesResponse.ok) {
+          throw new Error(`Failed to get target devices: HTTP ${devicesResponse.status}`);
         }
-      });
 
-      if (!devicesResponse.ok) {
-        throw new Error(`Failed to get target devices: HTTP ${devicesResponse.status}`);
+        const devicesText = await devicesResponse.text();
+        let devices;
+        try {
+          devices = JSON.parse(devicesText);
+        } catch (parseError) {
+          throw new Error('Failed to parse devices response');
+        }
+
+        if (!Array.isArray(devices) || devices.length === 0) {
+          throw new Error('Target user has no devices available');
+        }
+
+        // Find the first device with shockers
+        deviceWithShockers = devices.find((device: any) => 
+          device.shockers && Array.isArray(device.shockers) && device.shockers.length > 0
+        );
+
+        if (!deviceWithShockers) {
+          throw new Error('Target user has no shockers available');
+        }
+
+        // Use the first shocker from the first device
+        targetShocker = deviceWithShockers.shockers[0];
+        console.log('EXECUTE: Using auto-discovered shocker ID:', targetShocker.shockerId, 'from device:', deviceWithShockers.clientId);
       }
 
-      const devicesText = await devicesResponse.text();
-      let devices;
-      try {
-        devices = JSON.parse(devicesText);
-      } catch (parseError) {
-        throw new Error('Failed to parse devices response');
+      if (!targetShocker) {
+        throw new Error('No target shocker available');
       }
-
-      if (!Array.isArray(devices) || devices.length === 0) {
-        throw new Error('Target user has no devices available');
-      }
-
-      // Find the first device with shockers
-      const deviceWithShockers = devices.find(device => 
-        device.shockers && Array.isArray(device.shockers) && device.shockers.length > 0
-      );
-
-      if (!deviceWithShockers) {
-        throw new Error('Target user has no shockers available');
-      }
-
-      // Use the first shocker from the first device
-      const targetShocker = deviceWithShockers.shockers[0];
-      console.log('EXECUTE: Using shocker ID:', targetShocker.shockerId, 'from device:', deviceWithShockers.clientId);
 
       // Execute PiShock command using v3 API
       const operationNames = ['shock', 'vibrate', 'beep'];
@@ -271,38 +288,38 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       
       console.log('EXECUTE: Sending', operationName, 'command via v3 API');
       
-      // Use the v3 API Operate endpoint
+      // Use the v3 API Operate endpoint with form data
       const payload = {
-        code: targetShocker.shockerId.toString(), // Use the shocker ID as the code
-        duration: duration,
-        intensity: intensity,
-        op: operation,
-        apikey: executorCreds.apiKey,        // Executor's API key for authentication  
-        username: executorCreds.username,    // Executor's username for authentication
+        code: targetShocker.shockerId.toString(),
+        duration: duration.toString(),
+        intensity: intensity.toString(),
+        op: operation.toString(),
+        apikey: executorCreds.apiKey,
+        username: executorCreds.username,
         name: 'DiscordActivity-v3',
-        random: false,
-        scale: false
+        random: 'false',
+        scale: 'false'
       };
       
       console.log('EXECUTE: Request payload:', { 
         code: targetShocker.shockerId.toString(),
-        duration: duration,
-        intensity: intensity,
-        op: operation,
+        duration: duration.toString(),
+        intensity: intensity.toString(),
+        op: operation.toString(),
         apikey: '***HIDDEN***',
         username: executorCreds.username,
         name: 'DiscordActivity-v3',
-        random: false,
-        scale: false
+        random: 'false',
+        scale: 'false'
       });
       
       const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
         method: 'POST',
         headers: { 
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
           'User-Agent': 'PiShock-Discord-Activity/2.0'
         },
-        body: JSON.stringify(payload),
+        body: new URLSearchParams(payload)
       });
 
       console.log('EXECUTE: Response status:', response.status);
@@ -355,10 +372,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         message: `${operationName} command executed successfully via v3 API`,
         debug: {
           targetShockerId: targetShocker.shockerId,
-          deviceId: deviceWithShockers.clientId,
+          deviceId: deviceWithShockers?.clientId,
           maxIntensity,
           maxDuration,
-          response: responseText
+          response: responseText,
+          usedSelectedShocker: !!selectedShockerId
         }
       });
 

@@ -2,6 +2,10 @@ interface Env {
   PISHOCK_KV: KVNamespace;
 }
 
+interface PagesFunction<Env = any> {
+  (context: { request: Request; env: Env; params: Record<string, string>; }): Promise<Response> | Response;
+}
+
 function jsonResponse(body: any, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -182,7 +186,7 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
   }
 }
 
-async function getUserDevices(apiKey: string, username: string): Promise<{ hasDevices: boolean; devices?: any[]; error?: string; debugInfo?: any }> {
+async function getUserDevices(apiKey: string, username: string): Promise<{ hasDevices: boolean; devices?: any[]; availableShockers?: any[]; error?: string; debugInfo?: any }> {
   try {
     console.log('=== Getting user devices (v3 API) ===');
     console.log('Username:', username);
@@ -227,23 +231,47 @@ async function getUserDevices(apiKey: string, username: string): Promise<{ hasDe
       };
     }
     
+    // Extract all available shockers from all devices
+    const availableShockers: any[] = [];
+    if (Array.isArray(devices)) {
+      devices.forEach(device => {
+        if (device.shockers && Array.isArray(device.shockers)) {
+          device.shockers.forEach(shocker => {
+            availableShockers.push({
+              shockerId: shocker.shockerId,
+              shockerName: shocker.shockerName || `Shocker ${shocker.shockerId}`,
+              deviceId: device.clientId,
+              deviceName: device.name || `Device ${device.clientId}`,
+              displayName: `${shocker.shockerName || `Shocker ${shocker.shockerId}`} (${device.name || `Device ${device.clientId}`})`
+            });
+          });
+        }
+      });
+    }
+    
     // Check if user has any devices with shockers
-    const hasDevices = Array.isArray(devices) && devices.length > 0 && 
-                      devices.some(device => device.shockers && Array.isArray(device.shockers) && device.shockers.length > 0);
+    const hasDevices = availableShockers.length > 0;
     
     console.log('Has devices result:', hasDevices);
     console.log('Device count:', devices?.length || 0);
+    console.log('Available shockers:', availableShockers.length);
     
     return { 
       hasDevices, 
       devices: hasDevices ? devices : [],
-      debugInfo: { deviceCount: devices?.length || 0, devicesWithShockers: devices?.filter(d => d.shockers?.length > 0).length || 0 }
+      availableShockers,
+      debugInfo: { 
+        deviceCount: devices?.length || 0, 
+        devicesWithShockers: devices?.filter(d => d.shockers?.length > 0).length || 0,
+        totalShockers: availableShockers.length
+      }
     };
     
   } catch (error) {
     console.error('Failed to get user devices:', error);
     return { 
       hasDevices: false, 
+      availableShockers: [],
       error: `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       debugInfo: { networkError: error instanceof Error ? error.message : 'Unknown error' }
     };
@@ -281,7 +309,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   try {
     if (method === 'PUT') {
-      const { apiKey, username, maxIntensity, maxDuration } = await request.json();
+      const { apiKey, username, maxIntensity, maxDuration, selectedShockerId } = await request.json();
 
       if (!apiKey || !username) {
         return jsonResponse({ 
@@ -297,6 +325,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       console.log('=== Starting PiShock v3 API validation ===');
       console.log('Username:', username);
       console.log('User limits - Max Intensity:', finalMaxIntensity, 'Max Duration:', finalMaxDuration);
+      console.log('Selected Shocker ID:', selectedShockerId);
 
       // Step 1: Validate credentials and get devices using v3 API
       const credentialValidation = await validatePiShockCredentials(apiKey, username);
@@ -323,8 +352,27 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       
       const hasDevices = deviceCheck.hasDevices;
       const deviceCount = deviceCheck.devices?.length || 0;
+      const availableShockers = deviceCheck.availableShockers || [];
 
-      // Store credentials with user-configured limits
+      // Validate selected shocker if provided
+      let validatedShockerId = null;
+      if (selectedShockerId) {
+        const isValidShocker = availableShockers.some(shocker => shocker.shockerId.toString() === selectedShockerId.toString());
+        if (isValidShocker) {
+          validatedShockerId = selectedShockerId.toString();
+          console.log('✓ Selected shocker validated:', validatedShockerId);
+        } else {
+          console.warn('Selected shocker not found in available shockers, using automatic selection');
+        }
+      }
+
+      // If no valid selected shocker, use the first available one
+      if (!validatedShockerId && availableShockers.length > 0) {
+        validatedShockerId = availableShockers[0].shockerId.toString();
+        console.log('✓ Auto-selected first available shocker:', validatedShockerId);
+      }
+
+      // Store credentials with user-configured limits and selected shocker
       const credentialsToStore = {
         apiKey,
         username,
@@ -332,6 +380,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         deviceCount,
         maxIntensity: finalMaxIntensity,
         maxDuration: finalMaxDuration,
+        selectedShockerId: validatedShockerId,
         lastValidated: new Date().toISOString()
       };
       
@@ -347,6 +396,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         deviceCount,
         maxIntensity: finalMaxIntensity,
         maxDuration: finalMaxDuration,
+        selectedShockerId: validatedShockerId,
+        availableShockers,
         lastUpdated: new Date().toISOString()
       };
       
@@ -371,6 +422,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         piShockUserId,
         maxIntensity: finalMaxIntensity,
         maxDuration: finalMaxDuration,
+        selectedShockerId: validatedShockerId,
+        availableShockers,
         debug: {
           credentialValidation: credentialValidation.debugInfo,
           deviceCheck: deviceCheck.debugInfo

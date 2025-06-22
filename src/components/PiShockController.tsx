@@ -3,7 +3,6 @@ import { Zap, Settings, Play, Square, AlertTriangle, Wifi, Save, Loader, User, L
 
 interface PiShockControllerProps {
   selectedUser: any;
-  selectedShockerId: string | null;
   onConnectionChange: (connected: boolean) => void;
   isConnected: boolean;
   addNotification: (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => void;
@@ -30,7 +29,6 @@ function getApiBaseUrl(): string {
 
 export function PiShockController({ 
   selectedUser, 
-  selectedShockerId,
   onConnectionChange, 
   isConnected, 
   addNotification, 
@@ -57,6 +55,9 @@ export function PiShockController({
   const [lastShockTime, setLastShockTime] = useState<number>(0);
   const [currentUserMaxIntensity, setCurrentUserMaxIntensity] = useState(100);
   const [currentUserMaxDuration, setCurrentUserMaxDuration] = useState(15);
+  const [availableShockers, setAvailableShockers] = useState<any[]>([]);
+  const [selectedShockerId, setSelectedShockerId] = useState<string>('');
+  const [loadingShockers, setLoadingShockers] = useState(false);
 
   // Get the effective limits based on selected user
   const getEffectiveLimits = () => {
@@ -115,6 +116,14 @@ export function PiShockController({
         setCurrentUserMaxDuration(status.maxDuration || 15);
         onConnectionChange(status.isConnected);
         
+        // Load available shockers and selected shocker from status
+        if (status.availableShockers && Array.isArray(status.availableShockers)) {
+          setAvailableShockers(status.availableShockers);
+        }
+        if (status.selectedShockerId) {
+          setSelectedShockerId(status.selectedShockerId.toString());
+        }
+        
         // Store user's PiShock ID for display
         if (status.piShockUserId) {
           setCurrentUserPiShockUserId(status.piShockUserId);
@@ -141,6 +150,12 @@ export function PiShockController({
       return;
     }
 
+    // If we have available shockers but no selection, warn the user
+    if (availableShockers.length > 0 && !selectedShockerId) {
+      addNotification('warning', 'Select Shocker', 'Please select which shocker to use for incoming commands');
+      return;
+    }
+
     // Validate user limits
     const finalMaxIntensity = Math.min(Math.max(maxIntensity, 1), 100);
     const finalMaxDuration = Math.min(Math.max(maxDuration, 1), 15);
@@ -158,6 +173,7 @@ export function PiShockController({
           username,
           maxIntensity: finalMaxIntensity,
           maxDuration: finalMaxDuration,
+          selectedShockerId: selectedShockerId || null, // Include selected shocker
         }),
       });
 
@@ -170,7 +186,16 @@ export function PiShockController({
         setCurrentUserMaxDuration(finalMaxDuration);
         onConnectionChange(true);
         
-        addNotification('success', 'Settings Saved', `PiShock account connected successfully with limits: ${finalMaxIntensity}%/${finalMaxDuration}s`);
+        // Update available shockers and selected shocker from response
+        if (result.availableShockers) {
+          setAvailableShockers(result.availableShockers);
+        }
+        if (result.selectedShockerId) {
+          setSelectedShockerId(result.selectedShockerId);
+        }
+        
+        const shockerMessage = selectedShockerId ? ` Selected shocker: ${availableShockers.find(s => s.shockerId.toString() === selectedShockerId)?.displayName || selectedShockerId}` : '';
+        addNotification('success', 'Settings Saved', `PiShock account connected successfully with limits: ${finalMaxIntensity}%/${finalMaxDuration}s.${shockerMessage}`);
         
         // Clear the form fields for security
         setApiKey('');
@@ -209,6 +234,48 @@ export function PiShockController({
       addNotification('error', 'Save Failed', error instanceof Error ? error.message : 'Failed to save PiShock settings');
     } finally {
       setSettingsSaving(false);
+    }
+  };
+
+  const loadAvailableShockers = async () => {
+    if (!currentUser || !auth || !apiKey || !username) return;
+    
+    setLoadingShockers(true);
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/available-shockers`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({
+          apiKey,
+          username,
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.shockers) {
+          setAvailableShockers(result.shockers);
+          
+          // Auto-select first shocker if none selected
+          if (!selectedShockerId && result.shockers.length > 0) {
+            setSelectedShockerId(result.shockers[0].shockerId.toString());
+          }
+        } else {
+          addNotification('warning', 'No Shockers Found', 'No shockers found in your PiShock account');
+          setAvailableShockers([]);
+        }
+      } else {
+        const result = await response.json();
+        addNotification('error', 'Failed to Load Shockers', result.error || 'Failed to get available shockers');
+      }
+    } catch (error) {
+      console.error('Failed to load shockers:', error);
+      addNotification('error', 'Load Failed', 'Failed to load available shockers');
+    } finally {
+      setLoadingShockers(false);
     }
   };
 
@@ -273,8 +340,8 @@ export function PiShockController({
   };
 
   const handleShock = async (operation: number) => {
-    if (!selectedShockerId) {
-      addNotification('warning', 'No Shocker Selected', 'Please select a shocker first');
+    if (!selectedUser) {
+      addNotification('warning', 'No User Selected', 'Please select a user first');
       return;
     }
 
@@ -294,7 +361,7 @@ export function PiShockController({
     setLastShockTime(now);
 
     try {
-      const endpoint = `${getApiBaseUrl()}/shocker-execute`;
+      const endpoint = `${getApiBaseUrl()}/users/${selectedUser.id}/pishock-execute`;
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -303,7 +370,8 @@ export function PiShockController({
           'Authorization': `Bearer ${auth.access_token}`,
         },
         body: JSON.stringify({
-          shockerId: selectedShockerId,
+          executorUserId: currentUser.id,
+          targetUserId: selectedUser.id,
           intensity,
           duration,
           operation, // 0 = shock, 1 = vibrate, 2 = beep
@@ -314,7 +382,7 @@ export function PiShockController({
         const result = await response.json();
         if (result.success) {
           const actionName = operation === 0 ? 'Shock' : operation === 1 ? 'Vibration' : 'Beep';
-          addNotification('success', 'Command Sent', `${actionName} sent to selected shocker - Intensity: ${intensity}%, Duration: ${duration}s`);
+          addNotification('success', 'Command Sent', `${actionName} sent to ${selectedUser.displayName || selectedUser.username} - Intensity: ${intensity}%, Duration: ${duration}s`);
           
           // Refresh user statuses after successful command
           if (window.refreshAllUserStatuses) {
@@ -462,6 +530,12 @@ export function PiShockController({
                     PiShock ID: {currentUserPiShockUserId || 'Loading...'}
                     <br />
                     Your limits: {currentUserMaxIntensity}%/{currentUserMaxDuration}s
+                    {selectedShockerId && availableShockers.length > 0 && (
+                      <>
+                        <br />
+                        Selected shocker: {availableShockers.find(s => s.shockerId.toString() === selectedShockerId)?.displayName || selectedShockerId}
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -500,7 +574,7 @@ export function PiShockController({
           <div className="space-y-3 mb-4">
             <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg text-sm text-blue-200">
               <p className="font-semibold mb-1">Account Setup:</p>
-              <p>Configure your PiShock account to participate. Set your own limits for safety.</p>
+              <p>Configure your PiShock account to participate. You'll choose which of your shockers others can control when they target you.</p>
               {isCompactMode && (
                 <p className="text-xs mt-2 text-blue-300">
                   💡 Tip: Switch to full view for easier configuration
@@ -532,6 +606,51 @@ export function PiShockController({
                 placeholder="Your PiShock username"
               />
             </div>
+
+            {/* Load Shockers Button */}
+            {apiKey && username && (
+              <div>
+                <button
+                  onClick={loadAvailableShockers}
+                  disabled={loadingShockers}
+                  className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium flex items-center justify-center space-x-2 transition-all text-sm"
+                >
+                  {loadingShockers ? (
+                    <Loader className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Zap className="h-4 w-4" />
+                  )}
+                  <span>{loadingShockers ? 'Loading...' : 'Load My Shockers'}</span>
+                </button>
+                <p className="text-xs text-gray-400 mt-1">
+                  Click to load available shockers from your PiShock account
+                </p>
+              </div>
+            )}
+
+            {/* Shocker Selection */}
+            {availableShockers.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Select Your Shocker <span className="text-red-400">*</span>
+                </label>
+                <select
+                  value={selectedShockerId}
+                  onChange={(e) => setSelectedShockerId(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
+                >
+                  <option value="">Choose a shocker...</option>
+                  {availableShockers.map((shocker) => (
+                    <option key={shocker.shockerId} value={shocker.shockerId}>
+                      {shocker.displayName}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  This shocker will be used when others send commands to you
+                </p>
+              </div>
+            )}
             
             {/* User-configurable limits */}
             <div className="grid grid-cols-2 gap-3">
@@ -578,7 +697,7 @@ export function PiShockController({
               ) : (
                 <Save className="h-4 w-4" />
               )}
-              <span>Save & Test Connection</span>
+              <span>Save Settings & Connect</span>
             </button>
           </div>
         )}
