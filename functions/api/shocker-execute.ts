@@ -80,10 +80,7 @@ async function getUserDevices(apiKey: string, username: string): Promise<{ hasDe
 
     if (!authResponse.ok) {
       return { hasDevices: false, error: `Authentication failed: HTTP ${authResponse.status}` };
-    }
-
-    const authData = await authResponse.json();
-    if (!authData || !authData.UserId) {
+    }    const authData = await authResponse.json();    if (!authData || !authData.UserId) {
       return { hasDevices: false, error: 'Failed to get user ID' };
     }
 
@@ -264,9 +261,7 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
         success: false, 
         error: `Duration ${duration}s exceeds shocker owner's limit of ${maxDuration}s` 
       });
-    }
-
-    // Execute PiShock command using the shocker owner's credentials
+    }    // Execute PiShock command using the shocker owner's credentials
     const operationNames = ['shock', 'vibrate', 'beep'];
     const operationName = operationNames[operation];
     
@@ -274,14 +269,14 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
     
     const payload = {
       code: targetShocker.shockerId.toString(),
-      duration: duration,
-      intensity: intensity,
-      op: operation,
+      duration: duration.toString(),
+      intensity: intensity.toString(),
+      op: operation.toString(),
       apikey: shockerOwnerCreds.apiKey,    // Use shocker owner's API key
       username: shockerOwnerCreds.username, // Use shocker owner's username
       name: 'DiscordActivity-ShockerSelect',
-      random: false,
-      scale: false
+      random: 'false',
+      scale: 'false'
     };
     
     console.log('SHOCKER-EXECUTE: Request payload:', { 
@@ -292,10 +287,10 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
     const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
       method: 'POST',
       headers: { 
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
         'User-Agent': 'PiShock-Discord-Activity/2.0'
       },
-      body: JSON.stringify(payload),
+      body: new URLSearchParams(payload),
     });
 
     const responseText = await response.text();

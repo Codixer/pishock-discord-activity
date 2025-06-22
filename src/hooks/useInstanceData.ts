@@ -5,7 +5,6 @@ export interface InstanceData {
   piShockSettings?: {
     apiKey?: string;
     username?: string;
-    sharecode?: string;
   };
   lastUpdated?: string;
   [key: string]: any;

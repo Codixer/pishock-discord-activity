@@ -144,24 +144,45 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     try {
       const creds = await decrypt(encrypted);
       
-      // Execute PiShock command using v3 API
+      // Get the configured shocker for this instance
+      const instanceSettings = await env.PISHOCK_KV.get(`instance:${instanceId}:settings`);
+      if (!instanceSettings) {
+        return jsonResponse({ 
+          success: false, 
+          error: 'No shocker configured for this instance' 
+        });
+      }
+      
+      const settings = JSON.parse(instanceSettings);
+      const selectedShockerId = settings.selectedShockerId;
+      
+      if (!selectedShockerId) {
+        return jsonResponse({ 
+          success: false, 
+          error: 'No shocker selected for this instance' 
+        });
+      }
+      
+      // Execute PiShock command using device-specific API
+      const payload = {
+        code: selectedShockerId,
+        duration: duration.toString(),
+        intensity: intensity.toString(),
+        op: operation.toString(),
+        apikey: creds.apiKey,
+        username: creds.username,
+        name: 'DiscordActivity-Instance',
+        random: 'false',
+        scale: 'false'
+      };
+      
       const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
         method: 'POST',
         headers: { 
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
           'User-Agent': 'PiShock-Discord-Activity/2.0'
         },
-        body: JSON.stringify({
-          code: creds.sharecode,
-          duration: duration,
-          intensity: intensity,
-          op: operation,
-          apikey: creds.apiKey,
-          username: creds.username,
-          name: 'DiscordActivity-v3',
-          random: false,
-          scale: false
-        }),
+        body: new URLSearchParams(payload),
       });
 
       if (!response.ok) {

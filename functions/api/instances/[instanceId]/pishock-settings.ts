@@ -105,12 +105,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   try {
     if (method === 'PUT') {
-      const { apiKey, username, sharecode } = await request.json();
+      const { apiKey, username, selectedShockerId } = await request.json();
 
-      if (!apiKey || !username || !sharecode) {
+      if (!apiKey || !username) {
         return jsonResponse({ 
           success: false, 
-          error: 'Missing required fields: apiKey, username, sharecode' 
+          error: 'Missing required fields: apiKey, username' 
         }, 400);
       }
 
@@ -126,12 +126,21 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
 
       // Encrypt and store credentials
-      const encrypted = await encrypt({ apiKey, username, sharecode });
+      const encrypted = await encrypt({ apiKey, username });
       await Promise.all([
         env.PISHOCK_KV.put(`instance:${instanceId}:pishock`, encrypted),
         env.PISHOCK_KV.put(`instance:${instanceId}:pishock:lastTested`, new Date().toISOString()),
         env.PISHOCK_KV.put(`instance:${instanceId}:pishock:configuredBy`, user.id)
       ]);
+
+      // Store shocker selection if provided
+      if (selectedShockerId) {
+        await env.PISHOCK_KV.put(`instance:${instanceId}:settings`, JSON.stringify({
+          selectedShockerId,
+          configuredBy: user.id,
+          configuredAt: new Date().toISOString()
+        }));
+      }
 
       return jsonResponse({ success: true, isConnected: true });
     }
