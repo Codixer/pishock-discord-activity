@@ -24,6 +24,7 @@
 	],
 	
 	// Runtime environment variables (for worker functions only)
+	// Build-time variables (VITE_*) must be set via wrangler deploy --var or locally
 	"vars": {
 		"CF_PAGES": "1",
 		"CF_ANALYTICS_DISABLED": "true",

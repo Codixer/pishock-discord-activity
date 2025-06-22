@@ -13,35 +13,55 @@ A Discord Activity application for controlling PiShock devices in a multiplayer 
 
 ## 🚀 Deployment (Cloudflare Workers)
 
-This project deploys directly to Cloudflare Pages using Wrangler CLI.
+This project deploys directly to Cloudflare Workers using Wrangler CLI.
 
 ### Prerequisites
 
 - Node.js 18+
 - Discord Application with Activity configured
-- Cloudflare account with Pages and KV namespace
+- Cloudflare account with Workers and KV namespace
 - Wrangler CLI (included in devDependencies)
 
-### Environment Variable Setup (CRITICAL)
+### Environment Variable Setup for Workers
 
-Before deployment, you MUST set environment variables in Cloudflare Pages Dashboard:
+**Option 1: Set in Workers Dashboard (Recommended)**
 
-1. **Go to Cloudflare Pages Dashboard**:
-   - Navigate to `Workers & Pages` → Your project → `Settings` → `Environment variables`
+1. **Go to Cloudflare Workers Dashboard**:
+   - Navigate to `Workers & Pages` → Your worker → `Settings` → `Variables and Secrets`
 
-2. **Add these variables** (NOT secrets - use "Variable" not "Secret"):
+2. **Add Environment Variables**:
    ```
-   VITE_DISCORD_CLIENT_ID = your_actual_discord_client_id
    DISCORD_CLIENT_SECRET = your_discord_client_secret
+   PISHOCK_RELAY_API_KEY = your_relay_api_key (optional)
+   PISHOCK_RELAY_USERNAME = your_relay_username (optional)
    ```
 
-3. **For relay account** (optional):
-   ```
-   PISHOCK_RELAY_API_KEY = your_relay_api_key
-   PISHOCK_RELAY_USERNAME = your_relay_username
-   ```
+3. **For build-time variables**, you have two options:
 
-### Direct Cloudflare Deployment
+**Option 2A: Deploy with Environment Variables**
+
+```bash
+# Set your Discord Client ID as environment variable locally
+export DISCORD_CLIENT_ID="your_actual_discord_client_id"
+
+# Deploy with the variable
+npm run deploy:with-env
+```
+
+**Option 2B: Use Local .env File**
+
+```bash
+# Create .env file
+echo "VITE_DISCORD_CLIENT_ID=your_actual_discord_client_id" > .env
+
+# Build locally (picks up .env)
+npm run build
+
+# Deploy the built version
+npm run workers:deploy
+```
+
+### Direct Cloudflare Workers Deployment
 
 1. **Install dependencies**:
    ```bash
@@ -53,101 +73,35 @@ Before deployment, you MUST set environment variables in Cloudflare Pages Dashbo
    npx wrangler login
    ```
 
-3. **Deploy directly**:
+3. **Deploy with environment variables**:
    ```bash
+   # Method 1: Set locally and deploy
+   export DISCORD_CLIENT_ID="1234567890123456789"
+   npm run deploy:with-env
+   
+   # Method 2: Use .env file
+   echo "VITE_DISCORD_CLIENT_ID=1234567890123456789" > .env
    npm run deploy
    ```
-
-   This will:
-   - Build the project with your environment variables
-   - Compile Pages Functions to Workers
-   - Deploy everything to Cloudflare Pages
 
 ### Verify Environment Variables
 
-After setting environment variables in Cloudflare Pages Dashboard, you should see:
+After deployment, check the browser console:
 
 ```javascript
-// In browser console after deployment:
+// Should show your actual Discord Client ID
 Environment check: {
-  client_id: "your_actual_discord_client_id", // ✅ Should show your real ID
-  env_keys: ["VITE_DISCORD_CLIENT_ID"]        // ✅ Should contain your variables
+  client_id: "1234567890123456789", // ✅ Your real ID
+  env_keys: ["VITE_DISCORD_CLIENT_ID"] // ✅ Variable found
 }
 ```
 
-### Alternative: One-Step Deploy
+### Worker Environment Variables vs Build Variables
 
-```bash
-# Build and deploy in one command
-npm run build && npm run pages:deploy
-```
-
-### Development with Environment Variables
-
-For local development, create `.env`:
-
-```bash
-cp .env.example .env
-# Edit .env with your actual values
-```
-
-Then run:
-```bash
-npm run dev
-```
-
-## Important Notes
-
-1. **Environment Variables Location**: 
-   - ❌ **NOT** in `wrangler.jsonc` `vars` (that's for runtime worker functions)
-   - ✅ **YES** in Cloudflare Pages Dashboard (for build-time Vite variables)
-
-2. **Variable vs Secret**:
-   - Use **"Variable"** in Cloudflare Pages Dashboard
-   - **NOT** "Secret" (secrets aren't available to build process)
-
-3. **After Setting Variables**:
-   ```bash
-   npm run deploy
-   ```
-
-   The build process will pick up your environment variables and embed them in the client code.
-
-## Troubleshooting
-
-### Environment Variable Issues
-
-If you see `client_id: undefined`:
-
-1. **Check Cloudflare Pages Dashboard**:
-   - Go to your project → Settings → Environment variables
-   - Ensure `VITE_DISCORD_CLIENT_ID` is set as "Variable" (not "Secret")
-
-2. **Redeploy after setting variables**:
-   ```bash
-   npm run deploy
-   ```
-
-3. **Check build logs**:
-   ```bash
-   npm run build
-   # Look for environment variable references in build output
-   ```
-
-### Other Issues
-
-- **Build Failures**: Ensure Node.js 18+ and clean `npm install`
-- **KV Access**: Verify KV namespace bindings in `wrangler.jsonc`
-- **CORS Issues**: Verify Discord Activity URL matches deployed domain
-
-### Debug Commands
-
-```bash
-npx wrangler dev --local                    # Local development with Workers
-npx wrangler deploy --dry-run              # Validate configuration
-npx wrangler kv:namespace list             # List KV namespaces
-npx wrangler tail                          # Live logs
-```
+| Variable Type | Purpose | Set Where | When Available |
+|---------------|---------|-----------|----------------|
+| `VITE_*` | Build-time (React app) | Local `.env` or deploy command | Build time only |
+| Regular vars | Runtime (Worker functions) | Workers Dashboard or `wrangler.jsonc` | Runtime only |
 
 ## Development
 
@@ -168,16 +122,18 @@ npx wrangler tail                          # Live logs
 
 3. **Start development servers**:
    ```bash
-   npm run dev        # Frontend development (Vite)
-   npm run pages:dev  # Full Workers development with backend
+   npm run dev          # Frontend development (Vite)
+   npm run workers:dev  # Full Workers development with backend
    ```
 
 ### Project Scripts
 
 - `npm run dev` - Start Vite development server
 - `npm run build` - Build project with Pages Functions compilation
-- `npm run deploy` - Deploy to Cloudflare Workers
-- `npm run pages:dev` - Local Workers development environment
+- `npm run deploy` - Build and deploy to Cloudflare Workers
+- `npm run deploy:with-env` - Deploy with environment variables from shell
+- `npm run workers:dev` - Local Workers development environment
+- `npm run workers:deploy` - Deploy to Workers (build first)
 - `npm run lint` - Run ESLint
 - `npm run type-check` - TypeScript type checking
 
@@ -198,13 +154,19 @@ Update the namespace IDs in `wrangler.jsonc` with the returned values.
 
 1. Create a Discord Application at https://discord.com/developers/applications
 2. Configure the Activity:
-   - Set the Activity URL to your Cloudflare Workers domain
+   - Set the Activity URL to your Cloudflare Worker domain
    - Add required OAuth2 scopes: `identify`, `guilds`, `guilds.members.read`, `rpc.activities.write`
-3. Update environment variables with your Discord Client ID and Secret
+3. Set your Discord Client ID in environment variables for deployment
 
-### PiShock API
+### Worker Environment Variables
 
-The application uses the PiShock API for device control. Users can configure their API credentials within the application interface.
+Set these in Cloudflare Workers Dashboard → Settings → Variables and Secrets:
+
+```
+DISCORD_CLIENT_SECRET = your_discord_client_secret_here
+PISHOCK_RELAY_API_KEY = your_relay_api_key (optional)
+PISHOCK_RELAY_USERNAME = your_relay_username (optional)
+```
 
 ## Architecture
 
@@ -217,59 +179,69 @@ This project uses:
 
 ### API Endpoints
 
-The application provides these API endpoints:
-
 - `POST /api/auth/discord` - Discord OAuth2 token exchange
 - `GET/PUT /api/instances/{instanceId}/data` - Instance data management
 - `GET/PUT /api/instances/{instanceId}/pishock-settings` - PiShock configuration
-- `POST /api/instances/{instanceId}/audit-log` - Audit logging
-- `POST /api/pishock/test-connection` - Test PiShock connectivity
-- `POST /api/pishock/execute` - Execute PiShock commands
+- `POST /api/activity-log` - Activity logging
+- `POST /api/users/{userId}/pishock-execute` - Execute PiShock commands
 - `GET /api/discord/guilds/{guildId}/members/{userId}` - Guild member data
 
-## Security
+## Deployment Examples
 
-- All PiShock credentials are encrypted and stored in Cloudflare KV
-- Instance-based data isolation ensures privacy between Discord activities
-- Comprehensive audit logging tracks all device interactions
-- Safety warnings and consent mechanisms are enforced
-- Rate limiting and authentication on all API endpoints
+### Example 1: Simple Deployment
 
-## Deployment Workflow
+```bash
+# Set environment variable locally
+export DISCORD_CLIENT_ID="1234567890123456789"
 
-### Build Process
+# Deploy with the variable
+npm run deploy:with-env
+```
 
-1. **Frontend Build**: Vite compiles React application
-2. **Functions Build**: Wrangler compiles Pages Functions to Workers format
-3. **Asset Preparation**: Static files prepared for Workers Assets
-4. **Deployment**: Single `wrangler deploy` command
+### Example 2: Using .env File
 
-### Version Management
+```bash
+# Create .env file
+cat > .env << EOF
+VITE_DISCORD_CLIENT_ID=1234567890123456789
+EOF
 
-The application includes automatic version checking to ensure all participants use the same version during activities.
+# Build and deploy
+npm run deploy
+```
 
-## Monitoring
+### Example 3: CI/CD Pipeline
 
-### Cloudflare Dashboard
-
-Monitor your deployment through:
-- **Workers & Pages**: Deployment status and logs
-- **Analytics**: Request metrics and performance
-- **KV**: Data storage usage
-- **Logs**: Real-time application logs
-
-### Local Development
-
-Use `npm run pages:dev` for full-featured local development that mirrors the production Workers environment.
+```bash
+# In your CI/CD pipeline
+wrangler deploy --var VITE_DISCORD_CLIENT_ID:$DISCORD_CLIENT_ID
+```
 
 ## Troubleshooting
 
-### Common Issues
+### Environment Variable Issues
 
-1. **Build Failures**: Ensure Node.js 18+ and all dependencies installed
-2. **KV Access**: Verify KV namespace bindings in `wrangler.jsonc`
-3. **Environment Variables**: Check Discord credentials are properly set
-4. **CORS Issues**: Verify Discord Activity URL matches deployed domain
+**Problem**: `client_id: undefined`
+
+**Solutions**:
+
+1. **Check your build environment**:
+   ```bash
+   # Verify the variable is set
+   echo $DISCORD_CLIENT_ID
+   
+   # Or create .env file
+   echo "VITE_DISCORD_CLIENT_ID=your_id_here" > .env
+   ```
+
+2. **Use the deploy command with variables**:
+   ```bash
+   npm run deploy:with-env
+   ```
+
+3. **Check Workers Dashboard**:
+   - Go to your worker → Settings → Variables and Secrets
+   - Ensure runtime variables are set for the Worker functions
 
 ### Debug Commands
 
@@ -279,6 +251,14 @@ npx wrangler deploy --dry-run              # Validate configuration
 npx wrangler kv:namespace list             # List KV namespaces
 npx wrangler tail                          # Live logs
 ```
+
+## Security
+
+- All PiShock credentials are encrypted and stored in Cloudflare KV
+- Instance-based data isolation ensures privacy between Discord activities
+- Comprehensive audit logging tracks all device interactions
+- Safety warnings and consent mechanisms are enforced
+- Rate limiting and authentication on all API endpoints
 
 ## License
 

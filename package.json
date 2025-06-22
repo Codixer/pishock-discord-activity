@@ -9,9 +9,10 @@
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
     "lint:fix": "eslint . --ext .ts,.tsx,.js,.jsx --fix",
     "preview": "vite preview",
-    "pages:dev": "npx wrangler dev --local",
-    "pages:deploy": "npx wrangler deploy",
-    "deploy": "npm run build && npm run pages:deploy",
+    "workers:dev": "npx wrangler dev --local",
+    "workers:deploy": "npx wrangler deploy",
+    "deploy": "npm run build && npm run workers:deploy",
+    "deploy:with-env": "npx wrangler deploy --var VITE_DISCORD_CLIENT_ID:${DISCORD_CLIENT_ID}",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
