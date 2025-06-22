@@ -38,7 +38,8 @@ export function PiShockController({
   const [username, setUsername] = useState('');
   const [sharecode, setSharecode] = useState('');
   const [hasOwnDevice, setHasOwnDevice] = useState(false);
-  const [useRelayAccount, setUseRelayAccount] = useState(false);
+  const [useSharedCredentials, setUseSharedCredentials] = useState(false);
+  const [hasConsentedToShared, setHasConsentedToShared] = useState(false);
   const [intensity, setIntensity] = useState(1);
   const [duration, setDuration] = useState(1);
   const [isShocking, setIsShocking] = useState(false);
@@ -47,7 +48,8 @@ export function PiShockController({
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [hasStoredCredentials, setHasStoredCredentials] = useState(false);
   const [currentUserPiShockConnected, setCurrentUserPiShockConnected] = useState(false);
-  const [relayAccountAvailable, setRelayAccountAvailable] = useState(false);
+  const [sharedCredentialsAvailable, setSharedCredentialsAvailable] = useState(false);
+  const [sharedCredentialsConnected, setSharedCredentialsConnected] = useState(false);
   const [currentUserPiShockUserId, setCurrentUserPiShockUserId] = useState<string>('');
   const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
 
@@ -103,7 +105,7 @@ export function PiShockController({
   useEffect(() => {
     if (currentUser && auth) {
       checkCurrentUserCredentials();
-      checkRelayAccountAvailability();
+      checkSharedCredentialsStatus();
     }
   }, [currentUser, auth]);
 
@@ -120,7 +122,7 @@ export function PiShockController({
         const status = await response.json();
         setHasStoredCredentials(status.hasCredentials);
         setCurrentUserPiShockConnected(status.isConnected);
-        onConnectionChange(status.isConnected || useRelayAccount);
+        onConnectionChange(status.isConnected || sharedCredentialsConnected);
         
         // Store user's PiShock ID for display
         if (status.piShockUserId) {
@@ -140,9 +142,9 @@ export function PiShockController({
     }
   };
 
-  const checkRelayAccountAvailability = async () => {
+  const checkSharedCredentialsStatus = async () => {
     try {
-      const response = await fetch(`${getApiBaseUrl()}/relay-account/status`, {
+      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/shared-credentials-status`, {
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
         },
@@ -150,29 +152,69 @@ export function PiShockController({
 
       if (response.ok) {
         const status = await response.json();
-        setRelayAccountAvailable(status.available);
+        setSharedCredentialsAvailable(status.available);
+        setSharedCredentialsConnected(status.isConnected && status.hasConsented);
+        setHasConsentedToShared(status.hasConsented);
+        
+        if (status.isConnected && status.hasConsented) {
+          addNotification('success', 'Shared Credentials Active', 'Using shared bot credentials');
+        }
       }
     } catch (error) {
-      console.error('Failed to check relay account availability:', error);
-      setRelayAccountAvailable(false);
+      console.error('Failed to check shared credentials status:', error);
+      setSharedCredentialsAvailable(false);
+      setSharedCredentialsConnected(false);
     }
   };
 
   const savePiShockSettings = async () => {
     if (!currentUser || !auth) return;
     
-    if (useRelayAccount) {
-      // Using relay account - no credentials needed
-      setHasStoredCredentials(true);
-      setCurrentUserPiShockConnected(true);
-      onConnectionChange(true);
-      addNotification('success', 'Relay Account Enabled', 'You can now send commands using the relay account (Not Recommended)');
-      setShowSettings(false);
-      
-      // Trigger a status refresh for all participants
-      if (window.refreshAllUserStatuses) {
-        window.refreshAllUserStatuses();
+    if (useSharedCredentials) {
+      if (!hasConsentedToShared) {
+        addNotification('warning', 'Consent Required', 'Please check the consent box to use shared credentials');
+        return;
       }
+
+      setSettingsSaving(true);
+      try {
+        const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/shared-credentials`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${auth.access_token}`,
+          },
+          body: JSON.stringify({
+            consent: hasConsentedToShared,
+          }),
+        });
+
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+          setSharedCredentialsConnected(true);
+          onConnectionChange(true);
+          
+          addNotification('success', 'Shared Credentials Enabled', 'You are now using the shared bot credentials');
+          
+          setShowSettings(false);
+          
+          // Trigger a status refresh for all participants
+          if (window.refreshAllUserStatuses) {
+            window.refreshAllUserStatuses();
+          }
+        } else {
+          const errorMessage = result.error || `HTTP ${response.status}: Failed to enable shared credentials`;
+          console.error('Shared credentials save error:', result);
+          throw new Error(errorMessage);
+        }
+      } catch (error) {
+        console.error('Failed to enable shared credentials:', error);
+        addNotification('error', 'Save Failed', error instanceof Error ? error.message : 'Failed to enable shared credentials');
+      } finally {
+        setSettingsSaving(false);
+      }
+      
       return;
     }
 
@@ -243,9 +285,9 @@ export function PiShockController({
   const testConnection = async () => {
     if (!currentUser || !auth) return;
 
-    if (useRelayAccount) {
+    if (useSharedCredentials) {
       try {
-        const response = await fetch(`${getApiBaseUrl()}/relay-account/test`, {
+        const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/shared-credentials-test`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${auth.access_token}`,
@@ -255,16 +297,20 @@ export function PiShockController({
         if (response.ok) {
           const result = await response.json();
           if (result.success) {
-            addNotification('success', 'Relay Account Test', 'Relay account is working correctly');
+            setSharedCredentialsConnected(true);
+            onConnectionChange(true);
+            addNotification('success', 'Shared Credentials Test Successful', 'The shared bot credentials are working correctly');
           } else {
-            throw new Error(result.error || 'Relay account test failed');
+            throw new Error(result.error || 'Shared credentials test failed');
           }
         } else {
-          throw new Error('Relay account test failed');
+          throw new Error('Shared credentials test failed');
         }
       } catch (error) {
-        console.error('Relay account test error:', error);
-        addNotification('error', 'Relay Test Failed', error instanceof Error ? error.message : 'Failed to test relay account');
+        console.error('Shared credentials test error:', error);
+        setSharedCredentialsConnected(false);
+        onConnectionChange(false);
+        addNotification('error', 'Shared Credentials Test Failed', error instanceof Error ? error.message : 'Failed to test shared credentials');
       }
       return;
     }
@@ -320,7 +366,7 @@ export function PiShockController({
       return;
     }
 
-    if (!currentUserPiShockConnected && !useRelayAccount) {
+    if (!currentUserPiShockConnected && !sharedCredentialsConnected) {
       addNotification('warning', 'Not Connected', 'Please connect your PiShock account first');
       return;
     }
@@ -328,8 +374,8 @@ export function PiShockController({
     setIsShocking(true);
 
     try {
-      const endpoint = useRelayAccount 
-        ? `${getApiBaseUrl()}/relay-account/execute`
+      const endpoint = sharedCredentialsConnected 
+        ? `${getApiBaseUrl()}/users/${currentUser.id}/shared-credentials-execute`
         : `${getApiBaseUrl()}/users/${selectedUser.id}/pishock-execute`;
 
       const response = await fetch(endpoint, {
@@ -344,7 +390,7 @@ export function PiShockController({
           intensity,
           duration,
           operation, // 0 = shock, 1 = vibrate, 2 = beep
-          useRelay: useRelayAccount,
+          useShared: sharedCredentialsConnected,
         }),
       });
 
@@ -352,7 +398,7 @@ export function PiShockController({
         const result = await response.json();
         if (result.success) {
           const actionName = operation === 0 ? 'Shock' : operation === 1 ? 'Vibration' : 'Beep';
-          const method = useRelayAccount ? 'via relay account' : 'to their device';
+          const method = sharedCredentialsConnected ? 'via shared credentials' : 'to their device';
           addNotification('success', 'Command Sent', `${actionName} sent to ${selectedUser.displayName || selectedUser.username} ${method} - Intensity: ${intensity}%, Duration: ${duration}s`);
         } else {
           throw new Error(result.error || 'Command failed');
@@ -386,12 +432,26 @@ export function PiShockController({
   const removeStoredCredentials = async () => {
     if (!currentUser || !auth) return;
 
-    if (useRelayAccount) {
-      setUseRelayAccount(false);
-      setHasStoredCredentials(false);
-      setCurrentUserPiShockConnected(false);
-      onConnectionChange(false);
-      addNotification('info', 'Relay Account Disabled', 'Relay account access has been disabled');
+    if (hasConsentedToShared) {
+      try {
+        const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/shared-credentials`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${auth.access_token}`,
+          },
+        });
+
+        if (response.ok) {
+          setSharedCredentialsConnected(false);
+          setHasConsentedToShared(false);
+          setUseSharedCredentials(false);
+          onConnectionChange(currentUserPiShockConnected);
+          addNotification('info', 'Shared Credentials Disabled', 'You are no longer using shared credentials');
+        }
+      } catch (error) {
+        console.error('Failed to disable shared credentials:', error);
+        addNotification('error', 'Remove Failed', 'Failed to disable shared credentials');
+      }
       return;
     }
 
@@ -420,10 +480,10 @@ export function PiShockController({
   };
 
   const getConnectionStatus = () => {
-    if (useRelayAccount) {
+    if (sharedCredentialsConnected) {
       return {
         connected: true,
-        message: 'Using Relay Account (Not Recommended)',
+        message: 'Using Shared Bot Credentials',
         color: 'yellow'
       };
     } else if (currentUserPiShockConnected) {
@@ -468,7 +528,7 @@ export function PiShockController({
         </div>
 
         {/* Connection Status */}
-        {(hasStoredCredentials || useRelayAccount) ? (
+        {(hasStoredCredentials || sharedCredentialsConnected) ? (
           <div className="mb-4">
             <div className={`flex items-center justify-between p-3 border rounded-lg ${
               status.color === 'green' ? 'bg-green-900/20 border-green-500/30' :
@@ -481,7 +541,7 @@ export function PiShockController({
                 'text-gray-400'
               }`}>
                 <div className="flex items-center space-x-2 text-sm">
-                  {useRelayAccount ? (
+                  {sharedCredentialsConnected ? (
                     <>
                       <span>🔗</span>
                       <Shield className="h-4 w-4" />
@@ -492,14 +552,14 @@ export function PiShockController({
                   <span>{status.message}</span>
                 </div>
                 {/* Show user ID for personal accounts */}
-                {!useRelayAccount && currentUserPiShockConnected && (
+                {!sharedCredentialsConnected && currentUserPiShockConnected && (
                   <div className="text-xs opacity-75">
                     Your PiShock ID: {currentUserPiShockUserId || 'Loading...'}
                   </div>
                 )}
-                {useRelayAccount && (
+                {sharedCredentialsConnected && (
                   <div className="text-xs opacity-75">
-                    🤖 Using relay account - can target any user's device
+                    🤖 Using shared bot credentials
                   </div>
                 )}
               </div>
@@ -552,8 +612,8 @@ export function PiShockController({
                 <input
                   type="radio"
                   name="accountType"
-                  checked={!useRelayAccount}
-                  onChange={() => setUseRelayAccount(false)}
+                  checked={!useSharedCredentials}
+                  onChange={() => setUseSharedCredentials(false)}
                   className="w-4 h-4 text-purple-600 bg-gray-800 border-gray-600 focus:ring-purple-500 mt-0.5"
                 />
                 <div className="flex-1">
@@ -568,32 +628,62 @@ export function PiShockController({
                 </div>
               </label>
 
-              {/* Relay Account Option */}
-              {relayAccountAvailable && (
-                <label className="flex items-start space-x-3 cursor-pointer p-3 rounded-lg border border-blue-600 hover:border-blue-500 transition-colors">
+              {/* Shared Credentials Option */}
+              {sharedCredentialsAvailable && (
+                <label className="flex items-start space-x-3 cursor-pointer p-3 rounded-lg border border-orange-600 hover:border-orange-500 transition-colors">
                   <input
                     type="radio"
                     name="accountType"
-                    checked={useRelayAccount}
-                    onChange={() => setUseRelayAccount(true)}
-                    className="w-4 h-4 text-blue-600 bg-gray-800 border-gray-600 focus:ring-blue-500 mt-0.5"
+                    checked={useSharedCredentials}
+                    onChange={() => setUseSharedCredentials(true)}
+                    className="w-4 h-4 text-orange-600 bg-gray-800 border-gray-600 focus:ring-orange-500 mt-0.5"
                   />
                   <div className="flex-1">
                     <div className="flex items-center space-x-2">
-                      <span>🔗</span>
-                      <Shield className="h-4 w-4 text-blue-400" />
-                      <span className="text-sm font-medium text-gray-300">Relay Account</span>
-                      <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded">Shared Access</span>
+                      <span>🤖</span>
+                      <Shield className="h-4 w-4 text-orange-400" />
+                      <span className="text-sm font-medium text-gray-300">Shared Bot Credentials</span>
+                      <span className="text-xs bg-orange-600 text-white px-2 py-0.5 rounded">Backup Option</span>
                     </div>
                     <p className="text-xs text-gray-400 mt-1">
-                      Use shared relay account to send commands to any user's device
+                      Use shared bot credentials when you don't have your own PiShock account
                     </p>
                   </div>
                 </label>
               )}
             </div>
 
-            {!useRelayAccount && (
+            {useSharedCredentials ? (
+              <>
+                {/* Consent Checkbox */}
+                <div className="space-y-3">
+                  <div className="p-3 bg-orange-900/20 border border-orange-500/30 rounded-lg text-sm text-orange-200">
+                    <p className="font-semibold mb-2">⚠️ Shared Credentials Notice:</p>
+                    <ul className="space-y-1 text-xs">
+                      <li>• These are shared bot credentials used by all users who don't have their own PiShock account</li>
+                      <li>• You can only target users who have their own devices configured</li>
+                      <li>• Your activity will still be logged publicly for safety</li>
+                      <li>• This is intended as a backup option for users without PiShock accounts</li>
+                    </ul>
+                  </div>
+                  
+                  <label className="flex items-start space-x-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={hasConsentedToShared}
+                      onChange={(e) => setHasConsentedToShared(e.target.checked)}
+                      className="w-4 h-4 text-orange-600 bg-gray-800 border-gray-600 rounded focus:ring-orange-500 mt-0.5"
+                    />
+                    <div className="text-sm text-gray-300">
+                      <span className="font-medium">I understand and consent to using shared bot credentials</span>
+                      <p className="text-xs text-gray-400 mt-1">
+                        I acknowledge that these are shared credentials and I will use them responsibly according to all safety guidelines.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </>
+            ) : (
               <>
                 {/* Device Type Selection */}
                 <div className="space-y-2">
@@ -685,7 +775,7 @@ export function PiShockController({
                 <Save className="h-4 w-4" />
               )}
               <span>
-                {useRelayAccount ? 'Enable Relay Account' : 'Save & Test Connection'}
+                {useSharedCredentials ? 'Enable Shared Credentials' : 'Save & Test Connection'}
               </span>
             </button>
           </div>
@@ -721,7 +811,7 @@ export function PiShockController({
                     <span className="font-semibold">Target:</span> {getDisplayName(selectedUser)}
                   </p>
                   <p className="text-xs text-blue-400">
-                    Commands will be sent {useRelayAccount ? 'via relay account' : 'through their PiShock account'}
+                    Commands will be sent {sharedCredentialsConnected ? 'via shared bot credentials' : 'through their PiShock account'}
                   </p>
                 </div>
               </div>
@@ -797,7 +887,7 @@ export function PiShockController({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 flex-shrink-0">
                 <button
                   onClick={() => handleShock(0)}
-                  disabled={isShocking || (!currentUserPiShockConnected && !useRelayAccount)}
+                  disabled={isShocking || (!currentUserPiShockConnected && !sharedCredentialsConnected)}
                   className="py-2 sm:py-3 px-3 sm:px-4 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex flex-row sm:flex-col items-center justify-center space-x-2 sm:space-x-0 sm:space-y-1 transition-all text-xs sm:text-sm"
                 >
                   <Zap className="h-4 w-4 sm:h-5 sm:w-5" />
@@ -806,7 +896,7 @@ export function PiShockController({
 
                 <button
                   onClick={() => handleShock(1)}
-                  disabled={isShocking || (!currentUserPiShockConnected && !useRelayAccount)}
+                  disabled={isShocking || (!currentUserPiShockConnected && !sharedCredentialsConnected)}
                   className="py-2 sm:py-3 px-3 sm:px-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex flex-row sm:flex-col items-center justify-center space-x-2 sm:space-x-0 sm:space-y-1 transition-all text-xs sm:text-sm"
                 >
                   <Play className="h-4 w-4 sm:h-5 sm:w-5" />
@@ -815,7 +905,7 @@ export function PiShockController({
 
                 <button
                   onClick={() => handleShock(2)}
-                  disabled={isShocking || (!currentUserPiShockConnected && !useRelayAccount)}
+                  disabled={isShocking || (!currentUserPiShockConnected && !sharedCredentialsConnected)}
                   className="py-2 sm:py-3 px-3 sm:px-4 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex flex-row sm:flex-col items-center justify-center space-x-2 sm:space-x-0 sm:space-y-1 transition-all text-xs sm:text-sm"
                 >
                   <Square className="h-4 w-4 sm:h-5 sm:w-5" />

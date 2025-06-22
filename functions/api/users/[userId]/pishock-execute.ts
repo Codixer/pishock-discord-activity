@@ -220,20 +220,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     const allUserKeys = await env.PISHOCK_KV.list({ prefix: `user:${targetUserId}` });
     console.log('EXECUTE: All keys for user:', allUserKeys.keys.map(k => k.name));
     
-    // Also check if this might be a different user ID format issue
-    const allKeysPrefix = await env.PISHOCK_KV.list({ prefix: 'user:' });
-    const userIds = allKeysPrefix.keys
-      .map(k => k.name.match(/^user:(\d+):/)?.[1])
-      .filter(Boolean)
-      .filter((id, index, arr) => arr.indexOf(id) === index); // unique IDs
-    console.log('EXECUTE: All user IDs in storage:', userIds);
-    console.log('EXECUTE: Target user ID to find:', targetUserId);
-    console.log('EXECUTE: User ID exists in storage:', userIds.includes(targetUserId));
-    
     if (!encrypted) {
       console.error('EXECUTE: No credentials found for user:', targetUserId);
       console.error('EXECUTE: Checked keys:', possibleKeys);
-      console.error('EXECUTE: Available user IDs:', userIds);
       
       return jsonResponse({ 
         success: false, 
@@ -244,9 +233,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           userDataFound: !!userData,
           credentialsFound: !!encrypted,
           checkedKeys: possibleKeys,
-          availableUserKeys: allUserKeys?.keys?.map(k => k.name) || [],
-          allUserIds: userIds,
-          userIdInStorage: userIds.includes(targetUserId)
+          availableUserKeys: allUserKeys?.keys?.map(k => k.name) || []
         }
       });
     }

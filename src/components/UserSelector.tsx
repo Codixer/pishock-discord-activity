@@ -215,9 +215,13 @@ export function UserSelector({
                                 )}
                                 </div>
                                 {/* Show device limits if they exist */}
-                                {userStatus?.maxIntensity < 100 || userStatus?.maxDuration < 15 ? (
+                                {(userStatus?.maxIntensity < 100 || userStatus?.maxDuration < 15) && userStatus?.hasDevice ? (
                                   <div className="text-xs text-yellow-400">
                                     Limits: {userStatus.maxIntensity}%/{userStatus.maxDuration}s
+                                  </div>
+                                ) : userStatus?.hasCredentials && !userStatus?.hasDevice ? (
+                                  <div className="text-xs text-gray-400">
+                                    Account only (no device)
                                   </div>
                                 ) : null}
                                 {userStatus?.piShockUserId && (
