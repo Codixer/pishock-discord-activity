@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# GitHub Actions
+.github/workflows/*.log
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -22,5 +25,27 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-.env
+
+# Deployment
 .wrangler/
+.dev.vars
+wrangler.toml.backup
+
+# Logs
+*.log
+logs/
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Environment files
+.env.production
+.env.staging
+
+# Temporary files
+.tmp/
+temp/
+.env
