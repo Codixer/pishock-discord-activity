@@ -110,26 +110,24 @@ async function getDeviceSharecodes(apiKey: string, username: string, deviceId?: 
         error: 'Invalid sharecodes response format',
         debugInfo: { parseError: parseError instanceof Error ? parseError.message : 'Unknown parse error' }
       };
-    }
-
-    console.log('Parsed sharecodes data:', sharecodesData);
+    }    console.log('Parsed sharecodes data:', sharecodesData);
     
-    // Handle the API response format - it returns an object with arrays as values
-    let allSharecodes: any[] = [];
+    // Handle the API response format - it returns an object with arrays of share IDs as values
+    let allShareIds: number[] = [];
     if (typeof sharecodesData === 'object' && sharecodesData !== null) {
       // Extract arrays from the object values
       Object.values(sharecodesData).forEach((value: any) => {
         if (Array.isArray(value)) {
-          allSharecodes = allSharecodes.concat(value);
+          allShareIds = allShareIds.concat(value);
         }
       });
     } else if (Array.isArray(sharecodesData)) {
       // Fallback to direct array format
-      allSharecodes = sharecodesData;
+      allShareIds = sharecodesData;
     }
 
-    if (allSharecodes.length === 0) {
-      console.log('No sharecodes found in response');
+    if (allShareIds.length === 0) {
+      console.log('No share IDs found in response');
       return { 
         success: true, 
         sharecodes: [],
@@ -142,25 +140,28 @@ async function getDeviceSharecodes(apiKey: string, username: string, deviceId?: 
       };
     }
     
-    // Filter by device ID if provided
-    let filteredSharecodes = allSharecodes;
+    // Convert share IDs to objects for frontend compatibility
+    const sharecodesArray = allShareIds.map(shareId => ({
+      shareId: shareId,
+      code: shareId.toString(),
+      shareCode: shareId.toString(),
+      name: `Share Code ${shareId}`
+    }));
+    
+    // Filter by device ID if provided (though this won't work since share IDs don't contain device info)
+    let filteredSharecodes = sharecodesArray;
     if (deviceId) {
-      filteredSharecodes = allSharecodes.filter(sharecode => {
-        // Check various possible property names for device ID
-        const shockerId = sharecode.shockerId || sharecode.ShockerId || sharecode.deviceId || sharecode.DeviceId;
-        return shockerId && shockerId.toString() === deviceId.toString();
-      });
-      console.log(`Filtered sharecodes for device ${deviceId}:`, filteredSharecodes.length, 'found');
+      console.log(`Device filtering not applicable for share IDs - returning all ${sharecodesArray.length} sharecodes`);
     }
     
-    console.log('✓ Found', filteredSharecodes.length, 'sharecodes', deviceId ? `for device ${deviceId}` : 'total');
+    console.log('✓ Found', filteredSharecodes.length, 'share codes', deviceId ? `(device filter not applicable)` : 'total');
     
     return {
       success: true,
       sharecodes: filteredSharecodes,
       debugInfo: { 
         sharecodesCount: filteredSharecodes.length,
-        totalSharecodes: allSharecodes.length,
+        totalSharecodes: allShareIds.length,
         userId,
         deviceId,
         responseFormat: typeof sharecodesData

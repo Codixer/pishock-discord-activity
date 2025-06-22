@@ -293,12 +293,11 @@ export function PiShockController({
               setSelectedShockerId(result.availableShockers[0].shockerId.toString());
             }
           }
-          
-          // Load sharecodes separately
+            // Load sharecodes separately
           loadDeviceSharecodes();
           
           const shockerCount = result.availableShockers?.length || 0;
-          addNotification('success', 'Data Loading', `Found ${shockerCount} shockers, loading sharecodes...`);
+          addNotification('success', 'Shockers Loaded', `Found ${shockerCount} shockers, loading share codes...`);
         } else {
           addNotification('warning', 'No Data Found', 'No shockers found in your PiShock account');
           setAvailableShockers([]);
@@ -539,10 +538,14 @@ export function PiShockController({
       
       if (response.ok) {
         const result = await response.json();
-        
-        if (result.success) {
+          if (result.success) {
           setAvailableSharecodes(result.sharecodes || []);
           console.log(`Loaded ${result.sharecodes?.length || 0} sharecodes`);
+          
+          const sharecodesCount = result.sharecodes?.length || 0;
+          if (sharecodesCount > 0) {
+            addNotification('success', 'Share Codes Loaded', `Found ${sharecodesCount} share codes from your PiShock account`);
+          }
           
           // Clear selected sharecode if it's not in the new list
           if (selectedSharecode && result.sharecodes) {
@@ -816,16 +819,15 @@ export function PiShockController({
                 </div>
               </div>
             )}
-            
-            {/* Message when no sharecodes are available */}
+              {/* Message when no sharecodes are available */}
             {hasStoredCredentials && availableSharecodes.length === 0 && !loadingShockers && (
               <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
                 <div className="flex items-center space-x-2 text-yellow-300 text-sm">
                   <AlertTriangle className="h-4 w-4" />
-                  <span>No sharecodes found in your PiShock account</span>
+                  <span>No share codes found in your PiShock account</span>
                 </div>
                 <p className="text-xs text-yellow-400 mt-1">
-                  You need to create sharecodes for your devices in your PiShock account to use this app
+                  You need to create share codes for your devices in your PiShock account. Visit <a href="https://ps.pishock.com" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">ps.pishock.com</a> to set up sharing for your devices.
                 </p>
               </div>
             )}
