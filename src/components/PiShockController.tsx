@@ -3,6 +3,7 @@ import { Zap, Settings, Play, Square, AlertTriangle, Wifi, Save, Loader, User, L
 
 interface PiShockControllerProps {
   selectedUser: any;
+  selectedShockerId: string | null;
   onConnectionChange: (connected: boolean) => void;
   isConnected: boolean;
   addNotification: (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => void;
@@ -29,6 +30,7 @@ function getApiBaseUrl(): string {
 
 export function PiShockController({ 
   selectedUser, 
+  selectedShockerId,
   onConnectionChange, 
   isConnected, 
   addNotification, 
@@ -271,8 +273,8 @@ export function PiShockController({
   };
 
   const handleShock = async (operation: number) => {
-    if (!selectedUser) {
-      addNotification('warning', 'No User Selected', 'Please select a user first');
+    if (!selectedShockerId) {
+      addNotification('warning', 'No Shocker Selected', 'Please select a shocker first');
       return;
     }
 
@@ -292,7 +294,7 @@ export function PiShockController({
     setLastShockTime(now);
 
     try {
-      const endpoint = `${getApiBaseUrl()}/users/${selectedUser.id}/pishock-execute`;
+      const endpoint = `${getApiBaseUrl()}/shocker-execute`;
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -301,8 +303,7 @@ export function PiShockController({
           'Authorization': `Bearer ${auth.access_token}`,
         },
         body: JSON.stringify({
-          executorUserId: currentUser.id,
-          targetUserId: selectedUser.id,
+          shockerId: selectedShockerId,
           intensity,
           duration,
           operation, // 0 = shock, 1 = vibrate, 2 = beep
@@ -313,7 +314,7 @@ export function PiShockController({
         const result = await response.json();
         if (result.success) {
           const actionName = operation === 0 ? 'Shock' : operation === 1 ? 'Vibration' : 'Beep';
-          addNotification('success', 'Command Sent', `${actionName} sent to ${selectedUser.displayName || selectedUser.username} - Intensity: ${intensity}%, Duration: ${duration}s`);
+          addNotification('success', 'Command Sent', `${actionName} sent to selected shocker - Intensity: ${intensity}%, Duration: ${duration}s`);
           
           // Refresh user statuses after successful command
           if (window.refreshAllUserStatuses) {

@@ -3,6 +3,7 @@ import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { DiscordSDK, Events, type Types } from '@discord/embedded-app-sdk';
 import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText } from 'lucide-react';
 import { PiShockController } from './components/PiShockController';
+import { ShockerSelector } from './components/ShockerSelector';
 import { SafetyWarning } from './components/SafetyWarning';
 import { UserSelector } from './components/UserSelector';
 import { ConnectionStatus } from './components/ConnectionStatus';
@@ -85,6 +86,7 @@ function getApiBaseUrl(): string {
 function MainApp() {
   const [auth, setAuth] = useState<any>(null);
   const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [selectedShockerId, setSelectedShockerId] = useState<string | null>(null);
   const [piShockConnected, setPiShockConnected] = useState(false);
   const [safetyAccepted, setSafetyAccepted] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -572,8 +574,8 @@ function MainApp() {
                   ? 'grid-cols-1 lg:grid-cols-4' 
                   : 'grid-cols-1 lg:grid-cols-3'
           }`}>
-            {/* User Selection */}
-            <div className={`${isCompactMode ? 'order-2' : 'lg:col-span-1'} flex flex-col min-h-0`}>
+            {/* User Selection and Shocker Selection */}
+            <div className={`${isCompactMode ? 'order-2' : 'lg:col-span-1'} flex flex-col min-h-0 space-y-4`}>
               <UserSelector
                 members={participants}
                 selectedUser={selectedUser}
@@ -581,6 +583,14 @@ function MainApp() {
                 currentUser={auth?.user}
                 instanceData={instanceData}
                 userPiShockStatus={userPiShockStatus}
+                isCompactMode={isCompactMode}
+              />
+              
+              <ShockerSelector
+                selectedShockerId={selectedShockerId}
+                onShockerSelect={setSelectedShockerId}
+                auth={auth}
+                addNotification={addNotification}
                 isCompactMode={isCompactMode}
               />
             </div>
@@ -595,6 +605,7 @@ function MainApp() {
             } flex flex-col min-h-0 order-1 lg:order-none`}>
               <PiShockController
                 selectedUser={selectedUser}
+                selectedShockerId={selectedShockerId}
                 onConnectionChange={setPiShockConnected}
                 isConnected={piShockConnected}
                 addNotification={addNotification}

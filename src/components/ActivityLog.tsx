@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Clock, Zap, Play, Square, Users, Eye, EyeOff, RefreshCw } from 'lucide-react';
 
 interface ActivityLogEntry {
@@ -8,9 +8,15 @@ interface ActivityLogEntry {
   executorUserId: string;
   executorUsername: string;
   executorAvatar?: string;
-  targetUserId: string;
-  targetUsername: string;
+  // For user-based activity (legacy)
+  targetUserId?: string;
+  targetUsername?: string;
   targetAvatar?: string;
+  // For shocker-based activity (new)
+  targetShockerId?: string;
+  targetShockerOwner?: string;
+  targetShockerOwnerName?: string;
+  deviceName?: string;
   action: 'shock' | 'vibrate' | 'beep';
   intensity: number;
   duration: number;
@@ -306,22 +312,38 @@ export function ActivityLog({
                         {entry.executorUsername}
                       </span>
                       {!isCompactMode && <span className="text-xs text-gray-400">→</span>}
-                      {/* Target Avatar */}
+                      {/* Target Avatar and Info */}
                       {!isCompactMode && (
-                      <img
-                        src={entry.targetAvatar || `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(entry.targetUserId)}.png`}
-                        alt={`${entry.targetUsername}'s avatar`}
-                        className={`${isCompactMode ? 'w-4 h-4' : 'w-5 h-5'} rounded-full flex-shrink-0`}
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.src = `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(entry.targetUserId)}.png`;
-                        }}
-                      />
-                      )}
-                      {!isCompactMode && (
-                      <span className="font-semibold text-sm truncate">
-                        {entry.targetUsername}
-                      </span>
+                        <>
+                          {entry.targetUserId ? (
+                            // Legacy user-based format
+                            <>
+                              <img
+                                src={entry.targetAvatar || `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(entry.targetUserId)}.png`}
+                                alt={`${entry.targetUsername}'s avatar`}
+                                className={`${isCompactMode ? 'w-4 h-4' : 'w-5 h-5'} rounded-full flex-shrink-0`}
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement;
+                                  target.src = `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(entry.targetUserId!)}.png`;
+                                }}
+                              />
+                              <span className="font-semibold text-sm truncate">
+                                {entry.targetUsername}
+                              </span>
+                            </>
+                          ) : (
+                            // New shocker-based format
+                            <>
+                              <Zap className="w-5 h-5 text-orange-400 flex-shrink-0" />
+                              <span className="font-semibold text-sm truncate">
+                                {entry.deviceName || 'Shocker'}
+                              </span>
+                              <span className="text-xs text-gray-400">
+                                ({entry.targetShockerOwnerName})
+                              </span>
+                            </>
+                          )}
+                        </>
                       )}
                     </div>
 

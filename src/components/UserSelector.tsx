@@ -153,7 +153,7 @@ export function UserSelector({
               {otherParticipants.length > 0 && (
                 <div>
                   <h3 className="text-xs sm:text-sm font-medium text-gray-400 mb-2">
-                    {isCompactMode ? 'Target' : 'Select Target'}
+                    {isCompactMode ? 'Users' : 'Participants'}
                   </h3>
                   <div className="space-y-2">
                     {otherParticipants.map((member) => {
@@ -161,17 +161,13 @@ export function UserSelector({
                       const isConnected = userStatus?.isConnected;
                       const hasDevice = userStatus?.hasDevice;
                       const hasCredentials = userStatus?.hasCredentials;
-                      const isDisabled = !isConnected;
                       
                       return (
                         <button
                           key={member.id}
-                          onClick={() => !isDisabled && onUserSelect(member)}
-                          disabled={isDisabled}
+                          onClick={() => onUserSelect(member)}
                           className={`w-full p-3 rounded-lg border transition-all text-left ${
-                            isDisabled
-                              ? 'bg-gray-800/30 border-gray-600/30 opacity-50 cursor-not-allowed'
-                              : selectedUser?.id === member.id
+                              selectedUser?.id === member.id
                               ? 'bg-purple-600/20 border-purple-500/50 ring-2 ring-purple-500/20'
                               : 'bg-gray-800/50 border-gray-600/50 hover:bg-gray-700/50 hover:border-gray-500/50'
                           }`}
@@ -202,7 +198,7 @@ export function UserSelector({
                                       <span className="hidden sm:inline">PiShock Device</span>
                                       <span className="sm:hidden">Device</span>
                                       {(userStatus?.maxIntensity < 100 || userStatus?.maxDuration < 15) && (
-                                        <Lock className="h-2 w-2 text-yellow-400" title="Has device limits" />
+                                        <Lock className="h-2 w-2 text-yellow-400" />
                                       )}
                                     </div>
                                   ) : (
@@ -252,7 +248,7 @@ export function UserSelector({
                               </div>
                               )}
                             </div>
-                            {selectedUser?.id === member.id && !isDisabled && (
+                            {selectedUser?.id === member.id && (
                               <div className="w-2 h-2 bg-purple-400 rounded-full flex-shrink-0"></div>
                             )}
                           </div>

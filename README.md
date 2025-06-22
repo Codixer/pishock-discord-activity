@@ -6,10 +6,34 @@ A Discord Activity application for controlling PiShock devices in a multiplayer 
 
 - Discord Activity integration with multiplayer support
 - Real-time participant management
-- PiShock device control (shock, vibrate, beep)
+- **NEW: Shocker Selection** - Select specific shockers from all available devices
+- PiShock device control (shock, vibrate, beep) using owner's credentials
 - Instance-based data persistence
 - Safety warnings and consent mechanisms
 - Audit logging for all actions
+
+## 🆕 Shocker Selection Feature
+
+The application now includes a powerful shocker selector that allows users to:
+
+1. **Browse Available Shockers**: See all shockers from users who have configured their devices
+2. **Select Any Shocker**: Choose which specific shocker to target (with owner's permission)
+3. **Use Owner's Credentials**: Commands are sent using the shocker owner's API credentials
+4. **Respect Owner's Limits**: Commands are limited by the device owner's configured safety limits
+
+### How It Works
+
+1. **Setup Phase**: Users configure their PiShock accounts and devices in the settings
+2. **Discovery**: The app automatically discovers all available shockers from configured users
+3. **Selection**: Anyone can select any available shocker from the shocker selector
+4. **Execution**: Commands are sent using the selected shocker owner's API credentials and limits
+
+### Benefits
+
+- **No Need for Individual API Keys**: Only device owners need to configure their credentials
+- **Centralized Control**: Device owners maintain control over their safety limits
+- **Flexible Targeting**: Send commands to any available device, not just specific users
+- **Better Permission Model**: Device owners control access through their participation
 
 ## 🚀 Deployment (Cloudflare Workers)
 
