@@ -177,23 +177,81 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     // Get target user's PiShock credentials - we need their share code to control their device
     console.log('SHARED_EXEC: Getting target user credentials...');
+    
+    // Debug: Check all possible data locations for target user
+    console.log('SHARED_EXEC: Checking data locations for target user:', targetUserId);
+    const debugKeys = [
+      `user:${targetUserId}:data`,
+      `user:${targetUserId}:pishock`,
+      `instance:${targetUserId}:pishock`
+    ];
+    
+    for (const key of debugKeys) {
+      const data = await env.PISHOCK_KV.get(key);
+      console.log(`SHARED_EXEC: Key "${key}":`, data ? 'EXISTS' : 'NOT_FOUND');
+    }
+    
     const userDataStr = await env.PISHOCK_KV.get(`user:${targetUserId}:data`);
     let userData = userDataStr ? JSON.parse(userDataStr) : null;
     let encrypted = userData?.credentials;
     
-    // Check old format if new format not found
+    console.log('SHARED_EXEC: New format check:', {
+      userDataFound: !!userData,
+      credentialsFound: !!encrypted,
+      userDataKeys: userData ? Object.keys(userData) : []
+    });
+    
+    // Migration: Check old format if new format not found
     if (!encrypted) {
+      console.log('SHARED_EXEC: Checking old format for user:', targetUserId);
       const oldEncrypted = await env.PISHOCK_KV.get(`user:${targetUserId}:pishock`);
       if (oldEncrypted) {
-        encrypted = oldEncrypted;
+        console.log('SHARED_EXEC: Found data in old format, migrating...');
+        // Migrate old data to new format
+        userData = {
+          credentials: oldEncrypted,
+          lastTested: await env.PISHOCK_KV.get(`user:${targetUserId}:pishock:lastTested`) || new Date().toISOString(),
+          configuredBy: await env.PISHOCK_KV.get(`user:${targetUserId}:pishock:configuredBy`) || 'unknown',
+          hasOwnDevice: (await env.PISHOCK_KV.get(`user:${targetUserId}:pishock:hasOwnDevice`)) === 'true',
+          piShockUserId: await env.PISHOCK_KV.get(`user:${targetUserId}:pishock:piShockUserId`) || null,
+          lastUpdated: new Date().toISOString()
+        };
+        
+        // Save in new format
+        await env.PISHOCK_KV.put(`user:${targetUserId}:data`, JSON.stringify(userData));
+        
+        // Clean up old keys
+        await Promise.all([
+          env.PISHOCK_KV.delete(`user:${targetUserId}:pishock`),
+          env.PISHOCK_KV.delete(`user:${targetUserId}:pishock:lastTested`),
+          env.PISHOCK_KV.delete(`user:${targetUserId}:pishock:configuredBy`),
+          env.PISHOCK_KV.delete(`user:${targetUserId}:pishock:hasOwnDevice`),
+          env.PISHOCK_KV.delete(`user:${targetUserId}:pishock:piShockUserId`)
+        ]);
+        
+        encrypted = userData.credentials;
+        console.log('SHARED_EXEC: Migration completed for user:', targetUserId);
+      } else {
+        console.log('SHARED_EXEC: No data found in old format either');
       }
     }
 
     if (!encrypted) {
-      console.error('SHARED_EXEC: Target user has no PiShock device configured');
+      console.error('SHARED_EXEC: No encrypted credentials found for target user:', targetUserId);
+      
+      // List all keys that might be related to this user
+      const userKeys = await env.PISHOCK_KV.list({ prefix: `user:${targetUserId}` });
+      console.log('SHARED_EXEC: Available keys for user:', userKeys.keys.map(k => k.name));
+      
       return jsonResponse({ 
         success: false, 
-        error: 'Target user has no PiShock device configured. They need to set up their PiShock credentials first.' 
+        error: `Target user has no PiShock device configured. They need to set up their PiShock credentials first in the application settings.`,
+        debug: {
+          targetUserId,
+          userDataFound: !!userData,
+          encryptedFound: !!encrypted,
+          availableKeys: userKeys.keys.map(k => k.name)
+        }
       });
     }
 

@@ -115,6 +115,7 @@ export function PiShockController({
       const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-status`, {
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
+          'Cache-Control': 'no-cache', // Force fresh data
         },
       });
 
@@ -410,14 +411,17 @@ export function PiShockController({
       console.error('Shock error:', error);
       
       // Enhanced error reporting
-      let errorMessage = 'Failed to send shock command. Please try again.';
+      let errorMessage = 'Failed to send command. Please try again.';
       
       if (error instanceof Error) {
         if (error.message.includes('no PiShock device configured')) {
           const displayName = selectedUser?.guildDisplayName || selectedUser?.displayName || selectedUser?.global_name || selectedUser?.username || 'Unknown';
-          errorMessage = `${displayName} hasn't configured their PiShock device yet. They need to:\n\n1. Open the app settings (gear icon)\n2. Configure their PiShock credentials\n3. Test the connection\n\nOnly users with configured devices can receive commands.`;
+          errorMessage = `❌ ${displayName} hasn't set up their PiShock device yet.\n\nThey need to:\n• Click the gear icon (⚙️) to open settings\n• Add their PiShock API key & username\n• Configure their device share code\n• Test the connection\n\nOnly users with configured devices can receive commands.`;
         } else if (error.message.includes('Invalid parameters')) {
           errorMessage = 'Invalid shock parameters. Please check intensity and duration settings.';
+        } else if (error.message.includes('Target user') && error.message.includes('no PiShock device configured')) {
+          const displayName = selectedUser?.guildDisplayName || selectedUser?.displayName || selectedUser?.global_name || selectedUser?.username || 'Unknown';
+          errorMessage = `❌ Cannot send command to ${displayName}.\n\nThey haven't configured their PiShock device in this app yet. Ask them to:\n• Open the app\n• Click the settings gear (⚙️)\n• Enter their PiShock credentials\n• Test the connection`;
         } else {
           errorMessage = `Command failed: ${error.message}`;
         }

@@ -248,7 +248,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (cachedStatus) {
       return jsonResponse(cachedStatus, 200, {
         'Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
-        'X-Cache-Status': 'HIT'
+        'X-Cache-Status': 'HIT',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       });
     }
     

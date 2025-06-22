@@ -412,15 +412,15 @@ function MainApp() {
 
   // Set up periodic status checking for real-time updates
   useEffect(() => {
-    if (!instanceId || !auth || participants.length === 0) return;
+    if (!auth || participants.length === 0) return;
 
     // Reduced frequency: Check status every 30 seconds to minimize KV reads
     const interval = setInterval(() => {
       checkAllUserPiShockStatus();
-    }, 30000);
+    }, 15000); // Reduce to 15 seconds for better responsiveness
 
     return () => clearInterval(interval);
-  }, [instanceId, auth, participants]);
+  }, [auth, participants]);
 
   // Save instance data when selectedUser changes
   useEffect(() => {
