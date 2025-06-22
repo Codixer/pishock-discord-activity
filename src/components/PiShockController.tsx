@@ -368,7 +368,8 @@ export function PiShockController({
       
       if (error instanceof Error) {
         if (error.message.includes('no PiShock device configured')) {
-          errorMessage = `Target user (${selectedUser?.username || 'Unknown'}) hasn't configured their PiShock device yet. They need to set up their PiShock credentials first.`;
+          const displayName = selectedUser?.guildDisplayName || selectedUser?.displayName || selectedUser?.global_name || selectedUser?.username || 'Unknown';
+          errorMessage = `${displayName} hasn't configured their PiShock device yet. They need to:\n\n1. Open the app settings (gear icon)\n2. Configure their PiShock credentials\n3. Test the connection\n\nOnly users with configured devices can receive commands.`;
         } else if (error.message.includes('Invalid parameters')) {
           errorMessage = 'Invalid shock parameters. Please check intensity and duration settings.';
         } else {
