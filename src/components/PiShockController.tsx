@@ -54,9 +54,10 @@ export function PiShockController({
   const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
   const [lastShockTime, setLastShockTime] = useState<number>(0);
   const [currentUserMaxIntensity, setCurrentUserMaxIntensity] = useState(100);
-  const [currentUserMaxDuration, setCurrentUserMaxDuration] = useState(15);
-  const [availableShockers, setAvailableShockers] = useState<any[]>([]);
+  const [currentUserMaxDuration, setCurrentUserMaxDuration] = useState(15);  const [availableShockers, setAvailableShockers] = useState<any[]>([]);
   const [selectedShockerId, setSelectedShockerId] = useState<string>('');
+  const [availableSharecodes, setAvailableSharecodes] = useState<any[]>([]);
+  const [selectedSharecode, setSelectedSharecode] = useState<string>('');
   const [loadingShockers, setLoadingShockers] = useState(false);
 
   // Get the effective limits based on selected user
@@ -115,13 +116,20 @@ export function PiShockController({
         setCurrentUserMaxIntensity(status.maxIntensity || 100);
         setCurrentUserMaxDuration(status.maxDuration || 15);
         onConnectionChange(status.isConnected);
-        
-        // Load available shockers and selected shocker from status
+          // Load available shockers and selected shocker from status
         if (status.availableShockers && Array.isArray(status.availableShockers)) {
           setAvailableShockers(status.availableShockers);
         }
         if (status.selectedShockerId) {
           setSelectedShockerId(status.selectedShockerId.toString());
+        }
+        
+        // Load available sharecodes and selected sharecode from status
+        if (status.availableSharecodes && Array.isArray(status.availableSharecodes)) {
+          setAvailableSharecodes(status.availableSharecodes);
+        }
+        if (status.selectedSharecode) {
+          setSelectedSharecode(status.selectedSharecode);
         }
         
         // Store user's PiShock ID for display
@@ -167,13 +175,13 @@ export function PiShockController({
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${auth.access_token}`,
-        },
-        body: JSON.stringify({
+        },        body: JSON.stringify({
           apiKey,
           username,
           maxIntensity: finalMaxIntensity,
           maxDuration: finalMaxDuration,
           selectedShockerId: selectedShockerId || null, // Include selected shocker
+          selectedSharecode: selectedSharecode || null, // Include selected sharecode
         }),
       });
 
@@ -185,13 +193,20 @@ export function PiShockController({
         setCurrentUserMaxIntensity(finalMaxIntensity);
         setCurrentUserMaxDuration(finalMaxDuration);
         onConnectionChange(true);
-        
-        // Update available shockers and selected shocker from response
+          // Update available shockers and selected shocker from response
         if (result.availableShockers) {
           setAvailableShockers(result.availableShockers);
         }
         if (result.selectedShockerId) {
           setSelectedShockerId(result.selectedShockerId);
+        }
+        
+        // Update available sharecodes and selected sharecode from response
+        if (result.availableSharecodes) {
+          setAvailableSharecodes(result.availableSharecodes);
+        }
+        if (result.selectedSharecode) {
+          setSelectedSharecode(result.selectedSharecode);
         }
         
         const shockerMessage = selectedShockerId ? ` Selected shocker: ${availableShockers.find(s => s.shockerId.toString() === selectedShockerId)?.displayName || selectedShockerId}` : '';
@@ -243,10 +258,9 @@ export function PiShockController({
     
     setLoadingShockers(true);
     try {
-      const apiUrl = `${getApiBaseUrl()}/users/${currentUser.id}/available-shockers`;
-      
-      const response = await fetch(apiUrl, {
-        method: 'POST',
+      // Use the settings endpoint which now returns both shockers and sharecodes
+      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${auth.access_token}`,
@@ -254,38 +268,53 @@ export function PiShockController({
         body: JSON.stringify({
           apiKey,
           username,
+          maxIntensity: maxIntensity,
+          maxDuration: maxDuration,
+          selectedShockerId: selectedShockerId || null,
+          selectedSharecode: selectedSharecode || null,
         }),
       });
       
       if (response.ok) {
         const result = await response.json();
         
-        if (result.success && result.shockers) {
-          setAvailableShockers(result.shockers);
-          
-          // Auto-select first shocker if none selected
-          if (!selectedShockerId && result.shockers.length > 0) {
-            setSelectedShockerId(result.shockers[0].shockerId.toString());
+        if (result.success) {
+          // Update shockers
+          if (result.availableShockers) {
+            setAvailableShockers(result.availableShockers);
+            
+            // Auto-select first shocker if none selected
+            if (!selectedShockerId && result.availableShockers.length > 0) {
+              setSelectedShockerId(result.availableShockers[0].shockerId.toString());
+            }
           }
           
-          addNotification('success', 'Shockers Loaded', `Found ${result.shockers.length} available shockers`);
+          // Update sharecodes  
+          if (result.availableSharecodes) {
+            setAvailableSharecodes(result.availableSharecodes);
+          }
+          
+          const shockerCount = result.availableShockers?.length || 0;
+          const sharecodeCount = result.availableSharecodes?.length || 0;
+          addNotification('success', 'Data Loaded', `Found ${shockerCount} shockers and ${sharecodeCount} sharecodes`);
         } else {
-          addNotification('warning', 'No Shockers Found', 'No shockers found in your PiShock account');
+          addNotification('warning', 'No Data Found', 'No shockers or sharecodes found in your PiShock account');
           setAvailableShockers([]);
+          setAvailableSharecodes([]);
         }
       } else {
-        let errorMessage = 'Failed to get available shockers';
+        let errorMessage = 'Failed to get available data';
         try {
           const result = await response.json();
           errorMessage = result.error || errorMessage;
         } catch (parseError) {
           errorMessage = `HTTP ${response.status}: ${response.statusText}`;
         }
-        addNotification('error', 'Failed to Load Shockers', errorMessage);
+        addNotification('error', 'Failed to Load Data', errorMessage);
       }
     } catch (error) {
-      console.error('Failed to load shockers:', error);
-      addNotification('error', 'Load Failed', 'Failed to load available shockers');
+      console.error('Failed to load shockers and sharecodes:', error);
+      addNotification('error', 'Load Failed', 'Failed to load available data');
     } finally {
       setLoadingShockers(false);
     }
@@ -633,11 +662,10 @@ export function PiShockController({
                     <Loader className="h-4 w-4 animate-spin" />
                   ) : (
                     <Zap className="h-4 w-4" />
-                  )}
-                  <span>{loadingShockers ? 'Loading...' : 'Load My Shockers'}</span>
+                  )}                  <span>{loadingShockers ? 'Loading...' : 'Load My Data'}</span>
                 </button>
                 <p className="text-xs text-gray-400 mt-1">
-                  Click to load available shockers from your PiShock account
+                  Click to load available shockers and sharecodes from your PiShock account
                 </p>
               </div>
             )}            {/* Shocker Selection */}
@@ -664,12 +692,34 @@ export function PiShockController({
               </div>
             )}
 
-            {/* Message when shockers haven't been loaded */}
+            {/* Sharecode Selection */}
+            {availableSharecodes.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Select Your Sharecode (Optional)
+                </label>
+                <select
+                  value={selectedSharecode}
+                  onChange={(e) => setSelectedSharecode(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
+                >
+                  <option value="">No sharecode (use device selection)</option>
+                  {availableSharecodes.map((sharecode) => (
+                    <option key={sharecode.code || sharecode.shareCode} value={sharecode.code || sharecode.shareCode}>
+                      {sharecode.name || sharecode.code || sharecode.shareCode}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  If selected, sharecode will be used instead of device selection for commands
+                </p>
+              </div>
+            )}            {/* Message when data hasn't been loaded */}
             {apiKey && username && availableShockers.length === 0 && !loadingShockers && (
               <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg">
                 <div className="flex items-center space-x-2 text-blue-300 text-sm">
                   <Zap className="h-4 w-4" />
-                  <span>Click "Load My Shockers" to see your available devices</span>
+                  <span>Click "Load My Data" to see your available devices and sharecodes</span>
                 </div>
               </div>
             )}

@@ -344,9 +344,25 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       
       console.log('EXECUTE: Sending', operationName, 'command via v3 API');
       
+      // Determine what code to use - prioritize selectedSharecode if available
+      let codeToUse;
+      let codeType;
+      
+      if (targetUserData.selectedSharecode) {
+        codeToUse = targetUserData.selectedSharecode;
+        codeType = 'sharecode';
+        console.log('EXECUTE: Using selected sharecode:', codeToUse);
+      } else if (targetShocker) {
+        codeToUse = targetShocker.shockerId.toString();
+        codeType = 'shocker';
+        console.log('EXECUTE: Using shocker ID:', codeToUse);
+      } else {
+        throw new Error('No code available for execution');
+      }
+      
       // Use the v3 API Operate endpoint with form data
       const payload = {
-        code: targetShocker.shockerId.toString(),
+        code: codeToUse,
         duration: duration.toString(),
         intensity: intensity.toString(),
         op: operation.toString(),
@@ -358,7 +374,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       };
       
       console.log('EXECUTE: Request payload:', { 
-        code: targetShocker.shockerId.toString(),
+        code: codeToUse,
+        codeType,
         duration: duration.toString(),
         intensity: intensity.toString(),
         op: operation.toString(),

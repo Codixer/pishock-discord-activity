@@ -360,6 +360,109 @@ async function getUserDevices(apiKey: string, username: string): Promise<{ hasDe
   }
 }
 
+async function getUserSharecodes(apiKey: string, username: string): Promise<{ success: boolean; sharecodes?: any[]; error?: string; debugInfo?: any }> {
+  try {
+    console.log('Getting user sharecodes...');
+    
+    // First get the user ID
+    const authUrl = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
+    const authResponse = await fetch(authUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'PiShock-Discord-Activity/2.0',
+        'Accept': 'application/json'
+      }
+    });
+    
+    if (!authResponse.ok) {
+      return { 
+        success: false, 
+        error: `Authentication failed: HTTP ${authResponse.status}`,
+        debugInfo: { authStatus: authResponse.status }
+      };
+    }
+    
+    const authData = await authResponse.json();
+    if (!authData || !authData.UserId) {
+      return { 
+        success: false, 
+        error: 'Failed to get user ID',
+        debugInfo: { authData }
+      };
+    }
+    
+    const userId = authData.UserId;
+    console.log('Getting sharecodes for user ID:', userId);
+    
+    // Get user sharecodes using the API
+    const url = `https://ps.pishock.com/PiShock/GetUserSharecodes?userId=${userId}&token=${encodeURIComponent(apiKey)}&api=true`;
+    console.log('Making sharecodes request to:', url);
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'PiShock-Discord-Activity/2.0',
+        'Accept': 'application/json'
+      }
+    });
+    
+    console.log('Sharecodes response status:', response.status);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.log('Sharecodes error response:', errorText);
+      return { 
+        success: false, 
+        error: `Sharecodes fetch failed: HTTP ${response.status}`,
+        debugInfo: { status: response.status, error: errorText }
+      };
+    }
+    
+    const responseText = await response.text();
+    console.log('Sharecodes raw response:', responseText.substring(0, 500));
+    
+    let sharecodesData;
+    try {
+      sharecodesData = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('Failed to parse sharecodes response:', parseError);
+      return { 
+        success: false, 
+        error: 'Invalid sharecodes response format',
+        debugInfo: { parseError: parseError instanceof Error ? parseError.message : 'Unknown parse error' }
+      };
+    }
+    
+    if (!Array.isArray(sharecodesData)) {
+      console.log('Sharecodes response is not an array:', sharecodesData);
+      return { 
+        success: false, 
+        error: 'No sharecodes data available',
+        debugInfo: { responseType: typeof sharecodesData, responseData: sharecodesData }
+      };
+    }
+    
+    console.log('✓ Found', sharecodesData.length, 'sharecodes');
+    
+    return {
+      success: true,
+      sharecodes: sharecodesData,
+      debugInfo: { 
+        sharecodesCount: sharecodesData.length,
+        userId 
+      }
+    };
+    
+  } catch (error) {
+    console.error('Failed to get user sharecodes:', error);
+    return { 
+      success: false, 
+      error: `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      debugInfo: { networkError: error instanceof Error ? error.message : 'Unknown error' }
+    };
+  }
+}
+
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env, params } = context;
   const method = request.method;
@@ -391,7 +494,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   try {
     if (method === 'PUT') {
-      const { apiKey, username, maxIntensity, maxDuration, selectedShockerId } = await request.json();
+      const { apiKey, username, maxIntensity, maxDuration, selectedShockerId, selectedSharecode } = await request.json();
 
       if (!apiKey || !username) {
         return jsonResponse({ 
@@ -427,14 +530,31 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       const piShockUserId = credentialValidation.userId;
       console.log('✓ Credential validation successful, PiShock User ID:', piShockUserId);
-      
-      // Step 2: Check if user has devices using v3 API
+        // Step 2: Check if user has devices using v3 API
       const deviceCheck = await getUserDevices(apiKey, username);
       console.log('Device check result:', deviceCheck);
       
       const hasDevices = deviceCheck.hasDevices;
       const deviceCount = deviceCheck.devices?.length || 0;
       const availableShockers = deviceCheck.availableShockers || [];
+
+      // Step 3: Get available sharecodes
+      const sharecodesCheck = await getUserSharecodes(apiKey, username);
+      console.log('Sharecodes check result:', sharecodesCheck);
+      
+      const availableSharecodes = sharecodesCheck.success ? sharecodesCheck.sharecodes || [] : [];
+
+      // Validate selected sharecode if provided
+      let validatedSharecode = null;
+      if (selectedSharecode) {
+        const isValidSharecode = availableSharecodes.some(sc => sc.code === selectedSharecode || sc.shareCode === selectedSharecode);
+        if (isValidSharecode) {
+          validatedSharecode = selectedSharecode;
+          console.log('✓ Selected sharecode validated:', validatedSharecode);
+        } else {
+          console.warn('Selected sharecode not found in available sharecodes');
+        }
+      }
 
       // Validate selected shocker if provided
       let validatedShockerId = null;
@@ -452,9 +572,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       if (!validatedShockerId && availableShockers.length > 0) {
         validatedShockerId = availableShockers[0].shockerId.toString();
         console.log('✓ Auto-selected first available shocker:', validatedShockerId);
-      }
-
-      // Store credentials with user-configured limits and selected shocker
+      }      // Store credentials with user-configured limits, selected shocker, and selected sharecode
       const credentialsToStore = {
         apiKey,
         username,
@@ -463,12 +581,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         maxIntensity: finalMaxIntensity,
         maxDuration: finalMaxDuration,
         selectedShockerId: validatedShockerId,
+        selectedSharecode: validatedSharecode,
         lastValidated: new Date().toISOString()
       };
       
       const encrypted = await encrypt(credentialsToStore);
-      
-      // Batch all user data into a single key to reduce operations
+        // Batch all user data into a single key to reduce operations
       const userData = {
         credentials: encrypted,
         lastTested: new Date().toISOString(),
@@ -480,6 +598,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         maxDuration: finalMaxDuration,
         selectedShockerId: validatedShockerId,
         availableShockers,
+        selectedSharecode: validatedSharecode,
+        availableSharecodes,
         lastUpdated: new Date().toISOString()
       };
       
@@ -494,9 +614,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         console.log('✓ Cleared status cache for user:', userId);
       } catch (error) {
         console.warn('Failed to clear status cache:', error);
-      }
-
-      return jsonResponse({ 
+      }      return jsonResponse({ 
         success: true, 
         isConnected: true,
         hasDevices,
@@ -506,9 +624,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         maxDuration: finalMaxDuration,
         selectedShockerId: validatedShockerId,
         availableShockers,
+        selectedSharecode: validatedSharecode,
+        availableSharecodes,
         debug: {
           credentialValidation: credentialValidation.debugInfo,
-          deviceCheck: deviceCheck.debugInfo
+          deviceCheck: deviceCheck.debugInfo,
+          sharecodesCheck: sharecodesCheck.debugInfo
         }
       });
     }

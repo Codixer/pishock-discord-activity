@@ -344,6 +344,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       maxDuration,
       selectedShockerId: userData?.selectedShockerId || null,
       availableShockers: userData?.availableShockers || [],
+      selectedSharecode: userData?.selectedSharecode || null,
+      availableSharecodes: userData?.availableSharecodes || [],
       isRelay: false // No more relay accounts
     };
     
