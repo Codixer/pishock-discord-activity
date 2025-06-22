@@ -54,6 +54,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     params.append('grant_type', 'authorization_code');
     params.append('code', code);
     
+    // Discord Activities don't typically need a redirect URI
+    // but we'll include it if it's configured in the environment
     if (env.DISCORD_REDIRECT_URI) {
       params.append('redirect_uri', env.DISCORD_REDIRECT_URI);
     }
