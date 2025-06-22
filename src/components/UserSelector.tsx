@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, User, Crown, Zap, ZapOff, Smartphone } from 'lucide-react';
+import { Users, User, Crown, Zap, ZapOff, Smartphone, Lock } from 'lucide-react';
 import { InstanceData } from '../hooks/useInstanceData';
 
 interface UserSelectorProps {
@@ -186,6 +186,9 @@ export function UserSelector({
                                       <Zap className="h-3 w-3" />
                                       <span className="hidden sm:inline">PiShock Device</span>
                                       <span className="sm:hidden">Device</span>
+                                      {(userStatus?.maxIntensity < 100 || userStatus?.maxDuration < 15) && (
+                                        <Lock className="h-2 w-2 text-yellow-400" title="Has device limits" />
+                                      )}
                                     </div>
                                   ) : (
                                     <div className="flex items-center space-x-1 text-xs text-blue-400">
@@ -211,6 +214,12 @@ export function UserSelector({
                                   </div>
                                 )}
                                 </div>
+                                {/* Show device limits if they exist */}
+                                {userStatus?.maxIntensity < 100 || userStatus?.maxDuration < 15 ? (
+                                  <div className="text-xs text-yellow-400">
+                                    Limits: {userStatus.maxIntensity}%/{userStatus.maxDuration}s
+                                  </div>
+                                ) : null}
                                 {userStatus?.piShockUserId && (
                                   <div className="text-xs text-gray-400">
                                     ID: {userStatus.piShockUserId}

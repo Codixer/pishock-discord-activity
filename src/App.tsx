@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { DiscordSDK, Events, type Types } from '@discord/embedded-app-sdk';
-import { Zap, Shield, Users, Settings, AlertTriangle, Power } from 'lucide-react';
+import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText } from 'lucide-react';
 import { PiShockController } from './components/PiShockController';
 import { SafetyWarning } from './components/SafetyWarning';
 import { UserSelector } from './components/UserSelector';
 import { ConnectionStatus } from './components/ConnectionStatus';
 import { NotificationSystem } from './components/NotificationSystem';
 import { ActivityLog } from './components/ActivityLog';
+import { PrivacyPolicy } from './components/PrivacyPolicy';
+import { TermsOfService } from './components/TermsOfService';
 import { useNotifications } from './hooks/useNotifications';
 import { useInstanceData } from './hooks/useInstanceData';
 import { useParticipants } from './hooks/useParticipants';
@@ -77,7 +80,7 @@ function getApiBaseUrl(): string {
   }
 }
 
-function App() {
+function MainApp() {
   const [auth, setAuth] = useState<any>(null);
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [piShockConnected, setPiShockConnected] = useState(false);
@@ -87,6 +90,7 @@ function App() {
   const [showActivityLog, setShowActivityLog] = useState(true);
   const [userPiShockStatus, setUserPiShockStatus] = useState<Record<string, any>>({});
   const { notifications, addNotification, dismissNotification } = useNotifications();
+  const navigate = useNavigate();
   
   // Get current version from build
   const currentVersion = __BUILD_VERSION__;
@@ -162,7 +166,9 @@ function App() {
                 hasCredentials: status.hasCredentials,
                 deviceCount: status.deviceCount || 0,
                 piShockUserId: status.piShockUserId,
-                isRelay: status.isRelay || false // Track if using relay account
+                isRelay: status.isRelay || false, // Track if using relay account
+                maxIntensity: status.maxIntensity || 100,
+                maxDuration: status.maxDuration || 15
               }
             };
           }
@@ -177,7 +183,9 @@ function App() {
             hasCredentials: false,
             deviceCount: 0,
             piShockUserId: null,
-            isRelay: false
+            isRelay: false,
+            maxIntensity: 100,
+            maxDuration: 15
           }
         };
       });
@@ -194,7 +202,9 @@ function App() {
           !prevStatus[userId] || 
           prevStatus[userId].isConnected !== statusMap[userId].isConnected ||
           prevStatus[userId].hasDevice !== statusMap[userId].hasDevice ||
-          prevStatus[userId].hasCredentials !== statusMap[userId].hasCredentials
+          prevStatus[userId].hasCredentials !== statusMap[userId].hasCredentials ||
+          prevStatus[userId].maxIntensity !== statusMap[userId].maxIntensity ||
+          prevStatus[userId].maxDuration !== statusMap[userId].maxDuration
         );
         
         if (hasChanges) {
@@ -210,6 +220,9 @@ function App() {
 
   // Make the refresh function available globally
   window.refreshAllUserStatuses = checkAllUserPiShockStatus;
+  
+  // Make user status available globally for PiShockController
+  (window as any).userPiShockStatus = userPiShockStatus;
 
   useEffect(() => {
     const initializeDiscord = async () => {
@@ -471,6 +484,20 @@ function App() {
                 </div>
               )}
               <button
+                onClick={() => navigate('/terms')}
+                className="px-2 py-1 rounded-md bg-gray-700 hover:bg-gray-600 text-xs transition-colors flex items-center space-x-1"
+              >
+                <FileText className="h-3 w-3" />
+                <span className="hidden sm:inline">Terms</span>
+              </button>
+              <button
+                onClick={() => navigate('/privacy')}
+                className="px-2 py-1 rounded-md bg-gray-700 hover:bg-gray-600 text-xs transition-colors flex items-center space-x-1"
+              >
+                <Shield className="h-3 w-3" />
+                <span className="hidden sm:inline">Privacy</span>
+              </button>
+              <button
                 onClick={() => setShowActivityLog(!showActivityLog)}
                 className={`px-3 py-1 rounded-md text-sm transition-colors ${
                   showActivityLog 
@@ -577,6 +604,26 @@ function App() {
         )}
       </div>
     </div>
+  );
+}
+
+function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // Handle navigation back to main app
+  const handleBackToApp = () => {
+    navigate('/');
+  };
+
+  return (
+    <Routes>
+      <Route path="/" element={<MainApp />} />
+      <Route path="/privacy" element={<PrivacyPolicy onBack={handleBackToApp} />} />
+      <Route path="/terms" element={<TermsOfService onBack={handleBackToApp} />} />
+      {/* Fallback route for any unmatched paths */}
+      <Route path="*" element={<MainApp />} />
+    </Routes>
   );
 }
 

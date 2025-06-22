@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Zap, Settings, Play, Square, AlertTriangle, Wifi, Save, Loader, User, Shield } from 'lucide-react';
+import { Zap, Settings, Play, Square, AlertTriangle, Wifi, Save, Loader, User, Shield, Lock } from 'lucide-react';
 
 interface PiShockControllerProps {
   selectedUser: any;
@@ -49,6 +49,39 @@ export function PiShockController({
   const [currentUserPiShockConnected, setCurrentUserPiShockConnected] = useState(false);
   const [relayAccountAvailable, setRelayAccountAvailable] = useState(false);
   const [currentUserPiShockUserId, setCurrentUserPiShockUserId] = useState<string>('');
+  const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
+
+  // Get the effective limits based on selected user
+  const getEffectiveLimits = () => {
+    if (!selectedUser) return { maxIntensity: 100, maxDuration: 15 };
+    
+    // Get the user's PiShock status which includes their sharecode limits
+    const userStatus = (window as any).userPiShockStatus?.[selectedUser.id];
+    if (userStatus && userStatus.maxIntensity && userStatus.maxDuration) {
+      return {
+        maxIntensity: userStatus.maxIntensity,
+        maxDuration: userStatus.maxDuration
+      };
+    }
+    
+    return { maxIntensity: 100, maxDuration: 15 };
+  };
+
+  const effectiveLimits = getEffectiveLimits();
+
+  // Update intensity and duration when limits change
+  useEffect(() => {
+    const limits = getEffectiveLimits();
+    setSelectedUserLimits(limits);
+    
+    // Clamp current values to new limits
+    if (intensity > limits.maxIntensity) {
+      setIntensity(limits.maxIntensity);
+    }
+    if (duration > limits.maxDuration) {
+      setDuration(limits.maxDuration);
+    }
+  }, [selectedUser, intensity, duration]);
 
   // 🔒 Security Check: Ensure no sensitive data is exposed in frontend
   useEffect(() => {
@@ -684,40 +717,64 @@ export function PiShockController({
               {/* Intensity Control */}
               <div>
                 <label className="block text-xs sm:text-sm font-medium text-gray-300 mb-2">
-                  Intensity: {intensity}%
+                  <div className="flex items-center justify-between">
+                    <span>Intensity: {intensity}%</span>
+                    {effectiveLimits.maxIntensity < 100 && (
+                      <div className="flex items-center space-x-1 text-xs text-yellow-400">
+                        <Lock className="h-3 w-3" />
+                        <span>Max: {effectiveLimits.maxIntensity}%</span>
+                      </div>
+                    )}
+                  </div>
                 </label>
                 <input
                   type="range"
                   min="1"
-                  max="100"
+                  max={effectiveLimits.maxIntensity}
                   value={intensity}
                   onChange={(e) => setIntensity(parseInt(e.target.value))}
-                  className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+                  className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider ${
+                    effectiveLimits.maxIntensity < 100 ? 'limited-slider' : ''
+                  }`}
                 />
                 <div className="flex justify-between text-xs text-gray-400 mt-1">
                   <span>1%</span>
-                  <span>50%</span>
-                  <span>100%</span>
+                  <span>{Math.floor(effectiveLimits.maxIntensity / 2)}%</span>
+                  <span className={effectiveLimits.maxIntensity < 100 ? 'text-yellow-400' : ''}>
+                    {effectiveLimits.maxIntensity}%{effectiveLimits.maxIntensity < 100 ? ' (Max)' : ''}
+                  </span>
                 </div>
               </div>
 
               {/* Duration Control */}
               <div>
                 <label className="block text-xs sm:text-sm font-medium text-gray-300 mb-2">
-                  Duration: {duration}s
+                  <div className="flex items-center justify-between">
+                    <span>Duration: {duration}s</span>
+                    {effectiveLimits.maxDuration < 15 && (
+                      <div className="flex items-center space-x-1 text-xs text-yellow-400">
+                        <Lock className="h-3 w-3" />
+                        <span>Max: {effectiveLimits.maxDuration}s</span>
+                      </div>
+                    )}
+                  </div>
                 </label>
                 <input
                   type="range"
                   min="1"
-                  max="15"
+                  max={effectiveLimits.maxDuration}
                   value={duration}
                   onChange={(e) => setDuration(parseInt(e.target.value))}
-                  className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+                  className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider ${
+                    effectiveLimits.maxDuration < 15 ? 'limited-slider' : ''
+                  }`}
                 />
                 <div className="flex justify-between text-xs text-gray-400 mt-1">
                   <span>1s</span>
-                  <span>8s</span>
-                  <span>15s</span>
+                  <span>{Math.floor(effectiveLimits.maxDuration / 2)}s</span>
+                  <span className={effectiveLimits.maxDuration < 15 ? 'text-yellow-400' : ''}>
+                    {effectiveLimits.maxDuration}s{effectiveLimits.maxDuration < 15 ? ' (Max)' : ''}
+                  </span>
                 </div>
               </div>
 
