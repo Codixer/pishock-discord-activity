@@ -4,6 +4,9 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-XSS-Protection: 1; mode=block
+  # Disable Cloudflare features that inject scripts
+  CF-Cache-Status: BYPASS
+  CF-Analytics: off
 
 # API routes CORS headers
 /api/*

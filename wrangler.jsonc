@@ -2,6 +2,10 @@
 	"name": "pishock-discord-activity",
 	"compatibility_date": "2024-01-15",
 	
+	// Disable Cloudflare Analytics to prevent CSP conflicts with Discord
+	"analytics_engine_datasets": [],
+	"send_metrics": false,
+	
 	// Main worker script (compiled from Pages Functions)
 	"main": "./dist/_worker.js",
 	
