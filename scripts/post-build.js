@@ -1,4 +1,5 @@
 import { writeFileSync } from 'fs';
+import { copyFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -12,6 +13,17 @@ async function postBuild() {
     // Generate a deployment version
     const deploymentVersion = `build-${Date.now()}`;
     console.log('POST-BUILD: Generated deployment version:', deploymentVersion);
+    
+    // Copy .assetsignore to dist directory to prevent _worker.js from being served as asset
+    try {
+      copyFileSync(
+        join(__dirname, '../.assetsignore'),
+        join(__dirname, '../dist/.assetsignore')
+      );
+      console.log('POST-BUILD: Copied .assetsignore to dist directory');
+    } catch (error) {
+      console.warn('POST-BUILD: Failed to copy .assetsignore:', error.message);
+    }
     
     // In a real deployment, you would call the deployment hook endpoint
     // For now, we'll just log the version that would be used

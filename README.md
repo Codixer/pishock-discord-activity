@@ -24,29 +24,38 @@ This project deploys directly to Cloudflare Workers using Wrangler CLI.
 
 ### Direct Cloudflare Deployment
 
-#### Option 1: Wrangler CLI (Recommended)
+#### First Time Setup
 
-1. **Login to Cloudflare**:
+1. **Install dependencies**:
+   ```bash
+   npm install
+   ```
+
+2. **Login to Cloudflare**:
    ```bash
    npx wrangler login
    ```
 
-2. **Build and Deploy**:
+#### Option 1: Wrangler CLI (Recommended)
+
+1. **Build and Deploy**:
    ```bash
    npm run build
    npm run deploy
    ```
 
-#### Option 2: Cloudflare Dashboard
+#### Option 2: Manual Steps
 
-1. Build the project locally:
+1. **Build the project**:
    ```bash
    npm run build
    ```
 
-2. Upload the `dist` folder contents via the Cloudflare Dashboard
+2. **Deploy to Workers**:
+   ```bash
+   npx wrangler deploy
+   ```
 
-3. Configure environment variables and KV bindings in the dashboard
 
 ### Environment Configuration
 

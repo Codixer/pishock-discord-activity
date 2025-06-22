@@ -5,12 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 3000",
-    "build": "vite build && wrangler pages functions build --outdir=./dist/_worker.js/ && node scripts/post-build.js",
+    "build": "vite build && npx wrangler pages functions build --outdir=./dist/_worker.js/ && node scripts/post-build.js",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
     "lint:fix": "eslint . --ext .ts,.tsx,.js,.jsx --fix",
     "preview": "vite preview",
-    "pages:dev": "wrangler dev --local",
-    "pages:deploy": "wrangler deploy",
+    "pages:dev": "npx wrangler dev --local",
+    "pages:deploy": "npx wrangler deploy",
     "deploy": "npm run build && npm run pages:deploy",
     "type-check": "tsc --noEmit"
   },
