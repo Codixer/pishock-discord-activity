@@ -165,6 +165,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         error: 'Target user has no PiShock device configured' 
       });
     }
+
     let targetCreds;
     try {
       targetCreds = await decrypt(targetUserCredentials);
@@ -360,4 +361,3 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }, 500);
   }
 };
-</paramet
