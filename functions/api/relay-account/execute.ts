@@ -58,29 +58,33 @@ async function validateDiscordToken(token: string): Promise<any> {
   }
 }
 
-async function addToActivityIndex(kv: KVNamespace, key: string) {
+async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
   try {
-    const indexKey = 'activity:index';
-    let index = await kv.get(indexKey);
-    let arr: string[] = index ? JSON.parse(index) : [];
+    // Use date-based batching to reduce key count
+    const date = new New(entry.timestamp).toISOString().split('T')[0]; // YYYY-MM-DD
+    const batchKey = `activity:batch:${date}`;
+    
+    let batch = await kv.get(batchKey);
+    let batchData = batch ? JSON.parse(batch) : {
+      entries: [],
+      lastUpdated: entry.timestamp,
+      totalCount: 0
+    };
     
     // Add new entry at the beginning (newest first)
-    arr.unshift(key);
+    batchData.entries.unshift(entry);
+    batchData.lastUpdated = entry.timestamp;
+    batchData.totalCount++;
     
-    // Limit index size to prevent unbounded growth
-    if (arr.length > 5000) {
-      const removedKeys = arr.slice(5000);
-      arr = arr.slice(0, 5000);
-      
-      // Clean up old entries in background
-      for (const oldKey of removedKeys) {
-        await kv.delete(oldKey);
-      }
+    // Limit entries per batch to prevent value size issues
+    if (batchData.entries.length > 200) {
+      batchData.entries = batchData.entries.slice(0, 200);
     }
     
-    await kv.put(indexKey, JSON.stringify(arr));
+    // Store with 30-day TTL to auto-cleanup old logs
+    await kv.put(batchKey, JSON.stringify(batchData), { expirationTtl: 2592000 });
   } catch (error) {
-    console.error('Failed to update activity index:', error);
+    console.error('Failed to update activity batch:', error);
   }
 }
 
@@ -320,9 +324,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       };
 
       // Store activity log entry
-      const logKey = `activity:log:${logEntry.timestamp}:${logEntry.id}`;
-      await env.PISHOCK_KV.put(logKey, JSON.stringify(logEntry));
-      await addToActivityIndex(env.PISHOCK_KV, logKey);
+      await addToActivityBatch(env.PISHOCK_KV, logEntry);
 
       console.log('RELAY: ✅ Activity logged with ID:', logEntry.id);
       console.log('RELAY: Command execution completed successfully');

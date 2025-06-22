@@ -4,6 +4,12 @@ interface Env {
   PISHOCK_KV: KVNamespace;
 }
 
+interface BatchedActivityLog {
+  entries: ActivityLogEntry[];
+  lastUpdated: string;
+  totalCount: number;
+}
+
 interface ActivityLogEntry {
   id: string;
   timestamp: string;
@@ -55,29 +61,33 @@ async function validateDiscordToken(token: string): Promise<any> {
   }
 }
 
-async function addToActivityIndex(kv: KVNamespace, key: string) {
+async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
   try {
-    const indexKey = 'activity:index';
-    let index = await kv.get(indexKey);
-    let arr: string[] = index ? JSON.parse(index) : [];
+    // Use date-based batching to reduce key count
+    const date = new Date(entry.timestamp).toISOString().split('T')[0]; // YYYY-MM-DD
+    const batchKey = `activity:batch:${date}`;
+    
+    let batch = await kv.get(batchKey);
+    let batchData: BatchedActivityLog = batch ? JSON.parse(batch) : {
+      entries: [],
+      lastUpdated: entry.timestamp,
+      totalCount: 0
+    };
     
     // Add new entry at the beginning (newest first)
-    arr.unshift(key);
+    batchData.entries.unshift(entry);
+    batchData.lastUpdated = entry.timestamp;
+    batchData.totalCount++;
     
-    // Limit index size to prevent unbounded growth
-    if (arr.length > 5000) {
-      const removedKeys = arr.slice(5000);
-      arr = arr.slice(0, 5000);
-      
-      // Clean up old entries in background
-      for (const oldKey of removedKeys) {
-        await kv.delete(oldKey);
-      }
+    // Limit entries per batch to prevent value size issues
+    if (batchData.entries.length > 200) {
+      batchData.entries = batchData.entries.slice(0, 200);
     }
     
-    await kv.put(indexKey, JSON.stringify(arr));
+    // Store with 30-day TTL to auto-cleanup old logs
+    await kv.put(batchKey, JSON.stringify(batchData), { expirationTtl: 2592000 });
   } catch (error) {
-    console.error('Failed to update activity index:', error);
+    console.error('Failed to update activity batch:', error);
   }
 }
 
@@ -113,30 +123,36 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const offset = parseInt(searchParams.get('offset') || '0', 10);
       const since = searchParams.get('since');
 
-      let index = await env.PISHOCK_KV.get('activity:index');
-      let arr: string[] = index ? JSON.parse(index) : [];
+      // Get recent batches (last 30 days)
+      const today = new Date();
+      const batches: ActivityLogEntry[] = [];
+      
+      for (let i = 0; i < 30; i++) {
+        const date = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
+        const dateStr = date.toISOString().split('T')[0];
+        const batchKey = `activity:batch:${dateStr}`;
+        
+        try {
+          const batchData = await env.PISHOCK_KV.get(batchKey);
+          if (batchData) {
+            const batch: BatchedActivityLog = JSON.parse(batchData);
+            batches.push(...batch.entries);
+          }
+        } catch (error) {
+          console.warn(`Failed to load batch ${dateStr}:`, error);
+        }
+      }
+      
+      // Sort by timestamp (newest first)
+      batches.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
       if (since) {
         const sinceDate = new Date(since);
-        arr = arr.filter((key: string) => {
-          const timestamp = key.split(':')[2];
-          return new Date(timestamp) > sinceDate;
-        });
+        batches = batches.filter(entry => new Date(entry.timestamp) > sinceDate);
       }
 
-      const total = arr.length;
-      const entries: ActivityLogEntry[] = [];
-
-      for (let i = offset; i < Math.min(offset + limit, arr.length); i++) {
-        try {
-          const entryData = await env.PISHOCK_KV.get(arr[i]);
-          if (entryData) {
-            entries.push(JSON.parse(entryData));
-          }
-        } catch (error) {
-          console.error(`Failed to parse entry ${arr[i]}:`, error);
-        }
-      }
+      const total = batches.length;
+      const entries = batches.slice(offset, offset + limit);
 
       return jsonResponse({ 
         entries, 
@@ -155,7 +171,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const entry = await request.json();
       const id = uuidv4();
       const timestamp = new Date().toISOString();
-      const key = `activity:log:${timestamp}:${id}`;
       
       const logEntry: ActivityLogEntry = { 
         ...entry, 
@@ -163,8 +178,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         timestamp 
       };
 
-      await env.PISHOCK_KV.put(key, JSON.stringify(logEntry));
-      await addToActivityIndex(env.PISHOCK_KV, key);
+      await addToActivityBatch(env.PISHOCK_KV, logEntry);
 
       return jsonResponse({ success: true, entryId: id });
     }

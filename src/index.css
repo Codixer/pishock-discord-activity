@@ -15,6 +15,18 @@ html, body {
   overflow: hidden;
 }
 
+/* Allow scrolling for full-page legal documents */
+.legal-page {
+  overflow-y: auto !important;
+  height: 100vh !important;
+}
+
+.legal-page html,
+.legal-page body,
+.legal-page #root {
+  overflow-y: auto !important;
+}
+
 /* Custom scrollbar for internal scrollable areas */
 .overflow-y-auto::-webkit-scrollbar {
   width: 6px;

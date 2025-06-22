@@ -59,7 +59,7 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
     if (autoRefresh && auth) {
       intervalRef.current = setInterval(() => {
         loadActivityLog(true);
-      }, 30000); // Refresh every 30 seconds instead of 5
+      }, 60000); // Refresh every 60 seconds to minimize KV reads
 
       return () => {
         if (intervalRef.current) {
@@ -240,7 +240,7 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
       {/* Last Refresh Info */}
       <div className="text-xs text-gray-400 px-4 pb-3 flex-shrink-0">
         Last updated: {lastRefresh.toLocaleTimeString()}
-        {autoRefresh && <span className="ml-2">(Auto-refresh every 30s)</span>}
+        {autoRefresh && <span className="ml-2">(Auto-refresh every 60s)</span>}
       </div>
 
       {/* Activity Log Content */}

@@ -413,13 +413,18 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       
       const encrypted = await encrypt(credentialsToStore);
       
-      await Promise.all([
-        env.PISHOCK_KV.put(`user:${userId}:pishock`, encrypted),
-        env.PISHOCK_KV.put(`user:${userId}:pishock:lastTested`, new Date().toISOString()),
-        env.PISHOCK_KV.put(`user:${userId}:pishock:configuredBy`, user.id),
-        env.PISHOCK_KV.put(`user:${userId}:pishock:hasOwnDevice`, actuallyHasDevice ? 'true' : 'false'),
-        env.PISHOCK_KV.put(`user:${userId}:pishock:piShockUserId`, piShockUserId)
-      ]);
+      // Batch all user data into a single key to reduce operations
+      const userData = {
+        credentials: encrypted,
+        lastTested: new Date().toISOString(),
+        configuredBy: user.id,
+        hasOwnDevice: actuallyHasDevice,
+        piShockUserId,
+        deviceCount: deviceCheck.devices?.length || 0,
+        lastUpdated: new Date().toISOString()
+      };
+      
+      await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
 
       console.log('✓ Settings saved successfully for user:', userId);
 
@@ -438,13 +443,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     if (method === 'DELETE') {
-      await Promise.all([
-        env.PISHOCK_KV.delete(`user:${userId}:pishock`),
-        env.PISHOCK_KV.delete(`user:${userId}:pishock:lastTested`),
-        env.PISHOCK_KV.delete(`user:${userId}:pishock:configuredBy`),
-        env.PISHOCK_KV.delete(`user:${userId}:pishock:hasOwnDevice`),
-        env.PISHOCK_KV.delete(`user:${userId}:pishock:piShockUserId`)
-      ]);
+      // Delete the single user data key
+      await env.PISHOCK_KV.delete(`user:${userId}:data`);
       return jsonResponse({ success: true });
     }
 

@@ -36,6 +36,33 @@ async function validateDiscordToken(token: string): Promise<any> {
   }
 }
 
+// Debounce helper to prevent excessive writes
+const pendingWrites = new Map<string, any>();
+const writeTimeouts = new Map<string, NodeJS.Timeout>();
+
+async function debouncedWrite(kv: KVNamespace, key: string, value: any, delay = 2000) {
+  // Cancel existing timeout for this key
+  const existingTimeout = writeTimeouts.get(key);
+  if (existingTimeout) {
+    clearTimeout(existingTimeout);
+  }
+  
+  // Store pending write
+  pendingWrites.set(key, value);
+  
+  // Set new timeout
+  const timeout = setTimeout(async () => {
+    const pendingValue = pendingWrites.get(key);
+    if (pendingValue) {
+      await kv.put(key, JSON.stringify(pendingValue));
+      pendingWrites.delete(key);
+      writeTimeouts.delete(key);
+    }
+  }, delay);
+  
+  writeTimeouts.set(key, timeout);
+}
+
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env, params } = context;
   const method = request.method;
@@ -76,7 +103,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         updatedBy: user.id
       };
       
-      await env.PISHOCK_KV.put(`instance_data:${instanceId}`, JSON.stringify(merged));
+      // Use debounced write to prevent excessive updates
+      await debouncedWrite(env.PISHOCK_KV, `instance_data:${instanceId}`, merged);
       return jsonResponse({ success: true });
     }
 

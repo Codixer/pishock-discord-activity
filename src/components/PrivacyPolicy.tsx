@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Shield, ArrowLeft, Eye, Database, Lock, Globe, Clock, AlertTriangle } from 'lucide-react';
 
 interface PrivacyPolicyProps {
@@ -6,8 +6,30 @@ interface PrivacyPolicyProps {
 }
 
 export function PrivacyPolicy({ onBack }: PrivacyPolicyProps) {
+  // Enable scrolling for this page
+  useEffect(() => {
+    document.body.classList.add('legal-page');
+    document.documentElement.style.overflow = 'auto';
+    document.body.style.overflow = 'auto';
+    const root = document.getElementById('root');
+    if (root) {
+      root.style.overflow = 'auto';
+      root.style.height = 'auto';
+    }
+
+    return () => {
+      document.body.classList.remove('legal-page');
+      document.documentElement.style.overflow = 'hidden';
+      document.body.style.overflow = 'hidden';
+      if (root) {
+        root.style.overflow = 'hidden';
+        root.style.height = '100vh';
+      }
+    };
+  }, []);
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white">
+    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white overflow-y-auto">
       <div className="max-w-4xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">

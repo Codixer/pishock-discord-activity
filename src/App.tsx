@@ -406,10 +406,10 @@ function MainApp() {
   useEffect(() => {
     if (!instanceId || !auth || participants.length === 0) return;
 
-    // Check status every 10 seconds for real-time updates
+    // Reduced frequency: Check status every 30 seconds to minimize KV reads
     const interval = setInterval(() => {
       checkAllUserPiShockStatus();
-    }, 10000);
+    }, 30000);
 
     return () => clearInterval(interval);
   }, [instanceId, auth, participants]);

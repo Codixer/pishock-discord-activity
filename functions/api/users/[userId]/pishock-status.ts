@@ -192,15 +192,17 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   if (!user) return new Response('Invalid token', { status: 401 });
 
   try {
-    const encrypted = await env.PISHOCK_KV.get(`user:${userId}:pishock`);
-    const lastTested = await env.PISHOCK_KV.get(`user:${userId}:pishock:lastTested`);
-    const hasOwnDeviceStr = await env.PISHOCK_KV.get(`user:${userId}:pishock:hasOwnDevice`);
-    const storedPiShockUserId = await env.PISHOCK_KV.get(`user:${userId}:pishock:piShockUserId`);
+    // Get all user data from single key
+    const userDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
+    const userData = userDataStr ? JSON.parse(userDataStr) : null;
     
     let isConnected = false;
     let hasDevice = false;
     let deviceCount = 0;
-    let piShockUserId = storedPiShockUserId;
+    let piShockUserId = userData?.piShockUserId;
+    let lastTested = userData?.lastTested;
+    let hasOwnDevice = userData?.hasOwnDevice || false;
+    let encrypted = userData?.credentials;
     
     if (encrypted) {
       try {
@@ -220,12 +222,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           deviceCount = deviceCheck.devices?.length || 0;
           
           // Update stored PiShock user ID if it changed
-          if (piShockUserId !== storedPiShockUserId) {
-            await env.PISHOCK_KV.put(`user:${userId}:pishock:piShockUserId`, piShockUserId);
+          if (piShockUserId !== userData?.piShockUserId) {
+            // Update the user data with new PiShock ID
+            userData.piShockUserId = piShockUserId;
+            await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
           }
           
           // Update last tested timestamp
-          await env.PISHOCK_KV.put(`user:${userId}:pishock:lastTested`, new Date().toISOString());
+          userData.lastTested = new Date().toISOString();
+          await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
           
           console.log('STATUS: Connection test successful for user:', userId);
         } else {
@@ -239,11 +244,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     const result = { 
-      hasCredentials: !!encrypted, 
+      hasCredentials: !!userData?.credentials, 
       isConnected, 
       hasDevice,
       deviceCount,
-      hasOwnDevice: hasOwnDeviceStr === 'true',
+      hasOwnDevice,
       piShockUserId,
       lastTested,
       isRelay: false // Personal accounts are never relay

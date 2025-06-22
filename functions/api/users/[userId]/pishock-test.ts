@@ -275,8 +275,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   console.log('TEST: Discord user:', user.username);
 
   try {
-    const encrypted = await env.PISHOCK_KV.get(`user:${userId}:pishock`);
-    if (!encrypted) {
+    // Get all user data from single key
+    const userDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
+    const userData = userDataStr ? JSON.parse(userDataStr) : null;
+    
+    if (!userData?.credentials) {
       console.error('TEST: No credentials stored for user:', userId);
       return jsonResponse({ 
         success: false, 
@@ -285,10 +288,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
     }
 
-    console.log('TEST: Found encrypted credentials, length:', encrypted.length);
+    console.log('TEST: Found user data with credentials');
 
     try {
-      const creds = await decrypt(encrypted);
+      const creds = await decrypt(userData.credentials);
       console.log('TEST: Successfully decrypted credentials');
       console.log('TEST: Username:', creds.username);
       console.log('TEST: Has API key:', !!creds.apiKey);
@@ -320,14 +323,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           error: deviceCheck.error
         });
         
-        // Update stored PiShock user ID
-        await env.PISHOCK_KV.put(`user:${userId}:pishock:piShockUserId`, credentialValidation.userId);
+        // Update stored PiShock user ID in user data
+        userData.piShockUserId = credentialValidation.userId;
+        userData.lastTested = new Date().toISOString();
+        await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
       } else {
         console.error('TEST: Credential validation failed:', credentialValidation.error);
       }
-      
-      const lastTested = new Date().toISOString();
-      await env.PISHOCK_KV.put(`user:${userId}:pishock:lastTested`, lastTested);
       
       const result = {
         success: credentialValidation.valid, 
@@ -335,7 +337,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         hasDevice,
         deviceCount,
         piShockUserId: credentialValidation.userId,
-        lastTested,
+        lastTested: userData.lastTested,
         debug: {
           credentialValidation: credentialValidation.debugInfo,
           deviceCheck: deviceDebugInfo,
