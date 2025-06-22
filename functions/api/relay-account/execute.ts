@@ -166,7 +166,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
     }
 
-    let targetShareCode;
+    let targetShareCode; 
     let targetCreds;
     try {
       targetCreds = await decrypt(targetUserCredentials);
