@@ -61,7 +61,7 @@ async function validateDiscordToken(token: string): Promise<any> {
 async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
   try {
     // Use date-based batching to reduce key count
-    const date = new New(entry.timestamp).toISOString().split('T')[0]; // YYYY-MM-DD
+    const date = new Date(entry.timestamp).toISOString().split('T')[0]; // YYYY-MM-DD
     const batchKey = `activity:batch:${date}`;
     
     let batch = await kv.get(batchKey);

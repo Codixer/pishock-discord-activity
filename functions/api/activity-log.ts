@@ -125,7 +125,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       // Get recent batches (last 30 days)
       const today = new Date();
-      const batches: ActivityLogEntry[] = [];
+      let batches: ActivityLogEntry[] = [];
       
       for (let i = 0; i < 30; i++) {
         const date = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
@@ -157,7 +157,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return jsonResponse({ 
         entries, 
         total, 
-        hasMore: offset + limit < arr.length 
+        hasMore: offset + limit < batches.length 
       });
     }
 
