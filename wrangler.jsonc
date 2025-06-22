@@ -26,6 +26,7 @@
 	// Environment variables to AGGRESSIVELY disable Cloudflare features
 	"vars": {
 		"CF_PAGES": "1",
+		"VITE_DISCORD_CLIENT_ID": "YOUR_DISCORD_CLIENT_ID_HERE",
 		"CF_ANALYTICS_DISABLED": "true",
 		"CF_WEB_ANALYTICS_DISABLED": "true",
 		"CF_BROWSER_INSIGHTS_DISABLED": "true",

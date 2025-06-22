@@ -49,8 +49,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     // Exchange code for token
     const params = new URLSearchParams();
-    params.append('client_id', env.VITE_DISCORD_CLIENT_ID);
-    params.append('client_secret', env.VITE_DISCORD_CLIENT_SECRET);
+    params.append('client_id', env.DISCORD_CLIENT_ID);
+    params.append('client_secret', env.DISCORD_CLIENT_SECRET);
     params.append('grant_type', 'authorization_code');
     params.append('code', code);
     

@@ -24,11 +24,24 @@ declare global {
 const urlParams = new URLSearchParams(window.location.search);
 const isEmbedded = urlParams.has('frame_id');
 
+// Debug environment variables
+console.log('Environment check:', {
+  client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
+  is_placeholder: import.meta.env.VITE_DISCORD_CLIENT_ID === 'YOUR_DISCORD_CLIENT_ID_HERE',
+  dev_mode: import.meta.env.DEV,
+  env_keys: Object.keys(import.meta.env).filter(key => key.startsWith('VITE_'))
+});
+
 // Initialize Discord SDK with dummy parameters if not embedded
 let discordSdk: DiscordSDK;
 
 if (isEmbedded) {
-  discordSdk = new DiscordSDK(import.meta.env.VITE_DISCORD_CLIENT_ID);
+  const clientId = import.meta.env.VITE_DISCORD_CLIENT_ID;
+  if (!clientId || clientId === 'YOUR_DISCORD_CLIENT_ID_HERE') {
+    console.error('❌ VITE_DISCORD_CLIENT_ID is not set or still using placeholder value');
+    throw new Error('Discord Client ID is required. Please update VITE_DISCORD_CLIENT_ID in wrangler.jsonc vars section');
+  }
+  discordSdk = new DiscordSDK(clientId);
 } else {
   // Add dummy query parameters for development
   const dummyParams = new URLSearchParams({
@@ -43,7 +56,9 @@ if (isEmbedded) {
   const newUrl = `${window.location.pathname}?${dummyParams.toString()}`;
   window.history.replaceState({}, '', newUrl);
   
-  discordSdk = new DiscordSDK(import.meta.env.VITE_DISCORD_CLIENT_ID);
+  // For development, use a dummy client ID if not set
+  const clientId = import.meta.env.VITE_DISCORD_CLIENT_ID || 'dev_dummy_client_id';
+  discordSdk = new DiscordSDK(clientId);
   
   // Restore original URL
   window.history.replaceState({}, '', `${window.location.pathname}${originalSearch}`);
