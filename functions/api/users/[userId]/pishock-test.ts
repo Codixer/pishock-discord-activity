@@ -51,33 +51,81 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
     console.log('TEST: Username:', username);
     console.log('TEST: API Key length:', apiKey.length);
 
+    // Basic input validation
+    if (!apiKey || !username || apiKey.trim().length === 0 || username.trim().length === 0) {
+      return {
+        valid: false,
+        error: 'API Key and Username are required',
+        debugInfo: { reason: 'empty_credentials' }
+      };
+    }
     // Use exact endpoint from Legacy API documentation
     const url = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
     console.log('TEST: Making request to:', url);
 
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'PiShock-Discord-Activity/1.0',
-        'Accept': 'application/json, text/plain, */*'
-      }
-    });
+    let response;
+    try {
+      response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'PiShock-Discord-Activity/1.0',
+          'Accept': 'application/json, text/plain, */*'
+        },
+        signal: AbortSignal.timeout(10000) // 10 second timeout
+      });
+    } catch (fetchError) {
+      console.error('TEST: Network error during API call:', fetchError);
+      return {
+        valid: false,
+        error: 'Network error: Failed to connect to PiShock API',
+        debugInfo: { 
+          fetchError: fetchError instanceof Error ? fetchError.message : 'Unknown fetch error'
+        }
+      };
+    }
 
     console.log('TEST: Response status:', response.status);
     console.log('TEST: Response headers:', Object.fromEntries(response.headers.entries()));
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.log('TEST: Error response:', errorText);
-      return { 
-        valid: false, 
-        error: `Authentication failed: HTTP ${response.status} - ${errorText}`,
-        debugInfo: { status: response.status, error: errorText }
+    let responseText;
+    try {
+      responseText = await response.text();
+    } catch (textError) {
+      console.error('TEST: Failed to read response text:', textError);
+      return {
+        valid: false,
+        error: 'Failed to read API response',
+        debugInfo: { textError: textError instanceof Error ? textError.message : 'Unknown text error' }
       };
     }
 
-    const responseText = await response.text();
     console.log('TEST: Raw response text:', responseText);
+    console.log('TEST: Response text length:', responseText.length);
+
+    // Handle empty response
+    if (!responseText || responseText.trim().length === 0) {
+      console.error('TEST: Empty response from PiShock API');
+      return {
+        valid: false,
+        error: response.ok 
+          ? 'PiShock API returned empty response. This might indicate invalid credentials.'
+          : `PiShock API error: HTTP ${response.status} with empty response.`,
+        debugInfo: { 
+          status: response.status,
+          emptyResponse: true,
+          responseLength: responseText.length
+        }
+      };
+    }
+    if (!response.ok) {
+      console.log('TEST: HTTP error response:', responseText);
+      return { 
+        valid: false, 
+        error: `Authentication failed: HTTP ${response.status} - ${responseText}`,
+        debugInfo: { status: response.status, error: responseText }
+      };
+    }
+
 
     // Parse the response
     let authData;
@@ -100,8 +148,12 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       
       return { 
         valid: false, 
-        error: 'Invalid response format - not JSON or plain number',
-        debugInfo: { parseError: parseError.message, responseText: responseText.substring(0, 200) }
+        error: 'PiShock API returned unexpected response format',
+        debugInfo: { 
+          parseError: parseError.message, 
+          responseText: responseText.substring(0, 200),
+          responseLength: responseText.length
+        }
       };
     }
 
@@ -147,7 +199,7 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
     console.log('TEST: No valid UserID found in response');
     return { 
       valid: false, 
-      error: 'No UserID found in API response',
+      error: 'PiShock API response missing UserID',
       debugInfo: { authData, availableFields: Object.keys(authData || {}) }
     };
 
@@ -155,8 +207,11 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
     console.error('TEST: PiShock credential validation error:', error);
     return { 
       valid: false, 
-      error: `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      debugInfo: { networkError: error instanceof Error ? error.message : 'Unknown error' }
+      error: `Unexpected error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      debugInfo: { 
+        networkError: error instanceof Error ? error.message : 'Unknown error',
+        errorType: error instanceof Error ? error.constructor.name : 'Unknown'
+      }
     };
   }
 }

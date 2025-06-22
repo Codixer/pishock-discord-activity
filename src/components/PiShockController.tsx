@@ -269,11 +269,22 @@ export function PiShockController({
           window.refreshAllUserStatuses();
         }
       } else {
-        // Show detailed error information if available
-        const errorMessage = result.error || `HTTP ${response.status}: Failed to save settings`;
-        const debugInfo = result.debug ? `\n\nDebug info: ${JSON.stringify(result.debug, null, 2)}` : '';
+        // Show user-friendly error message
+        let errorMessage = result.error || 'Failed to save PiShock settings';
+        
+        // Log detailed debug info but show simpler message to user
         console.error('PiShock settings save error:', result);
-        throw new Error(errorMessage + debugInfo);
+        
+        // Provide specific guidance based on error type
+        if (errorMessage.includes('Invalid response format') || errorMessage.includes('empty response')) {
+          errorMessage = 'Unable to validate PiShock credentials. Please check:\n\n• Your API key is correct\n• Your username is correct\n• PiShock.com is accessible\n• Try again in a few moments';
+        } else if (errorMessage.includes('Network error')) {
+          errorMessage = 'Network connection failed. Please check your internet connection and try again.';
+        } else if (errorMessage.includes('No UserID found')) {
+          errorMessage = 'Invalid PiShock credentials. Please double-check your API key and username.';
+        }
+        
+        throw new Error(errorMessage);
       }
     } catch (error) {
       console.error('Failed to save PiShock settings:', error);
@@ -344,7 +355,17 @@ export function PiShockController({
         } else {
           setCurrentUserPiShockConnected(false);
           onConnectionChange(false);
-          throw new Error(result.error || 'Connection test failed');
+          
+          let errorMessage = result.error || 'Connection test failed';
+          
+          // Provide specific guidance for common issues
+          if (errorMessage.includes('Invalid response format') || errorMessage.includes('empty response')) {
+            errorMessage = 'Connection test failed. Please verify:\n\n• Your API key is correct\n• Your username is correct\n• PiShock services are online\n• Try again in a moment';
+          } else if (errorMessage.includes('Network error')) {
+            errorMessage = 'Network connection failed during test. Please check your internet connection.';
+          }
+          
+          throw new Error(errorMessage);
         }
       } else {
         const errorText = await response.text();
