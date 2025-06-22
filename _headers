@@ -1,0 +1,34 @@
+# Global headers for all routes
+/*
+  X-Frame-Options: ALLOWALL
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-XSS-Protection: 1; mode=block
+
+# API routes CORS headers
+/api/*
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
+  Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With
+  Access-Control-Max-Age: 86400
+
+# Version endpoint - never cache
+/api/version
+  Cache-Control: no-cache, no-store, must-revalidate, max-age=0
+  Pragma: no-cache
+  Expires: 0
+
+# Static assets caching
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Main app files
+/*.js
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.css
+  Cache-Control: public, max-age=31536000, immutable
+
+# HTML files - no cache for dynamic content
+/*.html
+  Cache-Control: no-cache, no-store, must-revalidate

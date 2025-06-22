@@ -69,6 +69,20 @@ A Discord Activity application for controlling PiShock devices in a multiplayer 
    npm run pages:deploy
    ```
 
+### Setting Secrets for Cloudflare Pages
+
+Before deploying, you must set the required secrets using Wrangler. Run the following commands and enter the values when prompted:
+
+```bash
+wrangler pages secret put DISCORD_CLIENT_ID
+wrangler pages secret put DISCORD_CLIENT_SECRET
+wrangler pages secret put PISHOCK_API_URL
+wrangler pages secret put PISHOCK_RELAY_API_KEY
+wrangler pages secret put PISHOCK_RELAY_USERNAME
+```
+
+These secrets are required for the application to function securely. Do not commit sensitive values to version control.
+
 ### Configuration
 
 #### Discord Application Setup

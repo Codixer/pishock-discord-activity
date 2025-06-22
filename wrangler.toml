@@ -1,0 +1,13 @@
+name = "pishock-discord-activity"
+compatibility_date = "2024-01-15"
+pages_build_output_dir = "dist"
+
+# KV Namespace bindings
+[[kv_namespaces]]
+binding = "PISHOCK_KV"
+id = "49b935b6bcee4aa6a2dafa286e842ef4"
+preview_id = "f6f7930286dc4624b80efaec808dd6ae"
+
+# Environment variables
+[vars]
+CF_PAGES = "1"
