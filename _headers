@@ -1,6 +1,6 @@
-# Global headers for all routes - DISABLE ALL CLOUDFLARE FEATURES
+# Global headers for all routes - AGGRESSIVELY DISABLE ALL CLOUDFLARE FEATURES
 /*
-  X-Frame-Options: ALLOWALL
+  X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-XSS-Protection: 1; mode=block
@@ -11,10 +11,13 @@
   CF-Browser-Insights: off
   CF-APO-Bypass: 1
   CF-Ray: off
-  # Prevent automatic optimizations that might inject scripts
   CF-Polish: off
   CF-Mirage: off
   CF-Rocket-Loader: off
+  CF-Auto-Minify: off
+  CF-ScrapeShield: off
+  # Strict CSP to block ALL external scripts
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.discordapp.com; connect-src 'self' https://discord.com https://do.pishock.com https://auth.pishock.com https://ps.pishock.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests
 
 # API routes CORS headers
 /api/*
@@ -43,4 +46,4 @@
 # HTML files - strict CSP and no cache
 /*.html
   Cache-Control: no-cache, no-store, must-revalidate
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.discordapp.com; connect-src 'self' https://discord.com https://do.pishock.com https://auth.pishock.com https://ps.pishock.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.discordapp.com; connect-src 'self' https://discord.com https://do.pishock.com https://auth.pishock.com https://ps.pishock.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests
