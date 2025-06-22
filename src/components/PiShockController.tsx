@@ -59,6 +59,7 @@ export function PiShockController({
   const [availableSharecodes, setAvailableSharecodes] = useState<any[]>([]);
   const [selectedSharecode, setSelectedSharecode] = useState<string>('');
   const [loadingShockers, setLoadingShockers] = useState(false);
+  const [detailedShockerInfo, setDetailedShockerInfo] = useState<any>(null);
 
   // Get the effective limits based on selected user
   const getEffectiveLimits = () => {
@@ -156,11 +157,15 @@ export function PiShockController({
     if (!apiKey || !username) {
       addNotification('warning', 'Missing Information', 'Please fill in API Key and Username');
       return;
-    }
-
-    // If we have available shockers but no selection, warn the user
+    }    // If we have available shockers but no selection, warn the user
     if (availableShockers.length > 0 && !selectedShockerId) {
       addNotification('warning', 'Select Shocker', 'Please select which shocker to use for incoming commands');
+      return;
+    }
+
+    // If we have available sharecodes but no selection, warn the user
+    if (availableSharecodes.length > 0 && !selectedSharecode) {
+      addNotification('warning', 'Select Sharecode', 'Please select a sharecode - this is required for sending commands');
       return;
     }
 
@@ -258,7 +263,7 @@ export function PiShockController({
     
     setLoadingShockers(true);
     try {
-      // Use the settings endpoint which now returns both shockers and sharecodes
+      // Use the settings endpoint to validate credentials and get shockers
       const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
         method: 'PUT',
         headers: {
@@ -289,16 +294,13 @@ export function PiShockController({
             }
           }
           
-          // Update sharecodes  
-          if (result.availableSharecodes) {
-            setAvailableSharecodes(result.availableSharecodes);
-          }
+          // Load sharecodes separately
+          loadDeviceSharecodes();
           
           const shockerCount = result.availableShockers?.length || 0;
-          const sharecodeCount = result.availableSharecodes?.length || 0;
-          addNotification('success', 'Data Loaded', `Found ${shockerCount} shockers and ${sharecodeCount} sharecodes`);
+          addNotification('success', 'Data Loading', `Found ${shockerCount} shockers, loading sharecodes...`);
         } else {
-          addNotification('warning', 'No Data Found', 'No shockers or sharecodes found in your PiShock account');
+          addNotification('warning', 'No Data Found', 'No shockers found in your PiShock account');
           setAvailableShockers([]);
           setAvailableSharecodes([]);
         }
@@ -313,7 +315,7 @@ export function PiShockController({
         addNotification('error', 'Failed to Load Data', errorMessage);
       }
     } catch (error) {
-      console.error('Failed to load shockers and sharecodes:', error);
+      console.error('Failed to load shockers:', error);
       addNotification('error', 'Load Failed', 'Failed to load available data');
     } finally {
       setLoadingShockers(false);
@@ -424,11 +426,10 @@ export function PiShockController({
         if (result.success) {
           const actionName = operation === 0 ? 'Shock' : operation === 1 ? 'Vibration' : 'Beep';
           addNotification('success', 'Command Sent', `${actionName} sent to ${selectedUser.displayName || selectedUser.username} - Intensity: ${intensity}%, Duration: ${duration}s`);
-          
-          // Refresh user statuses after successful command
-          if (window.refreshAllUserStatuses) {
+            // Refresh user statuses after successful command
+          if ((window as any).refreshAllUserStatuses) {
             setTimeout(() => {
-              window.refreshAllUserStatuses();
+              (window as any).refreshAllUserStatuses();
             }, 1000);
           }
         } else {
@@ -483,11 +484,10 @@ export function PiShockController({
         setCurrentUserMaxDuration(15);
         onConnectionChange(false);
         addNotification('info', 'Credentials Removed', 'Your PiShock credentials have been removed');
-        
-        // Refresh statuses
-        if (window.refreshAllUserStatuses) {
+          // Refresh statuses
+        if ((window as any).refreshAllUserStatuses) {
           setTimeout(() => {
-            window.refreshAllUserStatuses();
+            (window as any).refreshAllUserStatuses();
           }, 1000);
         }
       }
@@ -524,15 +524,14 @@ export function PiShockController({
   };
 
   const status = getConnectionStatus();
-
-  const loadDeviceSharecodes = async (deviceId: string) => {
-    if (!currentUser || !auth || !deviceId) {
+  const loadDeviceSharecodes = async () => {
+    if (!currentUser || !auth) {
       return;
     }
     
     try {
-      console.log('Loading sharecodes for device:', deviceId);
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/device-sharecodes?deviceId=${encodeURIComponent(deviceId)}`, {
+      console.log('Loading all sharecodes...');
+      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/device-sharecodes`, {
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
         },
@@ -543,8 +542,9 @@ export function PiShockController({
         
         if (result.success) {
           setAvailableSharecodes(result.sharecodes || []);
-          console.log(`Loaded ${result.sharecodes?.length || 0} sharecodes for device ${deviceId}`);
-            // Clear selected sharecode if it's not in the new list
+          console.log(`Loaded ${result.sharecodes?.length || 0} sharecodes`);
+          
+          // Clear selected sharecode if it's not in the new list
           if (selectedSharecode && result.sharecodes) {
             const isStillAvailable = result.sharecodes.some((sc: any) => 
               (sc.code || sc.shareCode) === selectedSharecode
@@ -554,30 +554,71 @@ export function PiShockController({
             }
           }
         } else {
-          console.log('No sharecodes found for device:', deviceId);
+          console.log('No sharecodes found');
           setAvailableSharecodes([]);
           setSelectedSharecode('');
         }
       } else {
-        console.error('Failed to load device sharecodes:', response.status);
+        console.error('Failed to load sharecodes:', response.status);
         // Don't show error notification as this is called automatically
       }
     } catch (error) {
-      console.error('Error loading device sharecodes:', error);
+      console.error('Error loading sharecodes:', error);
       // Don't show error notification as this is called automatically
     }
   };
-
-  // Load device-specific sharecodes when a device is selected
+  // Load sharecodes when user has stored credentials
   useEffect(() => {
-    if (selectedShockerId && hasStoredCredentials) {
-      loadDeviceSharecodes(selectedShockerId);
+    if (hasStoredCredentials) {
+      loadDeviceSharecodes();
     } else {
-      // Clear sharecodes if no device is selected
+      // Clear sharecodes if no credentials
       setAvailableSharecodes([]);
       setSelectedSharecode('');
     }
-  }, [selectedShockerId, hasStoredCredentials]);
+  }, [hasStoredCredentials]);
+
+  const loadDetailedShockerInfo = async (shareCode: string) => {
+    if (!currentUser || !auth || !shareCode) {
+      return;
+    }
+    
+    try {
+      console.log('Loading detailed shocker info for sharecode:', shareCode);
+      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/shockers-by-shareids?shareIds=${encodeURIComponent(shareCode)}`, {
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        
+        if (result.success) {
+          setDetailedShockerInfo(result.shockers);
+          console.log('Loaded detailed shocker info:', result.shockers);
+        } else {
+          console.log('No detailed shocker info found for sharecode:', shareCode);
+          setDetailedShockerInfo(null);
+        }
+      } else {
+        console.error('Failed to load detailed shocker info:', response.status);
+        setDetailedShockerInfo(null);
+      }
+    } catch (error) {
+      console.error('Error loading detailed shocker info:', error);
+      setDetailedShockerInfo(null);
+    }
+  };
+
+  // Load detailed shocker info when a sharecode is selected
+  useEffect(() => {
+    if (selectedSharecode && hasStoredCredentials) {
+      loadDetailedShockerInfo(selectedSharecode);
+    } else {
+      setDetailedShockerInfo(null);
+    }
+  }, [selectedSharecode, hasStoredCredentials]);
 
   return (
     <div className="h-full flex flex-col space-y-4 overflow-y-auto">
@@ -748,19 +789,14 @@ export function PiShockController({
             {availableSharecodes.length > 0 && (
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Select Your Sharecode (Optional)
-                  {selectedShockerId && (
-                    <span className="text-xs text-blue-400 ml-2">
-                      • for selected device
-                    </span>
-                  )}
+                  Select Your Sharecode <span className="text-red-400">*</span>
                 </label>
                 <select
                   value={selectedSharecode}
                   onChange={(e) => setSelectedSharecode(e.target.value)}
                   className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
                 >
-                  <option value="">No sharecode (use device selection)</option>
+                  <option value="">Choose a sharecode...</option>
                   {availableSharecodes.map((sharecode) => (
                     <option key={sharecode.code || sharecode.shareCode} value={sharecode.code || sharecode.shareCode}>
                       {sharecode.name || sharecode.code || sharecode.shareCode}
@@ -768,10 +804,7 @@ export function PiShockController({
                   ))}
                 </select>
                 <p className="text-xs text-gray-400 mt-1">
-                  {selectedShockerId 
-                    ? `Showing sharecodes for ${availableShockers.find(s => s.shockerId.toString() === selectedShockerId)?.displayName || 'selected device'}. If selected, sharecode will be used instead of device selection for commands.`
-                    : 'If selected, sharecode will be used instead of device selection for commands'
-                  }
+                  Sharecode is required for sending commands to your device
                 </p>
               </div>
             )}{/* Message when data hasn't been loaded */}
@@ -784,6 +817,19 @@ export function PiShockController({
               </div>
             )}
             
+            {/* Message when no sharecodes are available */}
+            {hasStoredCredentials && availableSharecodes.length === 0 && !loadingShockers && (
+              <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
+                <div className="flex items-center space-x-2 text-yellow-300 text-sm">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span>No sharecodes found in your PiShock account</span>
+                </div>
+                <p className="text-xs text-yellow-400 mt-1">
+                  You need to create sharecodes for your devices in your PiShock account to use this app
+                </p>
+              </div>
+            )}
+
             {/* User-configurable limits */}
             <div className="grid grid-cols-2 gap-3">
               <div>
