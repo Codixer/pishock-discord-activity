@@ -92,10 +92,10 @@ export function PiShockController({
       setDuration(limits.maxDuration);
     }
   }, [selectedUser, intensity, duration]);
-
   // Load current user's PiShock connection status when component mounts
   useEffect(() => {
     if (currentUser && auth) {
+      loadExistingCredentials();
       checkCurrentUserCredentials();
     }
   }, [currentUser, auth]);
@@ -263,8 +263,8 @@ export function PiShockController({
     
     setLoadingShockers(true);
     try {
-      // Use the settings endpoint to validate credentials and get shockers
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+      // Save credentials first using PUT, then load data
+      const saveResponse = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -280,8 +280,8 @@ export function PiShockController({
         }),
       });
       
-      if (response.ok) {
-        const result = await response.json();
+      if (saveResponse.ok) {
+        const result = await saveResponse.json();
         
         if (result.success) {
           // Update shockers
@@ -306,10 +306,10 @@ export function PiShockController({
       } else {
         let errorMessage = 'Failed to get available data';
         try {
-          const result = await response.json();
+          const result = await saveResponse.json();
           errorMessage = result.error || errorMessage;
         } catch (parseError) {
-          errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+          errorMessage = `HTTP ${saveResponse.status}: ${saveResponse.statusText}`;
         }
         addNotification('error', 'Failed to Load Data', errorMessage);
       }
@@ -622,6 +622,36 @@ export function PiShockController({
       setDetailedShockerInfo(null);
     }
   }, [selectedSharecode, hasStoredCredentials]);
+
+  // Load existing credentials on component mount
+  useEffect(() => {
+    loadExistingCredentials();
+  }, []);
+
+  const loadExistingCredentials = async () => {
+    if (!currentUser || !auth) return;
+    
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.credentials) {
+          // Load the existing credentials into the form
+          setApiKey(result.credentials.apiKey || '');
+          setUsername(result.credentials.username || '');
+          console.log('Loaded existing credentials for user:', result.credentials.username);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load existing credentials:', error);
+    }
+  };
 
   return (
     <div className="h-full flex flex-col space-y-4 overflow-y-auto">

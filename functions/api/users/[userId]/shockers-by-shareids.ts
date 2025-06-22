@@ -70,11 +70,11 @@ async function getShockersByShareIds(apiKey: string, username: string, shareIds:
         debugInfo: { authData }
       };
     }
-    
-    const userId = authData.UserId;
+      const userId = authData.UserId;
     console.log('Getting shockers for user ID:', userId, 'with share IDs:', shareIds);
     
     // Build URL with multiple shareIds parameters
+    // Each shareId needs to be a separate parameter: shareIds=112136&shareIds=112141
     const baseUrl = `https://ps.pishock.com/PiShock/GetShockersByShareIds?UserId=${userId}&Token=${encodeURIComponent(apiKey)}&api=true`;
     const shareIdParams = shareIds.map(id => `shareIds=${encodeURIComponent(id)}`).join('&');
     const url = `${baseUrl}&${shareIdParams}`;
@@ -114,15 +114,13 @@ async function getShockersByShareIds(apiKey: string, username: string, shareIds:
         error: 'Invalid shockers response format',
         debugInfo: { parseError: parseError instanceof Error ? parseError.message : 'Unknown parse error' }
       };
-    }
-
-    console.log('Parsed shockers data:', shockersData);
+    }    console.log('Parsed shockers data:', shockersData);
     
     if (!shockersData || typeof shockersData !== 'object') {
       console.log('No shockers found in response');
       return { 
         success: true, 
-        shockers: {},
+        shockers: [],
         debugInfo: { 
           shockersCount: 0,
           userId,
@@ -132,13 +130,24 @@ async function getShockersByShareIds(apiKey: string, username: string, shareIds:
       };
     }
     
-    console.log('✓ Found shockers data for', Object.keys(shockersData).length, 'users');
+    // The response format is: {"username": [shocker objects...]}
+    // We need to extract all shocker arrays and flatten them
+    let allShockers: any[] = [];
+    Object.entries(shockersData).forEach(([username, shockers]) => {
+      console.log(`Processing shockers for user: ${username}`, shockers);
+      if (Array.isArray(shockers)) {
+        allShockers = allShockers.concat(shockers);
+      }
+    });
+    
+    console.log('✓ Found shockers data for', Object.keys(shockersData).length, 'users, total shockers:', allShockers.length);
     
     return {
       success: true,
-      shockers: shockersData,
+      shockers: allShockers,
       debugInfo: { 
         userCount: Object.keys(shockersData).length,
+        shockerCount: allShockers.length,
         userId,
         shareIds,
         responseFormat: typeof shockersData
@@ -188,13 +197,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (method === 'GET') {
       // Get user's stored PiShock credentials
       const settingsKey = `pishock_settings_${userId}`;
-      const storedSettings = await env.PISHOCK_KV.get(settingsKey);
-
-      if (!storedSettings) {
+      const storedSettings = await env.PISHOCK_KV.get(settingsKey);      if (!storedSettings) {
         return jsonResponse({
           success: false,
           error: 'No PiShock settings found. Please configure your settings first.',
-          shockers: {}
+          shockers: []
         });
       }
 
@@ -203,7 +210,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         return jsonResponse({
           success: false,
           error: 'Invalid PiShock settings. Please reconfigure your settings.',
-          shockers: {}
+          shockers: []
         });
       }
 
@@ -211,20 +218,18 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const url = new URL(request.url);
       const shareIds = url.searchParams.getAll('shareIds');
 
-      if (shareIds.length === 0) {
-        return jsonResponse({
+      if (shareIds.length === 0) {        return jsonResponse({
           success: false,
           error: 'No share IDs provided. Please provide at least one shareIds parameter.',
-          shockers: {}
+          shockers: []
         });
       }
 
       const shockersResult = await getShockersByShareIds(settings.apiKey, settings.username, shareIds);
-      
-      if (shockersResult.success) {
+        if (shockersResult.success) {
         return jsonResponse({
           success: true,
-          shockers: shockersResult.shockers || {},
+          shockers: shockersResult.shockers || [],
           shareIds: shareIds,
           debugInfo: shockersResult.debugInfo
         });
@@ -232,19 +237,18 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         return jsonResponse({
           success: false,
           error: shockersResult.error || 'Failed to fetch shockers',
-          shockers: {},
+          shockers: [],
           debugInfo: shockersResult.debugInfo
         });
       }
     }
 
     return new Response('Method not allowed', { status: 405 });
-  } catch (error) {
-    console.error('Shockers by share IDs API error:', error);
+  } catch (error) {    console.error('Shockers by share IDs API error:', error);
     return jsonResponse({
       success: false,
       error: 'Internal server error',
-      shockers: {}
+      shockers: []
     }, 500);
   }
 };

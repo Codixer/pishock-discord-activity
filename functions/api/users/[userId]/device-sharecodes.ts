@@ -98,9 +98,10 @@ async function getDeviceSharecodes(apiKey: string, username: string, deviceId?: 
       };
     }
     
-    const responseText = await response.text();
-    console.log('Sharecodes raw response:', responseText.substring(0, 500));
-      let sharecodesData;
+    const responseText = await response.text();    console.log('Sharecodes raw response:', responseText.substring(0, 500));
+    console.log('Full raw response:', responseText);
+    
+    let sharecodesData;
     try {
       sharecodesData = JSON.parse(responseText);
     } catch (parseError) {
@@ -108,23 +109,38 @@ async function getDeviceSharecodes(apiKey: string, username: string, deviceId?: 
       return { 
         success: false, 
         error: 'Invalid sharecodes response format',
-        debugInfo: { parseError: parseError instanceof Error ? parseError.message : 'Unknown parse error' }
+        debugInfo: { 
+          parseError: parseError instanceof Error ? parseError.message : 'Unknown parse error',
+          rawResponse: responseText.substring(0, 200)
+        }
       };
-    }    console.log('Parsed sharecodes data:', sharecodesData);
+    }
     
-    // Handle the API response format - it returns an object with arrays of share IDs as values
+    console.log('Parsed sharecodes data:', sharecodesData);
+    console.log('Sharecodes data type:', typeof sharecodesData);
+    console.log('Sharecodes data keys:', sharecodesData ? Object.keys(sharecodesData) : 'no keys');
+      // Handle the API response format - it returns an object with arrays of share IDs as values
     let allShareIds: number[] = [];
+    console.log('Processing sharecodes data...');
+    
     if (typeof sharecodesData === 'object' && sharecodesData !== null) {
+      console.log('Data is object, extracting arrays from values...');
       // Extract arrays from the object values
-      Object.values(sharecodesData).forEach((value: any) => {
+      Object.entries(sharecodesData).forEach(([key, value]) => {
+        console.log(`Key: ${key}, Value:`, value, `Type: ${typeof value}, IsArray: ${Array.isArray(value)}`);
         if (Array.isArray(value)) {
           allShareIds = allShareIds.concat(value);
         }
       });
     } else if (Array.isArray(sharecodesData)) {
+      console.log('Data is array, using directly');
       // Fallback to direct array format
       allShareIds = sharecodesData;
+    } else {
+      console.log('Data is neither object nor array:', typeof sharecodesData);
     }
+    
+    console.log('Extracted share IDs:', allShareIds);
 
     if (allShareIds.length === 0) {
       console.log('No share IDs found in response');

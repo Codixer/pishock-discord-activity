@@ -525,8 +525,47 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   if (user.id !== userId) {
     return new Response('Forbidden', { status: 403 });
   }
-
   try {
+    if (method === 'GET') {
+      // Return existing stored credentials (without sensitive data)
+      const storedDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
+      const storedData = storedDataStr ? JSON.parse(storedDataStr) : null;
+      
+      if (!storedData?.credentials) {
+        return jsonResponse({
+          success: false,
+          error: 'No stored credentials found',
+          credentials: null
+        });
+      }
+      
+      try {
+        // Decrypt credentials to return them to the user
+        const dataString = atob(storedData.credentials);
+        const credentials = JSON.parse(dataString);
+        
+        return jsonResponse({
+          success: true,
+          credentials: {
+            apiKey: credentials.apiKey || '',
+            username: credentials.username || ''
+          },
+          settings: {
+            maxIntensity: storedData.maxIntensity || 100,
+            maxDuration: storedData.maxDuration || 15,
+            selectedShockerId: storedData.selectedShockerId || null,
+            selectedSharecode: storedData.selectedSharecode || null
+          }
+        });
+      } catch (decryptError) {
+        return jsonResponse({
+          success: false,
+          error: 'Failed to decrypt stored credentials',
+          credentials: null
+        });
+      }
+    }
+
     if (method === 'PUT') {
       const { apiKey, username, maxIntensity, maxDuration, selectedShockerId, selectedSharecode } = await request.json();
 

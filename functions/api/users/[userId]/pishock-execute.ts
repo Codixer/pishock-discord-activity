@@ -349,9 +349,81 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       let codeType;
       
       if (targetUserData.selectedSharecode) {
-        codeToUse = targetUserData.selectedSharecode;
-        codeType = 'sharecode';
-        console.log('EXECUTE: Using selected sharecode:', codeToUse);
+        // The selectedSharecode is actually a share ID, we need to get the actual shareCode
+        console.log('EXECUTE: Getting actual shareCode for share ID:', targetUserData.selectedSharecode);
+        
+        try {
+          // First get the target user's user ID (not executor's!)
+          const authUrl = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(targetCreds.apiKey)}&username=${encodeURIComponent(targetCreds.username)}`;
+          const authResponse = await fetch(authUrl, {
+            method: 'GET',
+            headers: {
+              'User-Agent': 'PiShock-Discord-Activity/2.0',
+              'Accept': 'application/json'
+            }
+          });
+          
+          if (!authResponse.ok) {
+            throw new Error('Failed to authenticate target user');
+          }
+          
+          const authData = await authResponse.json();
+          if (!authData || !authData.UserId) {
+            throw new Error('Failed to get target user ID');
+          }
+          
+          const targetPiShockUserId = authData.UserId;
+          
+          // Get detailed shocker info for this share ID using TARGET user's credentials
+          const sharecodesUrl = `https://ps.pishock.com/PiShock/GetShockersByShareIds?UserId=${targetPiShockUserId}&Token=${encodeURIComponent(targetCreds.apiKey)}&shareIds=${encodeURIComponent(targetUserData.selectedSharecode)}&api=true`;
+          
+          const sharecodesResponse = await fetch(sharecodesUrl, {
+            method: 'GET',
+            headers: {
+              'User-Agent': 'PiShock-Discord-Activity/2.0',
+              'Accept': 'application/json'
+            }
+          });
+          
+          if (sharecodesResponse.ok) {
+            const sharecodesData = await sharecodesResponse.json();
+            console.log('EXECUTE: Sharecodes response:', sharecodesData);
+            
+            // Extract the actual shareCode from the response
+            let actualShareCode = null;
+            if (sharecodesData && typeof sharecodesData === 'object') {
+              // Response format: {"username": [shocker objects...]}
+              Object.values(sharecodesData).forEach((shockers: any) => {
+                if (Array.isArray(shockers)) {
+                  shockers.forEach((shocker: any) => {
+                    if (shocker.shareId && shocker.shareId.toString() === targetUserData.selectedSharecode.toString()) {
+                      actualShareCode = shocker.shareCode;
+                      console.log('EXECUTE: Found actual shareCode:', actualShareCode, 'for share ID:', shocker.shareId);
+                    }
+                  });
+                }
+              });
+            }
+            
+            if (actualShareCode) {
+              codeToUse = actualShareCode;
+              codeType = 'sharecode';
+              console.log('EXECUTE: Using actual shareCode:', codeToUse);
+            } else {
+              console.warn('EXECUTE: Could not find actual shareCode, falling back to share ID');
+              codeToUse = targetUserData.selectedSharecode;
+              codeType = 'sharecode_fallback';
+            }
+          } else {
+            console.warn('EXECUTE: Failed to get detailed shocker info, using share ID as fallback');
+            codeToUse = targetUserData.selectedSharecode;
+            codeType = 'sharecode_fallback';
+          }
+        } catch (error) {
+          console.error('EXECUTE: Error getting detailed shocker info:', error);
+          codeToUse = targetUserData.selectedSharecode;
+          codeType = 'sharecode_fallback';
+        }
       } else if (targetShocker) {
         codeToUse = targetShocker.shockerId.toString();
         codeType = 'shocker';
