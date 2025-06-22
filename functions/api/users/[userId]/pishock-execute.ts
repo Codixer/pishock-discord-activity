@@ -141,7 +141,44 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     // Get target user's PiShock credentials
-    const encrypted = await env.PISHOCK_KV.get(`user:${targetUserId}:pishock`);
+    // Get all user data from single key (new format)
+    const userDataStr = await env.PISHOCK_KV.get(`user:${targetUserId}:data`);
+    let userData = userDataStr ? JSON.parse(userDataStr) : null;
+    let encrypted = userData?.credentials;
+    
+    // Migration: Check old format if new format not found
+    if (!encrypted) {
+      console.log('EXECUTE: Checking old format for user:', targetUserId);
+      const oldEncrypted = await env.PISHOCK_KV.get(`user:${targetUserId}:pishock`);
+      if (oldEncrypted) {
+        console.log('EXECUTE: Found data in old format, migrating...');
+        // Migrate old data to new format
+        userData = {
+          credentials: oldEncrypted,
+          lastTested: await env.PISHOCK_KV.get(`user:${targetUserId}:pishock:lastTested`) || new Date().toISOString(),
+          configuredBy: await env.PISHOCK_KV.get(`user:${targetUserId}:pishock:configuredBy`) || 'unknown',
+          hasOwnDevice: (await env.PISHOCK_KV.get(`user:${targetUserId}:pishock:hasOwnDevice`)) === 'true',
+          piShockUserId: await env.PISHOCK_KV.get(`user:${targetUserId}:pishock:piShockUserId`) || null,
+          lastUpdated: new Date().toISOString()
+        };
+        
+        // Save in new format
+        await env.PISHOCK_KV.put(`user:${targetUserId}:data`, JSON.stringify(userData));
+        
+        // Clean up old keys
+        await Promise.all([
+          env.PISHOCK_KV.delete(`user:${targetUserId}:pishock`),
+          env.PISHOCK_KV.delete(`user:${targetUserId}:pishock:lastTested`),
+          env.PISHOCK_KV.delete(`user:${targetUserId}:pishock:configuredBy`),
+          env.PISHOCK_KV.delete(`user:${targetUserId}:pishock:hasOwnDevice`),
+          env.PISHOCK_KV.delete(`user:${targetUserId}:pishock:piShockUserId`)
+        ]);
+        
+        encrypted = userData.credentials;
+        console.log('EXECUTE: Migration completed for user:', targetUserId);
+      }
+    }
+    
     if (!encrypted) {
       return jsonResponse({ 
         success: false, 

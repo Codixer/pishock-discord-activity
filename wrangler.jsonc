@@ -22,7 +22,8 @@
 			"preview_id": "f6f7930286dc4624b80efaec808dd6ae"
 		}
 	],
-	
+
+  
 	// Logging configuration (equivalent to [observability.logs] enabled = true in wrangler.toml)
 	"observability": {
 		"logs": {
