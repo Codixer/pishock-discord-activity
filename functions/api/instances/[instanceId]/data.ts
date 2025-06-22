@@ -95,6 +95,26 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     if (method === 'PUT') {
       const update = await request.json();
+      
+      // If updating selectedUserId, validate that the user has PiShock configured
+      if (update.selectedUserId) {
+        const targetPiShockData = await env.PISHOCK_KV.get(`user:${update.selectedUserId}:data`);
+        if (!targetPiShockData) {
+          return jsonResponse({ 
+            success: false, 
+            error: 'Selected user has no PiShock configuration' 
+          }, 400);
+        }
+
+        const userData = JSON.parse(targetPiShockData);
+        if (!userData.hasDevices || !userData.credentials) {
+          return jsonResponse({ 
+            success: false, 
+            error: 'Selected user has no devices configured' 
+          }, 400);
+        }
+      }
+      
       const existing = await env.PISHOCK_KV.get(`instance_data:${instanceId}`);
       const merged = { 
         ...(existing ? JSON.parse(existing) : {}), 

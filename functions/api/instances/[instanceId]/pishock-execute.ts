@@ -144,28 +144,33 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     try {
       const creds = await decrypt(encrypted);
       
-      // Get the configured shocker for this instance
-      const instanceSettings = await env.PISHOCK_KV.get(`instance:${instanceId}:settings`);
-      if (!instanceSettings) {
+      if (!creds.sharecode) {
         return jsonResponse({ 
           success: false, 
-          error: 'No shocker configured for this instance' 
+          error: 'No sharecode configured for this instance' 
+        });
+      }
+
+      // Verify that the target user has a shocker configured
+      const targetPiShockData = await env.PISHOCK_KV.get(`user:${targetUserId}:data`);
+      if (!targetPiShockData) {
+        return jsonResponse({ 
+          success: false, 
+          error: 'Target user has no PiShock configuration' 
+        });
+      }
+
+      const userData = JSON.parse(targetPiShockData);
+      if (!userData.hasDevices || !userData.credentials) {
+        return jsonResponse({ 
+          success: false, 
+          error: 'Target user has no devices configured' 
         });
       }
       
-      const settings = JSON.parse(instanceSettings);
-      const selectedShockerId = settings.selectedShockerId;
-      
-      if (!selectedShockerId) {
-        return jsonResponse({ 
-          success: false, 
-          error: 'No shocker selected for this instance' 
-        });
-      }
-      
-      // Execute PiShock command using device-specific API
+      // Execute PiShock command using sharecode
       const payload = {
-        code: selectedShockerId,
+        code: creds.sharecode,
         duration: duration.toString(),
         intensity: intensity.toString(),
         op: operation.toString(),
