@@ -25,12 +25,13 @@ const urlParams = new URLSearchParams(window.location.search);
 const isEmbedded = urlParams.has('frame_id');
 
 // Debug environment variables
-console.log('Environment check:', {
+const envCheck = {
   client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
   is_placeholder: import.meta.env.VITE_DISCORD_CLIENT_ID === 'YOUR_DISCORD_CLIENT_ID_HERE',
   dev_mode: import.meta.env.DEV,
-  env_keys: Object.keys(import.meta.env).filter(key => key.startsWith('VITE_'))
-});
+  env_keys: Object.keys(import.meta.env).filter(key => key.startsWith('VITE_')),
+};
+console.log('Environment check:', envCheck);
 
 // Initialize Discord SDK with dummy parameters if not embedded
 let discordSdk: DiscordSDK;
@@ -39,7 +40,8 @@ if (isEmbedded) {
   const clientId = import.meta.env.VITE_DISCORD_CLIENT_ID;
   if (!clientId || clientId === 'YOUR_DISCORD_CLIENT_ID_HERE') {
     console.error('❌ VITE_DISCORD_CLIENT_ID is not set or still using placeholder value');
-    throw new Error('Discord Client ID is required. Please update VITE_DISCORD_CLIENT_ID in wrangler.jsonc vars section');
+    console.error('💡 Solution: Set VITE_DISCORD_CLIENT_ID in Cloudflare Pages Dashboard → Settings → Environment variables');
+    throw new Error('Discord Client ID is required. Please set VITE_DISCORD_CLIENT_ID in Cloudflare Pages Dashboard');
   }
   discordSdk = new DiscordSDK(clientId);
 } else {

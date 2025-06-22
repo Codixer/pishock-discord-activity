@@ -14,7 +14,7 @@
 	// Main worker script (compiled from Pages Functions) - only for API routes
 	"main": "./dist/_worker.js",
 	
-	// KV namespace bindings (remove the invalid "type" field)
+	// KV namespace bindings
 	"kv_namespaces": [
 		{
 			"binding": "PISHOCK_KV",
@@ -23,17 +23,11 @@
 		}
 	],
 	
-	// Environment variables to AGGRESSIVELY disable Cloudflare features
+	// Runtime environment variables (for worker functions only)
 	"vars": {
 		"CF_PAGES": "1",
-		"VITE_DISCORD_CLIENT_ID": "552519575305060373",
 		"CF_ANALYTICS_DISABLED": "true",
 		"CF_WEB_ANALYTICS_DISABLED": "true",
-		"CF_BROWSER_INSIGHTS_DISABLED": "true",
-		"CF_SPEED_BRAIN_DISABLED": "true",
-		"CF_APPS_DISABLED": "true",
-		"CF_BOT_MANAGEMENT_DISABLED": "true",
-		"DISABLE_CLOUDFLARE_ANALYTICS": "true",
-		"DISABLE_ALL_CF_FEATURES": "true"
+		"CF_BROWSER_INSIGHTS_DISABLED": "true"
 	}
 }
