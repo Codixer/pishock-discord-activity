@@ -29,6 +29,9 @@
 		"CF_PAGES": "1",
 		"CF_ANALYTICS_DISABLED": "true",
 		"CF_WEB_ANALYTICS_DISABLED": "true",
-		"CF_BROWSER_INSIGHTS_DISABLED": "true"
+		"CF_BROWSER_INSIGHTS_DISABLED": "true",
+		// Note: VITE_DISCORD_CLIENT_ID is a BUILD-TIME variable
+		// It must be set during npm run build, not here
+		"BUILD_INFO": "Set DISCORD_CLIENT_ID before build"
 	}
 }

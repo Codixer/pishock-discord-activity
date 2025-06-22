@@ -4,7 +4,6 @@ interface Env {
   PISHOCK_KV: KVNamespace;
   PISHOCK_RELAY_API_KEY?: string;
   PISHOCK_RELAY_USERNAME?: string;
-  PISHOCK_RELAY_SHARECODE?: string;
 }
 
 interface ActivityLogEntry {
@@ -125,24 +124,50 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     const apiKey = env.PISHOCK_RELAY_API_KEY;
     const username = env.PISHOCK_RELAY_USERNAME;
-    const sharecode = env.PISHOCK_RELAY_SHARECODE;
 
-    if (!apiKey || !username || !sharecode) {
+    if (!apiKey || !username) {
       return jsonResponse({ 
         success: false, 
-        error: 'Relay account not configured' 
+        error: 'Relay account not configured - missing API key or username' 
+      });
+    }
+
+    // Get target user's PiShock credentials to get their share code
+    const targetUserCredentials = await env.PISHOCK_KV.get(`user:${targetUserId}:pishock`);
+    if (!targetUserCredentials) {
+      return jsonResponse({ 
+        success: false, 
+        error: 'Target user has no PiShock device configured' 
+      });
+    }
+
+    let targetShareCode;
+    try {
+      const creds = JSON.parse(atob(targetUserCredentials));
+      targetShareCode = creds.sharecode;
+      
+      if (!targetShareCode || targetShareCode === 'account_access') {
+        return jsonResponse({ 
+          success: false, 
+          error: 'Target user has no device configured (account-only access)' 
+        });
+      }
+    } catch (error) {
+      return jsonResponse({ 
+        success: false, 
+        error: 'Failed to decrypt target user credentials' 
       });
     }
 
     try {
-      // Execute PiShock command using relay account
+      // Execute PiShock command using relay account credentials but target user's device
       const response = await fetch('https://do.pishock.com/api/apioperate/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           Username: username,
           Apikey: apiKey,
-          Code: '00000000', // Use default sharecode for relay account since it's account-only access
+          Code: targetShareCode, // Target user's device share code
           Intensity: intensity,
           Duration: duration,
           Op: operation,

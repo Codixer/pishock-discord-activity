@@ -50,6 +50,22 @@ export function PiShockController({
   const [relayAccountAvailable, setRelayAccountAvailable] = useState(false);
   const [currentUserPiShockUserId, setCurrentUserPiShockUserId] = useState<string>('');
 
+  // 🔒 Security Check: Ensure no sensitive data is exposed in frontend
+  useEffect(() => {
+    const envKeys = Object.keys(import.meta.env);
+    const sensitiveKeys = envKeys.filter(key => 
+      key.includes('PISHOCK') && key.includes('API_KEY') ||
+      key.includes('PISHOCK') && key.includes('USERNAME') ||
+      key.includes('SECRET')
+    );
+    
+    if (sensitiveKeys.length > 0) {
+      console.error('🚨 SECURITY ALERT: Sensitive data detected in frontend environment!');
+      console.error('Exposed keys:', sensitiveKeys);
+      console.error('These should NOT have VITE_ prefix!');
+    }
+  }, []);
+
   // Load current user's PiShock connection status when component mounts
   useEffect(() => {
     if (currentUser && auth) {
@@ -435,7 +451,7 @@ export function PiShockController({
                 )}
                 {useRelayAccount && (
                   <div className="text-xs opacity-75">
-                    🤖 Using shared relay account
+                    🤖 Using relay account - can target any user's device
                   </div>
                 )}
               </div>
@@ -522,7 +538,7 @@ export function PiShockController({
                       <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded">Shared Access</span>
                     </div>
                     <p className="text-xs text-gray-400 mt-1">
-                      Use shared account access - works like account-only mode but with shared credentials
+                      Use shared relay account to send commands to any user's device
                     </p>
                   </div>
                 </label>

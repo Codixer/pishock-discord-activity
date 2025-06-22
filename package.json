@@ -12,7 +12,8 @@
     "workers:dev": "npx wrangler dev --local",
     "workers:deploy": "npx wrangler deploy",
     "deploy": "npm run build && npm run workers:deploy",
-    "deploy:with-env": "npx wrangler deploy --var VITE_DISCORD_CLIENT_ID:${DISCORD_CLIENT_ID}",
+    "deploy:with-env": "DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID} npm run build && npm run workers:deploy",
+    "deploy:auto": "node scripts/deploy-workers.js",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

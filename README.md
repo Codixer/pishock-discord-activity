@@ -24,7 +24,15 @@ This project deploys directly to Cloudflare Workers using Wrangler CLI.
 
 ### Environment Variable Setup for Workers
 
-**Option 1: Set in Workers Dashboard (Recommended)**
+**🎯 QUICK FIX: Use the Automated Deploy Script**
+
+```bash
+# Set your Discord Client ID and deploy automatically
+export DISCORD_CLIENT_ID="your_actual_discord_client_id_here"
+npm run deploy:auto
+```
+
+**Option 1: Set in Workers Dashboard**
 
 1. **Go to Cloudflare Workers Dashboard**:
    - Navigate to `Workers & Pages` → Your worker → `Settings` → `Variables and Secrets`
@@ -34,6 +42,7 @@ This project deploys directly to Cloudflare Workers using Wrangler CLI.
    DISCORD_CLIENT_SECRET = your_discord_client_secret
    PISHOCK_RELAY_API_KEY = your_relay_api_key (optional)
    PISHOCK_RELAY_USERNAME = your_relay_username (optional)
+   # Note: Relay accounts use account-only access, no sharecode needed
    ```
 
 3. **For build-time variables**, you have two options:
@@ -42,7 +51,7 @@ This project deploys directly to Cloudflare Workers using Wrangler CLI.
 
 ```bash
 # Set your Discord Client ID as environment variable locally
-export DISCORD_CLIENT_ID="your_actual_discord_client_id"
+export DISCORD_CLIENT_ID="your_actual_discord_client_id_here"
 
 # Deploy with the variable
 npm run deploy:with-env
@@ -52,7 +61,7 @@ npm run deploy:with-env
 
 ```bash
 # Create .env file
-echo "VITE_DISCORD_CLIENT_ID=your_actual_discord_client_id" > .env
+echo "VITE_DISCORD_CLIENT_ID=your_actual_discord_client_id_here" > .env
 
 # Build locally (picks up .env)
 npm run build
@@ -76,12 +85,15 @@ npm run workers:deploy
 3. **Deploy with environment variables**:
    ```bash
    # Method 1: Set locally and deploy
-   export DISCORD_CLIENT_ID="1234567890123456789"
-   npm run deploy:with-env
+   export DISCORD_CLIENT_ID="your_actual_client_id_here"
+   npm run deploy:auto
    
    # Method 2: Use .env file
-   echo "VITE_DISCORD_CLIENT_ID=1234567890123456789" > .env
+   echo "VITE_DISCORD_CLIENT_ID=your_actual_client_id_here" > .env
    npm run deploy
+   
+   # Method 3: One-liner with environment variable
+   DISCORD_CLIENT_ID="your_actual_client_id_here" npm run deploy:auto
    ```
 
 ### Verify Environment Variables
@@ -91,7 +103,7 @@ After deployment, check the browser console:
 ```javascript
 // Should show your actual Discord Client ID
 Environment check: {
-  client_id: "1234567890123456789", // ✅ Your real ID
+  client_id: "your_actual_client_id_here", // ✅ Your real ID
   env_keys: ["VITE_DISCORD_CLIENT_ID"] // ✅ Variable found
 }
 ```
@@ -102,6 +114,19 @@ Environment check: {
 |---------------|---------|-----------|----------------|
 | `VITE_*` | Build-time (React app) | Local `.env` or deploy command | Build time only |
 | Regular vars | Runtime (Worker functions) | Workers Dashboard or `wrangler.jsonc` | Runtime only |
+
+### 🚨 Security Warning: VITE_ Variables
+
+**CRITICAL**: Never use `VITE_` prefix for sensitive data!
+
+| ✅ **Safe for VITE_** | ❌ **Never use VITE_ for** |
+|----------------------|---------------------------|
+| Public Discord Client ID | PiShock API keys |
+| Public API endpoints | Database credentials |
+| Feature flags | Authentication secrets |
+| Theme settings | Private tokens |
+
+**Why?** Vite bundles all `VITE_*` variables into the frontend JavaScript, making them visible in the browser.
 
 ## Development
 
@@ -166,6 +191,7 @@ Set these in Cloudflare Workers Dashboard → Settings → Variables and Secrets
 DISCORD_CLIENT_SECRET = your_discord_client_secret_here
 PISHOCK_RELAY_API_KEY = your_relay_api_key (optional)
 PISHOCK_RELAY_USERNAME = your_relay_username (optional)
+# Note: Relay accounts use account-only access, no sharecode needed
 ```
 
 ## Architecture
@@ -192,10 +218,10 @@ This project uses:
 
 ```bash
 # Set environment variable locally
-export DISCORD_CLIENT_ID="1234567890123456789"
+export DISCORD_CLIENT_ID="your_actual_client_id_here"
 
 # Deploy with the variable
-npm run deploy:with-env
+npm run deploy:auto
 ```
 
 ### Example 2: Using .env File
@@ -203,7 +229,7 @@ npm run deploy:with-env
 ```bash
 # Create .env file
 cat > .env << EOF
-VITE_DISCORD_CLIENT_ID=1234567890123456789
+VITE_DISCORD_CLIENT_ID=your_actual_client_id_here
 EOF
 
 # Build and deploy
@@ -231,12 +257,12 @@ wrangler deploy --var VITE_DISCORD_CLIENT_ID:$DISCORD_CLIENT_ID
    echo $DISCORD_CLIENT_ID
    
    # Or create .env file
-   echo "VITE_DISCORD_CLIENT_ID=your_id_here" > .env
+   echo "VITE_DISCORD_CLIENT_ID=your_actual_client_id_here" > .env
    ```
 
 2. **Use the deploy command with variables**:
    ```bash
-   npm run deploy:with-env
+   npm run deploy:auto
    ```
 
 3. **Check Workers Dashboard**:

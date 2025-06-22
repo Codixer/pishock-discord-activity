@@ -2,7 +2,6 @@ interface Env {
   PISHOCK_KV: KVNamespace;
   PISHOCK_RELAY_API_KEY?: string;
   PISHOCK_RELAY_USERNAME?: string;
-  PISHOCK_RELAY_SHARECODE?: string;
 }
 
 function jsonResponse(body: any, status = 200) {
@@ -71,14 +70,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     const hasApiKey = !!env.PISHOCK_RELAY_API_KEY;
     const hasUsername = !!env.PISHOCK_RELAY_USERNAME;
 
-    // Relay account doesn't need a sharecode - it uses account-only access
+    // Relay account only needs API key and username for account-only access
     const available = hasApiKey && hasUsername;
 
     return jsonResponse({ 
       available,
       configured: {
         apiKey: hasApiKey,
-        username: hasUsername
+        username: hasUsername,
+        description: 'Relay account can send commands to any user\'s device using their share codes'
       }
     });
   } catch (error) {

@@ -2,7 +2,6 @@ interface Env {
   PISHOCK_KV: KVNamespace;
   PISHOCK_RELAY_API_KEY?: string;
   PISHOCK_RELAY_USERNAME?: string;
-  PISHOCK_RELAY_SHARECODE?: string;
 }
 
 function jsonResponse(body: any, status = 200) {
@@ -151,13 +150,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   try {
     const apiKey = env.PISHOCK_RELAY_API_KEY;
     const username = env.PISHOCK_RELAY_USERNAME;
-    const sharecode = env.PISHOCK_RELAY_SHARECODE;
 
-    if (!apiKey || !username || !sharecode) {
+    if (!apiKey || !username) {
       return jsonResponse({ 
         success: false, 
         isConnected: false, 
-        error: 'Relay account not configured' 
+        error: 'Relay account not configured - missing API key or username' 
       });
     }
 
@@ -176,7 +174,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       success: credentialValidation.valid, 
       isConnected: credentialValidation.valid, 
       userId: credentialValidation.userId,
-      lastTested 
+      lastTested,
+      description: 'Relay account credentials validated - can send commands to user devices'
     });
   } catch (error) {
     console.error('Relay account test error:', error);
