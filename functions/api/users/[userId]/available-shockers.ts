@@ -69,14 +69,14 @@ async function getUserDevicesShockers(apiKey: string, username: string): Promise
     const authData = await authResponse.json();
     console.log('Auth response data:', authData);
     
-    if (!authData || !authData.id) {
+    if (!authData || !authData.UserId) {
       return { 
         success: false, 
         error: 'Invalid credentials - could not get user ID'
       };
     }
     
-    const userId = authData.id;
+    const userId = authData.UserId;
     console.log('Got user ID:', userId);
     
     // Now use the actual user ID to get devices

@@ -76,11 +76,11 @@ async function getUserDevices(apiKey: string, username: string): Promise<{ hasDe
     }
 
     const authData = await authResponse.json();
-    if (!authData || !authData.id) {
+    if (!authData || !authData.UserId) {
       return { hasDevices: false, error: 'Failed to get user ID' };
     }
 
-    const userId = authData.id;
+    const userId = authData.UserId;
     
     const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=${userId}&token=${encodeURIComponent(apiKey)}&api=true`;
     

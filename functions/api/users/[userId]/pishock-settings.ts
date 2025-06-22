@@ -106,7 +106,7 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       };
     }
 
-    if (!authData || !authData.id) {
+    if (!authData || !authData.UserId) {
       return { 
         valid: false, 
         error: 'Invalid credentials - authentication failed',
@@ -114,7 +114,7 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       };
     }
 
-    const userId = authData.id;
+    const userId = authData.UserId;
     console.log('✓ Authentication successful, user ID:', userId);
 
     // Now use the actual user ID to validate by getting devices
@@ -261,7 +261,7 @@ async function getUserDevices(apiKey: string, username: string): Promise<{ hasDe
     }
     
     const authData = await authResponse.json();
-    if (!authData || !authData.id) {
+    if (!authData || !authData.UserId) {
       return { 
         hasDevices: false, 
         error: 'Failed to get user ID',
@@ -269,7 +269,7 @@ async function getUserDevices(apiKey: string, username: string): Promise<{ hasDe
       };
     }
     
-    const userId = authData.id;
+    const userId = authData.UserId;
     console.log('Got user ID:', userId);
     
     // Now use the actual user ID to get devices

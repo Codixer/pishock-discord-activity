@@ -58,11 +58,11 @@ async function testPiShockConnection(apiKey: string, username: string): Promise<
     }
 
     const authData = await authResponse.json();
-    if (!authData || !authData.id) {
+    if (!authData || !authData.UserId) {
       return false;
     }
 
-    const userId = authData.id;
+    const userId = authData.UserId;
 
     // Use the v3 API to validate credentials by attempting to get user devices
     const response = await fetch(`https://ps.pishock.com/PiShock/GetUserDevices?userId=${userId}&token=${encodeURIComponent(apiKey)}&api=true`, {

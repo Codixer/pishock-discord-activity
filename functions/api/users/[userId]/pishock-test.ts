@@ -106,7 +106,7 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       };
     }
 
-    if (!authData || !authData.id) {
+    if (!authData || !authData.UserId) {
       return { 
         valid: false, 
         error: 'Invalid credentials - authentication failed',
@@ -114,7 +114,7 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       };
     }
 
-    const piShockUserId = authData.id;
+    const piShockUserId = authData.UserId;
     console.log('TEST: ✓ Authentication successful, user ID:', piShockUserId);
 
     // Use the v3 API to validate credentials by attempting to get user devices
@@ -254,12 +254,12 @@ async function checkUserDevices(apiKey: string, username: string): Promise<{ has
     }
     
     const authData = await authResponse.json();
-    if (!authData || !authData.id) {
+    if (!authData || !authData.UserId) {
       console.log('TEST: No user ID for device check');
       return { hasDevices: false, error: 'No user ID' };
     }
     
-    const piShockUserId = authData.id;
+    const piShockUserId = authData.UserId;
     
     // Use the v3 API to get user devices
     const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=${piShockUserId}&token=${encodeURIComponent(apiKey)}&api=true`;

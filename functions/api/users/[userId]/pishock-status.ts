@@ -107,12 +107,12 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
     }
     
     const authData = await authResponse.json();
-    if (!authData || !authData.id) {
+    if (!authData || !authData.UserId) {
       console.log('STATUS: No user ID in auth response');
       return { valid: false };
     }
     
-    const piShockUserId = authData.id;
+    const piShockUserId = authData.UserId;
     console.log('STATUS: Got user ID:', piShockUserId);
     
     // Use the v3 API to validate credentials
@@ -187,12 +187,12 @@ async function checkUserDevices(apiKey: string, username: string): Promise<{ has
     }
     
     const authData = await authResponse.json();
-    if (!authData || !authData.id) {
+    if (!authData || !authData.UserId) {
       console.log('STATUS: No user ID for device check');
       return { hasDevices: false };
     }
     
-    const piShockUserId = authData.id;
+    const piShockUserId = authData.UserId;
     
     // Use the v3 API to get user devices
     const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=${piShockUserId}&token=${encodeURIComponent(apiKey)}&api=true`;
