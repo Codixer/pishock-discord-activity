@@ -47,8 +47,29 @@ async function decrypt(encryptedData: string): Promise<any> {
 
 async function testPiShockConnection(apiKey: string, username: string): Promise<boolean> {
   try {
+    // First get the user ID
+    const authUrl = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
+    const authResponse = await fetch(authUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'PiShock-Discord-Activity/2.0',
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!authResponse.ok) {
+      return false;
+    }
+
+    const authData = await authResponse.json();
+    if (!authData || !authData.id) {
+      return false;
+    }
+
+    const userId = authData.id;
+
     // Use the v3 API to validate credentials by attempting to get user devices
-    const response = await fetch(`https://ps.pishock.com/PiShock/GetUserDevices?userId=0&token=${encodeURIComponent(apiKey)}&api=true`, {
+    const response = await fetch(`https://ps.pishock.com/PiShock/GetUserDevices?userId=${userId}&token=${encodeURIComponent(apiKey)}&api=true`, {
       method: 'GET',
       headers: {
         'User-Agent': 'PiShock-Discord-Activity/2.0',

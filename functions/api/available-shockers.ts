@@ -60,7 +60,29 @@ async function decrypt(encryptedData: string): Promise<any> {
 
 async function getUserDevices(apiKey: string, username: string): Promise<{ hasDevices: boolean; devices?: any[]; error?: string }> {
   try {
-    const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=0&token=${encodeURIComponent(apiKey)}&api=true`;
+    // First get the user ID
+    const authUrl = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
+    const authResponse = await fetch(authUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'PiShock-Discord-Activity/2.0',
+        'Accept': 'application/json'
+      },
+      signal: AbortSignal.timeout(10000)
+    });
+
+    if (!authResponse.ok) {
+      return { hasDevices: false, error: `Authentication failed: HTTP ${authResponse.status}` };
+    }
+
+    const authData = await authResponse.json();
+    if (!authData || !authData.id) {
+      return { hasDevices: false, error: 'Failed to get user ID' };
+    }
+
+    const userId = authData.id;
+    
+    const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=${userId}&token=${encodeURIComponent(apiKey)}&api=true`;
     
     const response = await fetch(url, {
       method: 'GET',

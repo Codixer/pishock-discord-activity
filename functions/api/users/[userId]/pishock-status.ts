@@ -90,8 +90,33 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
     console.log('STATUS: Validating PiShock credentials using v3 API');
     console.log('STATUS: Username:', username);
     
+    // First, authenticate and get the actual user ID
+    const authUrl = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
+    
+    const authResponse = await fetch(authUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'PiShock-Discord-Activity/2.0',
+        'Accept': 'application/json'
+      }
+    });
+    
+    if (!authResponse.ok) {
+      console.log('STATUS: Auth response not OK:', authResponse.status);
+      return { valid: false };
+    }
+    
+    const authData = await authResponse.json();
+    if (!authData || !authData.id) {
+      console.log('STATUS: No user ID in auth response');
+      return { valid: false };
+    }
+    
+    const piShockUserId = authData.id;
+    console.log('STATUS: Got user ID:', piShockUserId);
+    
     // Use the v3 API to validate credentials
-    const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=0&token=${encodeURIComponent(apiKey)}&api=true`;
+    const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=${piShockUserId}&token=${encodeURIComponent(apiKey)}&api=true`;
     
     const response = await fetch(url, {
       method: 'GET',
@@ -128,13 +153,13 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
     }
     
     // Extract userId from the first device if available
-    let userId = null;
+    let extractedUserId = null;
     if (devicesData.length > 0 && devicesData[0].userId) {
-      userId = devicesData[0].userId.toString();
+      extractedUserId = devicesData[0].userId.toString();
     }
     
     console.log('STATUS: Found valid credentials with', devicesData.length, 'devices');
-    return { valid: true, userId };
+    return { valid: true, userId: piShockUserId.toString() };
   } catch (error) {
     console.error('STATUS: PiShock credential validation error:', error);
     return { valid: false };
@@ -146,8 +171,31 @@ async function checkUserDevices(apiKey: string, username: string): Promise<{ has
     console.log('STATUS: Checking user devices using v3 API');
     console.log('STATUS: Username:', username);
     
+    // First get the user ID
+    const authUrl = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
+    const authResponse = await fetch(authUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'PiShock-Discord-Activity/2.0',
+        'Accept': 'application/json'
+      }
+    });
+    
+    if (!authResponse.ok) {
+      console.log('STATUS: Auth failed for device check:', authResponse.status);
+      return { hasDevices: false };
+    }
+    
+    const authData = await authResponse.json();
+    if (!authData || !authData.id) {
+      console.log('STATUS: No user ID for device check');
+      return { hasDevices: false };
+    }
+    
+    const piShockUserId = authData.id;
+    
     // Use the v3 API to get user devices
-    const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=0&token=${encodeURIComponent(apiKey)}&api=true`;
+    const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=${piShockUserId}&token=${encodeURIComponent(apiKey)}&api=true`;
     
     const response = await fetch(url, {
       method: 'GET',

@@ -44,10 +44,43 @@ async function getUserDevicesShockers(apiKey: string, username: string): Promise
   try {
     console.log('=== Getting user shockers for selection ===');
     console.log('Username:', username);
-    console.log('API Key:', apiKey);
+    console.log('API Key length:', apiKey.length);
     
-    // Use the v3 API to get user devices
-    const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=0&token=${encodeURIComponent(apiKey)}&api=true`;
+    // First, get the actual user ID using the auth endpoint
+    const authUrl = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
+    console.log('Getting user ID from auth endpoint');
+    
+    const authResponse = await fetch(authUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'PiShock-Discord-Activity/2.0',
+        'Accept': 'application/json'
+      }
+    });
+    
+    if (!authResponse.ok) {
+      console.log('Auth response not OK:', authResponse.status);
+      return { 
+        success: false, 
+        error: `Failed to authenticate: HTTP ${authResponse.status}`
+      };
+    }
+    
+    const authData = await authResponse.json();
+    console.log('Auth response data:', authData);
+    
+    if (!authData || !authData.id) {
+      return { 
+        success: false, 
+        error: 'Invalid credentials - could not get user ID'
+      };
+    }
+    
+    const userId = authData.id;
+    console.log('Got user ID:', userId);
+    
+    // Now use the actual user ID to get devices
+    const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=${userId}&token=${encodeURIComponent(apiKey)}&api=true`;
     console.log('Making devices request to:', url);
     
     const response = await fetch(url, {
