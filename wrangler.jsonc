@@ -5,17 +5,6 @@
 	// Completely disable ALL Cloudflare features that might inject scripts
 	"analytics_engine_datasets": [],
 	"send_metrics": false,
-	"logpush": false,
-	"tail_consumers": [],
-	
-	// Disable automatic optimizations
-	"rules": [
-		{
-			"type": "*",
-			"globs": ["**/*"],
-			"script": "./dist/_worker.js"
-		}
-	],
 	
 	// Static assets configuration
 	"assets": {
@@ -25,10 +14,11 @@
 	// Main worker script (compiled from Pages Functions) - only for API routes
 	"main": "./dist/_worker.js",
 	
-	// KV namespace bindings
+	// KV namespace bindings with correct type field
 	"kv_namespaces": [
 		{
 			"binding": "PISHOCK_KV",
+			"type": "KVNamespace",
 			"id": "49b935b6bcee4aa6a2dafa286e842ef4",
 			"preview_id": "f6f7930286dc4624b80efaec808dd6ae"
 		}
