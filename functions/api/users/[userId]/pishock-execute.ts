@@ -140,6 +140,34 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }, 400);
     }
 
+    // First, let's check what data exists for this user
+    console.log('EXECUTE: Checking all possible data locations for user:', targetUserId);
+    
+    // Check all possible keys for this user
+    const possibleKeys = [
+      `user:${targetUserId}:data`,
+      `user:${targetUserId}:pishock`,
+      `user:${targetUserId}:pishock:credentials`,
+      `discord_user:${targetUserId}`,
+      `instance:${targetUserId}:pishock`
+    ];
+    
+    for (const key of possibleKeys) {
+      const data = await env.PISHOCK_KV.get(key);
+      console.log(`EXECUTE: Key "${key}":`, data ? 'EXISTS' : 'NOT FOUND');
+      if (data && key.includes('data')) {
+        try {
+          const parsed = JSON.parse(data);
+          console.log(`EXECUTE: Parsed data for "${key}":`, {
+            hasCredentials: !!parsed.credentials,
+            hasOldFormat: !!parsed.apiKey,
+            keys: Object.keys(parsed)
+          });
+        } catch (e) {
+          console.log(`EXECUTE: Failed to parse data for "${key}":`, e.message);
+        }
+      }
+    }
     // Get target user's PiShock credentials
     // Get all user data from single key (new format)
     console.log('EXECUTE: Looking for credentials for target user:', targetUserId);
@@ -149,13 +177,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     
     console.log('EXECUTE: User data found:', !!userData);
     console.log('EXECUTE: Credentials found in new format:', !!encrypted);
+    if (userData) {
+      console.log('EXECUTE: User data structure:', Object.keys(userData));
+    }
     
     // Migration: Check old format if new format not found
     if (!encrypted) {
       console.log('EXECUTE: Checking old format for user:', targetUserId);
       const oldEncrypted = await env.PISHOCK_KV.get(`user:${targetUserId}:pishock`);
       if (oldEncrypted) {
-        console.log('EXECUTE: Found data in old format, migrating...');
         console.log('EXECUTE: Found data in old format, migrating...');
         // Migrate old data to new format
         userData = {
@@ -186,21 +216,37 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       console.log('EXECUTE: Using credentials from new format');
     }
     
-    // Also check if there are any other keys for this user
-    const allKeys = await env.PISHOCK_KV.list({ prefix: `user:${targetUserId}:` });
-    console.log('EXECUTE: All user keys found:', allKeys.keys.map(k => k.name));
+    // List all keys with this user ID to see what exists
+    const allUserKeys = await env.PISHOCK_KV.list({ prefix: `user:${targetUserId}` });
+    console.log('EXECUTE: All keys for user:', allUserKeys.keys.map(k => k.name));
+    
+    // Also check if this might be a different user ID format issue
+    const allKeysPrefix = await env.PISHOCK_KV.list({ prefix: 'user:' });
+    const userIds = allKeysPrefix.keys
+      .map(k => k.name.match(/^user:(\d+):/)?.[1])
+      .filter(Boolean)
+      .filter((id, index, arr) => arr.indexOf(id) === index); // unique IDs
+    console.log('EXECUTE: All user IDs in storage:', userIds);
+    console.log('EXECUTE: Target user ID to find:', targetUserId);
+    console.log('EXECUTE: User ID exists in storage:', userIds.includes(targetUserId));
     
     if (!encrypted) {
       console.error('EXECUTE: No credentials found for user:', targetUserId);
-      console.error('EXECUTE: Checked keys: user:${targetUserId}:data, user:${targetUserId}:pishock');
+      console.error('EXECUTE: Checked keys:', possibleKeys);
+      console.error('EXECUTE: Available user IDs:', userIds);
+      
       return jsonResponse({ 
         success: false, 
-        error: `Target user has no PiShock device configured. Checked user ID: ${targetUserId}`,
+        error: `Target user (${targetUserId}) has no PiShock device configured. They need to set up their PiShock credentials first in the application.`,
         debug: {
           targetUserId,
+          executorUserId,
           userDataFound: !!userData,
           credentialsFound: !!encrypted,
-          availableKeys: allKeys?.keys?.map(k => k.name) || []
+          checkedKeys: possibleKeys,
+          availableUserKeys: allUserKeys?.keys?.map(k => k.name) || [],
+          allUserIds: userIds,
+          userIdInStorage: userIds.includes(targetUserId)
         }
       });
     }

@@ -175,6 +175,8 @@ function MainApp() {
                 maxDuration: status.maxDuration || 15
               }
             };
+          } else {
+            console.warn(`Failed to check status for ${participant.username}: ${response.status} ${response.statusText}`);
           }
         } catch (error) {
           console.error(`Failed to check PiShock status for ${participant.username}:`, error);
