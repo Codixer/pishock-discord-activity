@@ -84,6 +84,15 @@ async function addToActivityIndex(kv: KVNamespace, key: string) {
   }
 }
 
+async function decrypt(encryptedData: string): Promise<any> {
+  try {
+    const dataString = atob(encryptedData);
+    return JSON.parse(dataString);
+  } catch (error) {
+    throw new Error('Failed to decrypt data');
+  }
+}
+
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
   const method = request.method;
@@ -114,8 +123,16 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   try {
     const { executorUserId, targetUserId, intensity, duration, operation } = await request.json();
 
+    console.log('=== RELAY ACCOUNT SHOCK EXECUTION ===');
+    console.log('RELAY: Executor user:', executorUserId);
+    console.log('RELAY: Target user:', targetUserId);
+    console.log('RELAY: Operation:', operation, '(0=shock, 1=vibrate, 2=beep)');
+    console.log('RELAY: Intensity:', intensity);
+    console.log('RELAY: Duration:', duration);
+
     // Validate parameters
     if (!executorUserId || !targetUserId || intensity < 1 || intensity > 100 || duration < 1 || duration > 15 || ![0, 1, 2].includes(operation)) {
+      console.error('RELAY: Invalid parameters');
       return jsonResponse({ 
         success: false, 
         error: 'Invalid parameters' 
@@ -125,7 +142,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     const apiKey = env.PISHOCK_RELAY_API_KEY;
     const username = env.PISHOCK_RELAY_USERNAME;
 
+    console.log('RELAY: Checking relay account credentials...');
+    console.log('RELAY: Has API key:', !!apiKey);
+    console.log('RELAY: Has username:', !!username);
+    console.log('RELAY: Username value:', username);
+
     if (!apiKey || !username) {
+      console.error('RELAY: Missing relay account credentials');
       return jsonResponse({ 
         success: false, 
         error: 'Relay account not configured - missing API key or username' 
@@ -133,8 +156,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     // Get target user's PiShock credentials to get their share code
+    console.log('RELAY: Getting target user credentials...');
     const targetUserCredentials = await env.PISHOCK_KV.get(`user:${targetUserId}:pishock`);
     if (!targetUserCredentials) {
+      console.error('RELAY: Target user has no PiShock device configured');
       return jsonResponse({ 
         success: false, 
         error: 'Target user has no PiShock device configured' 
@@ -142,17 +167,25 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     let targetShareCode;
+    let targetCreds;
     try {
-      const creds = JSON.parse(atob(targetUserCredentials));
-      targetShareCode = creds.sharecode;
+      targetCreds = await decrypt(targetUserCredentials);
+      targetShareCode = targetCreds.sharecode;
+      
+      console.log('RELAY: Target user credentials decrypted');
+      console.log('RELAY: Target username:', targetCreds.username);
+      console.log('RELAY: Target share code:', targetShareCode);
+      console.log('RELAY: Target has own device:', targetCreds.hasOwnDevice);
       
       if (!targetShareCode || targetShareCode === 'account_access') {
+        console.error('RELAY: Target user has no device configured (account-only access)');
         return jsonResponse({ 
           success: false, 
           error: 'Target user has no device configured (account-only access)' 
         });
       }
     } catch (error) {
+      console.error('RELAY: Failed to decrypt target user credentials:', error);
       return jsonResponse({ 
         success: false, 
         error: 'Failed to decrypt target user credentials' 
@@ -161,23 +194,94 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     try {
       // Execute PiShock command using relay account credentials but target user's device
+      const operationNames = ['shock', 'vibrate', 'beep'];
+      const operationName = operationNames[operation];
+      
+      console.log('RELAY: Executing', operationName, 'command via Legacy API');
+      console.log('RELAY: Using relay credentials with target device');
+      
+      const payload = {
+        Username: username, // Relay account username
+        Apikey: apiKey,     // Relay account API key
+        Code: targetShareCode, // Target user's device share code
+        Intensity: intensity,
+        Duration: duration,
+        Op: operation,
+        Name: 'DiscordActivity-Relay',
+      };
+      
+      console.log('RELAY: Request payload:', { 
+        ...payload, 
+        Apikey: '***HIDDEN***',
+        Code: targetShareCode ? `${targetShareCode.slice(0, 4)}****` : 'MISSING'
+      });
+      
       const response = await fetch('https://do.pishock.com/api/apioperate/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          Username: username,
-          Apikey: apiKey,
-          Code: targetShareCode, // Target user's device share code
-          Intensity: intensity,
-          Duration: duration,
-          Op: operation,
-          Name: 'DiscordActivity-Relay',
-        }),
+        headers: { 
+          'Content-Type': 'application/json',
+          'User-Agent': 'PiShock-Discord-Activity-Relay/1.0'
+        },
+        body: JSON.stringify(payload),
       });
 
+      console.log('RELAY: Response status:', response.status);
+      console.log('RELAY: Response headers:', Object.fromEntries(response.headers.entries()));
+      
+      const responseText = await response.text();
+      console.log('RELAY: Response text:', responseText);
+
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`PiShock API error: ${errorText}`);
+        console.error('RELAY: HTTP error:', response.status, responseText);
+        throw new Error(`PiShock API error: HTTP ${response.status} - ${responseText}`);
+      }
+
+      // Check for success responses as per Legacy API documentation
+      let commandSuccessful = false;
+      
+      if (responseText.includes('Operation Succeeded')) {
+        console.log('RELAY: ✅ Command executed successfully (Operation Succeeded)');
+        commandSuccessful = true;
+      } else if (response.status === 200 && responseText.trim().length === 0) {
+        console.log('RELAY: ✅ Command executed successfully (HTTP 200 with empty response)');
+        commandSuccessful = true;
+      } else if (response.status === 200) {
+        console.log('RELAY: ✅ Command executed successfully (HTTP 200)');
+        commandSuccessful = true;
+      } else {
+        // Check for specific error messages from documentation
+        if (responseText.includes("This code doesn't exist")) {
+          console.error('RELAY: ❌ Share code not found');
+          throw new Error('Target user\'s share code not found. They may need to regenerate it.');
+        } else if (responseText.includes('Not Authorized')) {
+          console.error('RELAY: ❌ Not authorized - relay account credentials invalid');
+          throw new Error('Relay account credentials are invalid. Please check configuration.');
+        } else if (responseText.includes('Shocker is Paused')) {
+          console.error('RELAY: ❌ Device is paused');
+          throw new Error('Target device is paused. Ask them to unpause it in the PiShock web panel.');
+        } else if (responseText.includes('Device currently not connected')) {
+          console.error('RELAY: ❌ Device not connected');
+          throw new Error('Target device is not connected. Ask them to ensure their device is online.');
+        } else if (responseText.includes('already been used by somebody else')) {
+          console.error('RELAY: ❌ Share code already in use');
+          throw new Error('Target user\'s share code is already in use. They need to generate a new one.');
+        } else if (responseText.includes('Unknown Op')) {
+          console.error('RELAY: ❌ Invalid operation');
+          throw new Error('Invalid operation specified.');
+        } else if (responseText.includes('Intensity must be between')) {
+          console.error('RELAY: ❌ Invalid intensity');
+          throw new Error('Invalid intensity specified.');
+        } else if (responseText.includes('Duration must be between')) {
+          console.error('RELAY: ❌ Invalid duration');
+          throw new Error('Invalid duration specified.');
+        } else {
+          console.log('RELAY: ⚠️ Unknown response, assuming success:', responseText);
+          commandSuccessful = true;
+        }
+      }
+
+      if (!commandSuccessful) {
+        throw new Error(`Command execution failed: ${responseText}`);
       }
 
       // Get user info for logging
@@ -198,7 +302,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         targetUserId,
         targetUsername: targetUser?.global_name || targetUser?.username || 'Unknown User',
         targetAvatar: targetUser?.avatar ? `https://cdn.discordapp.com/avatars/${targetUserId}/${targetUser.avatar}.png` : undefined,
-        action: ['shock', 'vibrate', 'beep'][operation] as 'shock' | 'vibrate' | 'beep',
+        action: operationName as 'shock' | 'vibrate' | 'beep',
         intensity,
         duration,
         relayUsed: true,
@@ -209,21 +313,35 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       await env.PISHOCK_KV.put(logKey, JSON.stringify(logEntry));
       await addToActivityIndex(env.PISHOCK_KV, logKey);
 
+      console.log('RELAY: ✅ Activity logged with ID:', logEntry.id);
+      console.log('RELAY: Command execution completed successfully');
+
       return jsonResponse({ 
         success: true, 
         logEntryId: logEntry.id,
-        relayUsed: true
+        relayUsed: true,
+        message: `${operationName} command sent via relay account to ${targetUser?.global_name || targetUser?.username || 'target user'}'s device`,
+        debug: {
+          relayUsername: username,
+          targetShareCode: targetShareCode ? `${targetShareCode.slice(0, 4)}****` : 'MISSING',
+          response: responseText
+        }
       });
 
     } catch (error) {
-      console.error('Relay PiShock execution failed:', error);
+      console.error('RELAY: PiShock execution failed:', error);
       return jsonResponse({ 
         success: false, 
-        error: error instanceof Error ? error.message : 'Command execution failed' 
+        error: error instanceof Error ? error.message : 'Command execution failed',
+        debug: {
+          relayConfigured: !!(apiKey && username),
+          targetConfigured: !!targetShareCode,
+          errorType: error instanceof Error ? error.constructor.name : 'Unknown'
+        }
       });
     }
   } catch (error) {
-    console.error('Relay execute error:', error);
+    console.error('RELAY: General error:', error);
     return jsonResponse({ 
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error'

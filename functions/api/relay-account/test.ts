@@ -43,8 +43,9 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
     console.log('RELAY_TEST: Validating relay account credentials using Legacy API');
     console.log('RELAY_TEST: Username:', username);
     
-    // Use exact endpoint from Legacy API documentation
+    // First, validate the relay account credentials
     const url = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
+    console.log('RELAY_TEST: Validating credentials at:', url);
     
     const authResponse = await fetch(url, {
       method: 'GET',
@@ -168,6 +169,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     
     if (credentialValidation.valid) {
       await env.PISHOCK_KV.put('relay_account:user_id', credentialValidation.userId || '');
+      console.log('RELAY_TEST: ✅ Relay account validation successful');
+      console.log('RELAY_TEST: Relay account can now send commands to user devices');
+    } else {
+      console.log('RELAY_TEST: ❌ Relay account validation failed:', credentialValidation.error);
     }
     
     return jsonResponse({ 
@@ -175,6 +180,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       isConnected: credentialValidation.valid, 
       userId: credentialValidation.userId,
       lastTested,
+      message: credentialValidation.valid 
+        ? 'Relay account credentials are valid and can send commands to user devices'
+        : `Relay account validation failed: ${credentialValidation.error}`
       description: 'Relay account credentials validated - can send commands to user devices'
     });
   } catch (error) {

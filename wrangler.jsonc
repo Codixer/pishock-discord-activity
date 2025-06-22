@@ -23,6 +23,13 @@
 		}
 	],
 	
+	// Logging configuration (equivalent to [observability.logs] enabled = true in wrangler.toml)
+	"observability": {
+		"logs": {
+			"enabled": true
+		}
+	},
+	
 	// Runtime environment variables (for worker functions only)
 	// Build-time variables (VITE_*) must be set via wrangler deploy --var or locally
 	"vars": {
