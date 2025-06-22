@@ -427,6 +427,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
 
       console.log('✓ Settings saved successfully for user:', userId);
+      
+      // Clear the user's status cache so it gets refreshed immediately
+      try {
+        const statusCacheKey = `cache:user_status:${userId}`;
+        await env.PISHOCK_KV.delete(statusCacheKey);
+        console.log('✓ Cleared status cache for user:', userId);
+      } catch (error) {
+        console.warn('Failed to clear status cache:', error);
+      }
 
       return jsonResponse({ 
         success: true, 

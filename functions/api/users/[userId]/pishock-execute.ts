@@ -142,15 +142,20 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     // Get target user's PiShock credentials
     // Get all user data from single key (new format)
+    console.log('EXECUTE: Looking for credentials for target user:', targetUserId);
     const userDataStr = await env.PISHOCK_KV.get(`user:${targetUserId}:data`);
     let userData = userDataStr ? JSON.parse(userDataStr) : null;
     let encrypted = userData?.credentials;
+    
+    console.log('EXECUTE: User data found:', !!userData);
+    console.log('EXECUTE: Credentials found in new format:', !!encrypted);
     
     // Migration: Check old format if new format not found
     if (!encrypted) {
       console.log('EXECUTE: Checking old format for user:', targetUserId);
       const oldEncrypted = await env.PISHOCK_KV.get(`user:${targetUserId}:pishock`);
       if (oldEncrypted) {
+        console.log('EXECUTE: Found data in old format, migrating...');
         console.log('EXECUTE: Found data in old format, migrating...');
         // Migrate old data to new format
         userData = {
@@ -177,12 +182,27 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         encrypted = userData.credentials;
         console.log('EXECUTE: Migration completed for user:', targetUserId);
       }
+    } else {
+      console.log('EXECUTE: Using credentials from new format');
+    }
+    
+    // Also check if there are any other keys for this user
+    const allKeys = await env.PISHOCK_KV.list({ prefix: `user:${targetUserId}:` });
+    console.log('EXECUTE: All user keys found:', allKeys.keys.map(k => k.name));
     }
     
     if (!encrypted) {
+      console.error('EXECUTE: No credentials found for user:', targetUserId);
+      console.error('EXECUTE: Checked keys: user:${targetUserId}:data, user:${targetUserId}:pishock');
       return jsonResponse({ 
         success: false, 
-        error: 'Target user has no PiShock device configured' 
+        error: `Target user has no PiShock device configured. Checked user ID: ${targetUserId}`,
+        debug: {
+          targetUserId,
+          userDataFound: !!userData,
+          credentialsFound: !!encrypted,
+          availableKeys: allKeys?.keys?.map(k => k.name) || []
+        }
       });
     }
 

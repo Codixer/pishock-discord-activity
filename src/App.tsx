@@ -147,9 +147,12 @@ function MainApp() {
   const checkAllUserPiShockStatus = async () => {
     if (!instanceId || !auth || participants.length === 0) return;
 
+    console.log('Checking PiShock status for participants:', participants.map(p => ({ id: p.id, username: p.username })));
+
     try {
       const statusPromises = participants.map(async (participant) => {
         try {
+          console.log(`Checking status for ${participant.username} (${participant.id})`);
           const response = await fetch(`${getApiBaseUrl()}/users/${participant.id}/pishock-status`, {
             headers: {
               'Authorization': `Bearer ${auth.access_token}`,
@@ -158,6 +161,7 @@ function MainApp() {
           
           if (response.ok) {
             const status = await response.json();
+            console.log(`Status for ${participant.username}:`, status);
             return { 
               userId: participant.id, 
               status: {
@@ -195,6 +199,8 @@ function MainApp() {
       statuses.forEach(({ userId, status }) => {
         statusMap[userId] = status;
       });
+      
+      console.log('Final status map:', statusMap);
       
       setUserPiShockStatus(prevStatus => {
         // Only update if there are actual changes

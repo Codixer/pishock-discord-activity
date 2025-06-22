@@ -39,6 +39,21 @@
   Pragma: no-cache
   Expires: 0
 
+# User status endpoints - short cache with revalidation
+/api/users/*/pishock-status
+  Cache-Control: public, max-age=60, stale-while-revalidate=30
+  Vary: Authorization
+
+# Discord member data - medium cache
+/api/discord/guilds/*/members/*
+  Cache-Control: public, max-age=300, stale-while-revalidate=60
+  Vary: Authorization
+
+# Activity log - short cache for real-time feel
+/api/activity-log
+  Cache-Control: public, max-age=30, stale-while-revalidate=15
+  Vary: Authorization
+
 # Static assets caching
 /assets/*
   Cache-Control: public, max-age=31536000, immutable

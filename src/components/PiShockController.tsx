@@ -362,7 +362,21 @@ export function PiShockController({
       }
     } catch (error) {
       console.error('Shock error:', error);
-      addNotification('error', 'Command Failed', 'Failed to send shock command. Please try again.');
+      
+      // Enhanced error reporting
+      let errorMessage = 'Failed to send shock command. Please try again.';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('no PiShock device configured')) {
+          errorMessage = `Target user (${selectedUser?.username || 'Unknown'}) hasn't configured their PiShock device yet. They need to set up their PiShock credentials first.`;
+        } else if (error.message.includes('Invalid parameters')) {
+          errorMessage = 'Invalid shock parameters. Please check intensity and duration settings.';
+        } else {
+          errorMessage = `Command failed: ${error.message}`;
+        }
+      }
+      
+      addNotification('error', 'Command Failed', errorMessage);
     } finally {
       setIsShocking(false);
     }

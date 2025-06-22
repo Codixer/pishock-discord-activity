@@ -1,10 +1,79 @@
 // Middleware to COMPLETELY prevent any Cloudflare script injection
+
+// Cache API helper for programmatic caching
+async function getCachedResponse(request: Request, cacheKey: string): Promise<Response | null> {
+  try {
+    const cache = caches.default;
+    const cacheRequest = new Request(cacheKey, request);
+    return await cache.match(cacheRequest);
+  } catch (error) {
+    console.warn('Cache read error:', error);
+    return null;
+  }
+}
+
+async function setCachedResponse(request: Request, response: Response, cacheKey: string, maxAge: number): Promise<void> {
+  try {
+    const cache = caches.default;
+    const cacheRequest = new Request(cacheKey, request);
+    const responseToCache = response.clone();
+    
+    // Add cache headers
+    responseToCache.headers.set('Cache-Control', `public, max-age=${maxAge}`);
+    responseToCache.headers.set('X-Cache-Status', 'MISS');
+    
+    await cache.put(cacheRequest, responseToCache);
+  } catch (error) {
+    console.warn('Cache write error:', error);
+  }
+}
+
 export async function onRequest(context: any) {
   const { request } = context;
   const url = new URL(request.url);
   
+  // Check for cached response for GET requests to specific endpoints
+  if (request.method === 'GET') {
+    const cachePaths = [
+      '/api/users/',
+      '/api/discord/guilds/',
+      '/api/activity-log'
+    ];
+    
+    const shouldCache = cachePaths.some(path => url.pathname.includes(path));
+    
+    if (shouldCache) {
+      const cacheKey = `${url.origin}${url.pathname}${url.search}`;
+      const cachedResponse = await getCachedResponse(request, cacheKey);
+      
+      if (cachedResponse) {
+        // Return cached response with HIT status
+        const response = cachedResponse.clone();
+        response.headers.set('X-Cache-Status', 'HIT');
+        return response;
+      }
+    }
+  }
+  
   // Get the response first
   const response = await context.next();
+  
+  // Cache successful GET responses
+  if (request.method === 'GET' && response.status === 200) {
+    const cachePaths = [
+      { path: '/api/users/', maxAge: 120 }, // 2 minutes
+      { path: '/api/discord/guilds/', maxAge: 300 }, // 5 minutes  
+      { path: '/api/activity-log', maxAge: 30 } // 30 seconds
+    ];
+    
+    const cacheConfig = cachePaths.find(config => url.pathname.includes(config.path));
+    
+    if (cacheConfig) {
+      const cacheKey = `${url.origin}${url.pathname}${url.search}`;
+      // Don't await - cache in background
+      setCachedResponse(request, response, cacheKey, cacheConfig.maxAge);
+    }
+  }
   
   // Clone the response so we can modify headers
   const newResponse = new Response(response.body, {

@@ -116,6 +116,57 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
   }
 }
 
+// Cache key generator for user status
+function getUserStatusCacheKey(userId: string): string {
+  return `cache:user_status:${userId}`;
+}
+
+// Cache user status for 2 minutes to reduce API calls
+async function getCachedUserStatus(kv: KVNamespace, userId: string) {
+  try {
+    const cacheKey = getUserStatusCacheKey(userId);
+    const cached = await kv.get(cacheKey);
+    if (cached) {
+      const cachedData = JSON.parse(cached);
+      // Check if cache is still valid (2 minutes)
+      const cacheAge = Date.now() - new Date(cachedData.timestamp).getTime();
+      if (cacheAge < 120000) { // 2 minutes
+        console.log('STATUS: Using cached status for user:', userId);
+        return cachedData.status;
+      }
+    }
+  } catch (error) {
+    console.warn('STATUS: Cache read error:', error);
+  }
+  return null;
+}
+
+async function setCachedUserStatus(kv: KVNamespace, userId: string, status: any) {
+  try {
+    const cacheKey = getUserStatusCacheKey(userId);
+    const cacheData = {
+      status,
+      timestamp: new Date().toISOString()
+    };
+    // Cache for 5 minutes with TTL
+    await kv.put(cacheKey, JSON.stringify(cacheData), { expirationTtl: 300 });
+    console.log('STATUS: Cached status for user:', userId, status);
+  } catch (error) {
+    console.warn('STATUS: Cache write error:', error);
+  }
+}
+
+// Function to clear cache for a specific user
+async function clearUserStatusCache(kv: KVNamespace, userId: string) {
+  try {
+    const cacheKey = getUserStatusCacheKey(userId);
+    await kv.delete(cacheKey);
+    console.log('STATUS: Cleared cache for user:', userId);
+  } catch (error) {
+    console.warn('STATUS: Cache clear error:', error);
+  }
+}
+
 async function checkUserDevices(userId: string, apiKey: string): Promise<{ hasDevices: boolean; devices?: any[] }> {
   try {
     console.log('STATUS: Checking user devices using Legacy API');
@@ -192,6 +243,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   if (!user) return new Response('Invalid token', { status: 401 });
 
   try {
+    // Try to get cached status first
+    const cachedStatus = await getCachedUserStatus(env.PISHOCK_KV, userId);
+    if (cachedStatus) {
+      return jsonResponse(cachedStatus, 200, {
+        'Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
+        'X-Cache-Status': 'HIT'
+      });
+    }
+    
     // Get all user data from single key
     const userDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
     const userData = userDataStr ? JSON.parse(userDataStr) : null;
@@ -255,6 +315,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     };
     
     console.log('STATUS: Final result for user', userId, ':', result);
+    
+    // Cache the result
+    await setCachedUserStatus(env.PISHOCK_KV, userId, result);
+    
     return jsonResponse(result);
   } catch (error) {
     console.error('User PiShock status error:', error);

@@ -225,6 +225,11 @@ export function UserSelector({
                                     ID: {userStatus.piShockUserId}
                                   </div>
                                 )}
+                                {!userStatus && (
+                                  <div className="text-xs text-gray-400">
+                                    Status loading...
+                                  </div>
+                                )}
                               </div>
                             </div>
                             {selectedUser?.id === member.id && !isDisabled && (
