@@ -473,8 +473,12 @@ function MainApp() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <div className="p-2 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-lg">
-                <Zap className="h-5 w-5 text-white" />
+              <div className="w-10 h-10 rounded-lg overflow-hidden bg-black/20 flex items-center justify-center">
+                <img 
+                  src="/kVApvT6y_400x400 copy.jpg" 
+                  alt="PiShock Controller Logo" 
+                  className="w-8 h-8 object-contain"
+                />
               </div>
               <div>
                 <h1 className="text-lg font-bold">PiShock Controller</h1>

@@ -189,7 +189,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     // Also check if there are any other keys for this user
     const allKeys = await env.PISHOCK_KV.list({ prefix: `user:${targetUserId}:` });
     console.log('EXECUTE: All user keys found:', allKeys.keys.map(k => k.name));
-    }
     
     if (!encrypted) {
       console.error('EXECUTE: No credentials found for user:', targetUserId);
