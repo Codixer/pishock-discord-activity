@@ -2,7 +2,50 @@ interface Env {
   PISHOCK_KV: KVNamespace;
 }
 
-fasync function validatePiShockCredentials(apiKey: string, username: string): Promise<{ valid: boolean; userId?: string; error?: string; debugInfo?: any }> {
+function jsonResponse(body: any, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    },
+  });
+}
+
+async function requireAuth(request: Request): Promise<string | null> {
+  const auth = request.headers.get('authorization');
+  if (!auth || !auth.startsWith('Bearer ')) return null;
+  return auth.slice(7);
+}
+
+async function validateDiscordToken(token: string): Promise<any> {
+  try {
+    const response = await fetch('https://discord.com/api/users/@me', {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    
+    if (!response.ok) {
+      throw new Error('Invalid Discord token');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    return null;
+  }
+}
+
+async function decrypt(encryptedData: string): Promise<any> {
+  try {
+    const dataString = atob(encryptedData);
+    return JSON.parse(dataString);
+  } catch (error) {
+    throw new Error('Failed to decrypt data');
+  }
+}
+
+async function validatePiShockCredentials(apiKey: string, username: string): Promise<{ valid: boolean; userId?: string; error?: string; debugInfo?: any }> {
   try {
     console.log('TEST: Validating PiShock credentials using v3 API');
     console.log('TEST: Username:', username);
@@ -76,66 +119,6 @@ fasync function validatePiShockCredentials(apiKey: string, username: string): Pr
 
     // Use the v3 API to validate credentials by attempting to get user devices
     const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=${piShockUserId}&token=${encodeURIComponent(apiKey)}&api=true`;
-    console.log('TEST: Making request to v3 API:', url);se(body: any, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    },
-  });
-}
-
-async function requireAuth(request: Request): Promise<string | null> {
-  const auth = request.headers.get('authorization');
-  if (!auth || !auth.startsWith('Bearer ')) return null;
-  return auth.slice(7);
-}
-
-async function validateDiscordToken(token: string): Promise<any> {
-  try {
-    const response = await fetch('https://discord.com/api/users/@me', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    
-    if (!response.ok) {
-      throw new Error('Invalid Discord token');
-    }
-    
-    return await response.json();
-  } catch (error) {
-    return null;
-  }
-}
-
-async function decrypt(encryptedData: string): Promise<any> {
-  try {
-    const dataString = atob(encryptedData);
-    return JSON.parse(dataString);
-  } catch (error) {
-    throw new Error('Failed to decrypt data');
-  }
-}
-
-async function validatePiShockCredentials(apiKey: string, username: string): Promise<{ valid: boolean; userId?: string; error?: string; debugInfo?: any }> {
-  try {
-    console.log('TEST: Validating PiShock credentials using v3 API');
-    console.log('TEST: Username:', username);
-    console.log('TEST: API Key length:', apiKey.length);
-
-    // Basic input validation
-    if (!apiKey || !username || apiKey.trim().length === 0 || username.trim().length === 0) {
-      return {
-        valid: false,
-        error: 'API Key and Username are required',
-        debugInfo: { reason: 'empty_credentials' }
-      };
-    }
-
-    // Use the v3 API to validate credentials
-    const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=0&token=${encodeURIComponent(apiKey)}&api=true`;
     console.log('TEST: Making request to v3 API:', url);
 
     let response;
@@ -145,16 +128,16 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
         headers: {
           'User-Agent': 'PiShock-Discord-Activity/2.0',
           'Accept': 'application/json'
-        },
-        signal: AbortSignal.timeout(10000) // 10 second timeout
+        }
       });
     } catch (fetchError) {
       console.error('TEST: Network error during API call:', fetchError);
-      return {
-        valid: false,
-        error: 'Network error: Failed to connect to PiShock API',
+      return { 
+        valid: false, 
+        error: `Network error: Failed to connect to PiShock API. Please check your internet connection and try again.`,
         debugInfo: { 
-          fetchError: fetchError instanceof Error ? fetchError.message : 'Unknown fetch error'
+          fetchError: fetchError instanceof Error ? fetchError.message : 'Unknown fetch error',
+          url: url
         }
       };
     }
@@ -167,8 +150,8 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       responseText = await response.text();
     } catch (textError) {
       console.error('TEST: Failed to read response text:', textError);
-      return {
-        valid: false,
+      return { 
+        valid: false, 
         error: 'Failed to read API response',
         debugInfo: { textError: textError instanceof Error ? textError.message : 'Unknown text error' }
       };
@@ -180,11 +163,11 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
     // Handle empty response
     if (!responseText || responseText.trim().length === 0) {
       console.error('TEST: Empty response from PiShock API');
-      return {
-        valid: false,
+      return { 
+        valid: false, 
         error: response.ok 
-          ? 'PiShock API returned empty response. This might indicate invalid credentials.'
-          : `PiShock API error: HTTP ${response.status} with empty response.`,
+          ? 'PiShock API returned empty response. This might indicate invalid credentials or a temporary API issue.'
+          : `PiShock API error: HTTP ${response.status} with empty response. Please check your credentials and try again.`,
         debugInfo: { 
           status: response.status,
           emptyResponse: true,
@@ -197,7 +180,7 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       console.log('TEST: HTTP error response:', responseText);
       return { 
         valid: false, 
-        error: `Authentication failed: HTTP ${response.status} - ${responseText}`,
+        error: `PiShock API authentication failed: HTTP ${response.status}. ${responseText || 'Please check your credentials.'}`,
         debugInfo: { status: response.status, error: responseText }
       };
     }
@@ -208,10 +191,10 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       devicesData = JSON.parse(responseText);
       console.log('TEST: Parsed devices response:', devicesData);
     } catch (parseError) {
-      console.log('TEST: Failed to parse as JSON, trying as plain text');
+      console.log('TEST: Failed to parse devices JSON:', parseError);
       return { 
         valid: false, 
-        error: 'PiShock API returned unexpected response format',
+        error: 'PiShock API returned unexpected response format. This might indicate invalid credentials or an API issue.',
         debugInfo: { 
           parseError: parseError.message, 
           responseText: responseText.substring(0, 200),
@@ -222,24 +205,18 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
 
     // Check if we got a valid devices array
     if (!Array.isArray(devicesData)) {
-      console.log('TEST: Response is not a devices array');
-      return {
-        valid: false,
-        error: 'PiShock API response missing devices data',
+      console.log('TEST: Response is not an array:', devicesData);
+      return { 
+        valid: false, 
+        error: 'PiShock API response missing devices data. This might indicate invalid credentials.',
         debugInfo: { devicesData, responseType: typeof devicesData }
       };
-    }
-
-    // Extract userId from the first device if available
-    let userId = null;
-    if (devicesData.length > 0 && devicesData[0].userId) {
-      userId = devicesData[0].userId.toString();
     }
 
     console.log('TEST: ✓ Successfully validated PiShock credentials');
     return { 
       valid: true, 
-      userId,
+      userId: piShockUserId.toString(),
       debugInfo: { devicesData, deviceCount: devicesData.length }
     };
 
@@ -303,7 +280,7 @@ async function checkUserDevices(apiKey: string, username: string): Promise<{ has
       console.log('TEST: Devices error response:', errorText);
       return { 
         hasDevices: false, 
-        error: `Device check failed: HTTP ${response.status} - ${errorText}`,
+        error: `Device check failed: HTTP ${response.status}`,
         debugInfo: { status: response.status, error: errorText }
       };
     }
@@ -347,7 +324,7 @@ async function checkUserDevices(apiKey: string, username: string): Promise<{ has
   }
 }
 
-export const onRequest: PagesFunction<Env> = async (context) => {
+export const onRequest = async (context: { request: Request; env: Env; params: Record<string, string> }) => {
   const { request, env, params } = context;
   const method = request.method;
   const userId = params.userId as string;
@@ -366,26 +343,31 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   }
 
   if (method !== 'POST') {
-    console.error('TEST: Invalid method:', method);
     return new Response('Method not allowed', { status: 405 });
   }
 
   const token = await requireAuth(request);
   if (!token) {
-    console.error('TEST: No authorization token provided');
-    return new Response('Unauthorized', { status: 401 });
+    return jsonResponse({ 
+      success: false, 
+      error: 'Authorization required' 
+    }, 401);
   }
 
   const user = await validateDiscordToken(token);
   if (!user) {
-    console.error('TEST: Invalid Discord token');
-    return new Response('Invalid token', { status: 401 });
+    return jsonResponse({ 
+      success: false, 
+      error: 'Invalid authorization token' 
+    }, 401);
   }
 
   // Users can only test their own PiShock settings
   if (user.id !== userId) {
-    console.error('TEST: User trying to test someone else\'s settings:', user.id, 'vs', userId);
-    return new Response('Forbidden', { status: 403 });
+    return jsonResponse({ 
+      success: false, 
+      error: 'You can only test your own PiShock settings' 
+    }, 403);
   }
 
   console.log('=== STARTING PISHOCK TEST (v3 API) ===');
@@ -393,109 +375,113 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   console.log('TEST: Discord user:', user.username);
 
   try {
-    // Get all user data from single key
+    // Get stored credentials
     const userDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
-    const userData = userDataStr ? JSON.parse(userDataStr) : null;
-    
-    if (!userData?.credentials) {
-      console.error('TEST: No credentials stored for user:', userId);
-      return jsonResponse({ 
-        success: false, 
-        isConnected: false, 
-        error: 'No credentials stored for this user' 
+    if (!userDataStr) {
+      return jsonResponse({
+        success: false,
+        isConnected: false,
+        hasDevice: false,
+        error: 'No PiShock credentials found. Please configure your settings first.',
+        debug: {
+          step: 'get_credentials',
+          userDataExists: false
+        }
       });
     }
 
-    console.log('TEST: Found user data with credentials');
-
-    try {
-      const creds = await decrypt(userData.credentials);
-      console.log('TEST: Successfully decrypted credentials');
-      console.log('TEST: Username:', creds.username);
-      console.log('TEST: Has API key:', !!creds.apiKey);
-      console.log('TEST: API key length:', creds.apiKey?.length || 0);
-      console.log('TEST: Max intensity:', creds.maxIntensity || 100);
-      console.log('TEST: Max duration:', creds.maxDuration || 15);
-      
-      // Validate credentials using v3 API
-      console.log('TEST: Starting credential validation...');
-      const credentialValidation = await validatePiShockCredentials(creds.apiKey, creds.username);
-      
-      console.log('TEST: Credential validation result:', credentialValidation);
-      
-      let hasDevice = false;
-      let deviceCount = 0;
-      let deviceDebugInfo = null;
-      
-      if (credentialValidation.valid && credentialValidation.userId) {
-        console.log('TEST: Credentials valid, checking for devices...');
-        // Check for devices using v3 API
-        const deviceCheck = await checkUserDevices(creds.apiKey, creds.username);
-        hasDevice = deviceCheck.hasDevices;
-        deviceCount = deviceCheck.devices?.length || 0;
-        deviceDebugInfo = deviceCheck.debugInfo;
-        
-        console.log('TEST: Device check result:', {
-          hasDevices: hasDevice,
-          deviceCount,
-          error: deviceCheck.error
-        });
-        
-        // Update stored PiShock user ID in user data
-        userData.piShockUserId = credentialValidation.userId;
-        userData.lastTested = new Date().toISOString();
-        await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
-      } else {
-        console.error('TEST: Credential validation failed:', credentialValidation.error);
-      }
-      
-      const result = {
-        success: credentialValidation.valid, 
-        isConnected: credentialValidation.valid, 
-        hasDevice,
-        deviceCount,
-        piShockUserId: credentialValidation.userId,
-        maxIntensity: creds.maxIntensity || 100,
-        maxDuration: creds.maxDuration || 15,
-        lastTested: userData.lastTested,
+    const userData = JSON.parse(userDataStr);
+    if (!userData?.credentials) {
+      return jsonResponse({
+        success: false,
+        isConnected: false,
+        hasDevice: false,
+        error: 'No PiShock credentials found. Please configure your settings first.',
         debug: {
-          credentialValidation: credentialValidation.debugInfo,
-          deviceCheck: deviceDebugInfo,
-          storedCredentials: {
-            username: creds.username,
-            hasApiKey: !!creds.apiKey,
-            apiKeyLength: creds.apiKey?.length || 0,
-            maxIntensity: creds.maxIntensity || 100,
-            maxDuration: creds.maxDuration || 15
-          }
+          step: 'get_credentials',
+          credentialsExists: false,
+          userData
         }
-      };
-      
-      console.log('TEST: Final result:', result);
-      
-      if (!credentialValidation.valid) {
-        result.error = credentialValidation.error || 'Credential validation failed';
-      }
-      
-      return jsonResponse(result);
-    } catch (decryptError) {
-      console.error('TEST: Decryption failed:', decryptError);
-      return jsonResponse({ 
-        success: false, 
-        isConnected: false, 
+      });
+    }
+
+    // Decrypt credentials
+    let creds;
+    try {
+      creds = await decrypt(userData.credentials);
+    } catch (error) {
+      return jsonResponse({
+        success: false,
+        isConnected: false,
+        hasDevice: false,
         error: 'Failed to decrypt stored credentials',
         debug: {
-          decryptionError: decryptError instanceof Error ? decryptError.message : 'Unknown error'
+          step: 'decrypt_credentials',
+          error: error instanceof Error ? error.message : 'Unknown error'
         }
       });
     }
-  } catch (error) {
-    console.error('TEST: General error:', error);
-    return jsonResponse({ 
-      error: 'Internal server error',
-      message: error instanceof Error ? error.message : 'Unknown error',
+
+    console.log('TEST: Testing credentials for user:', creds.username);
+
+    // Test credentials
+    const credentialValidation = await validatePiShockCredentials(creds.apiKey, creds.username);
+    console.log('TEST: Credential validation result:', credentialValidation);
+
+    // Test device access
+    const deviceCheck = await checkUserDevices(creds.apiKey, creds.username);
+    console.log('TEST: Device check result:', deviceCheck);
+
+    const result = {
+      success: credentialValidation.valid,
+      isConnected: credentialValidation.valid,
+      hasDevice: deviceCheck.hasDevices,
+      deviceCount: deviceCheck.devices?.length || 0,
+      piShockUserId: credentialValidation.userId,
+      maxIntensity: userData.maxIntensity,
+      maxDuration: userData.maxDuration,
+      lastTested: new Date().toISOString(),
       debug: {
-        generalError: error instanceof Error ? error.message : 'Unknown error'
+        credentialValidation: credentialValidation.debugInfo,
+        deviceCheck: deviceCheck.debugInfo,
+        storedCredentials: {
+          username: creds.username,
+          hasApiKey: !!creds.apiKey,
+          apiKeyLength: creds.apiKey?.length || 0
+        }
+      }
+    };
+
+    if (!credentialValidation.valid) {
+      return jsonResponse({
+        ...result,
+        error: credentialValidation.error || 'Credential validation failed'
+      });
+    }
+
+    if (!deviceCheck.hasDevices) {
+      return jsonResponse({
+        ...result,
+        error: deviceCheck.error || 'No devices with shockers found'
+      });
+    }
+
+    // Update the last tested timestamp
+    userData.lastTested = result.lastTested;
+    await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
+
+    return jsonResponse(result);
+
+  } catch (error) {
+    console.error('TEST: Unexpected error:', error);
+    return jsonResponse({
+      success: false,
+      isConnected: false,
+      hasDevice: false,
+      error: 'Internal server error during test',
+      debug: {
+        step: 'general_error',
+        error: error instanceof Error ? error.message : 'Unknown error'
       }
     }, 500);
   }
