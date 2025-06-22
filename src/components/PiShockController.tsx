@@ -9,6 +9,8 @@ interface PiShockControllerProps {
   instanceId: string;
   auth: any;
   currentUser: any;
+  isCompactMode?: boolean;
+  orientation?: string;
 }
 
 // Helper function to get the correct API base URL
@@ -32,7 +34,9 @@ export function PiShockController({
   addNotification, 
   instanceId, 
   auth,
-  currentUser
+  currentUser,
+  isCompactMode = false,
+  orientation = 'UNKNOWN'
 }: PiShockControllerProps) {
   const [apiKey, setApiKey] = useState('');
   const [username, setUsername] = useState('');
@@ -52,6 +56,7 @@ export function PiShockController({
   const [sharedCredentialsConnected, setSharedCredentialsConnected] = useState(false);
   const [currentUserPiShockUserId, setCurrentUserPiShockUserId] = useState<string>('');
   const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
+  const [lastShockTime, setLastShockTime] = useState<number>(0);
 
   // Get the effective limits based on selected user
   const getEffectiveLimits = () => {
@@ -109,6 +114,20 @@ export function PiShockController({
     }
   }, [currentUser, auth]);
 
+  // Reset states when switching between credential types
+  useEffect(() => {
+    if (useSharedCredentials) {
+      // When switching to shared credentials, clear personal credential states
+      setApiKey('');
+      setUsername('');
+      setSharecode('');
+      setHasOwnDevice(false);
+    } else {
+      // When switching to personal credentials, clear shared credential states  
+      setHasConsentedToShared(false);
+    }
+  }, [useSharedCredentials]);
+
   const checkCurrentUserCredentials = async () => {
     setSettingsLoading(true);
     try {
@@ -157,9 +176,8 @@ export function PiShockController({
         setSharedCredentialsConnected(status.isConnected && status.hasConsented);
         setHasConsentedToShared(status.hasConsented);
         
-        if (status.isConnected && status.hasConsented) {
-          addNotification('success', 'Shared Credentials Active', 'Using shared bot credentials');
-        }
+        // Update connection state based on shared credentials OR personal credentials
+        onConnectionChange(currentUserPiShockConnected || (status.isConnected && status.hasConsented));
       }
     } catch (error) {
       console.error('Failed to check shared credentials status:', error);
@@ -196,7 +214,7 @@ export function PiShockController({
           setSharedCredentialsConnected(true);
           onConnectionChange(true);
           
-          addNotification('success', 'Shared Credentials Enabled', 'You are now using the shared bot credentials');
+          addNotification('success', 'Shared Credentials Enabled', 'You are now using shared bot credentials. You can now target users with devices.');
           
           setShowSettings(false);
           
@@ -259,6 +277,10 @@ export function PiShockController({
         setSharecode('');
         setShowSettings(false);
         
+        // Disable shared credentials when personal credentials are successfully saved
+        setUseSharedCredentials(false);
+        setSharedCredentialsConnected(false);
+        
         // Update the stored PiShock user ID from save result
         if (result.piShockUserId) {
           setCurrentUserPiShockUserId(result.piShockUserId);
@@ -312,6 +334,11 @@ export function PiShockController({
             setSharedCredentialsConnected(true);
             onConnectionChange(true);
             addNotification('success', 'Shared Credentials Test Successful', 'The shared bot credentials are working correctly');
+            
+            // Refresh all user statuses after successful test
+            if (window.refreshAllUserStatuses) {
+              window.refreshAllUserStatuses();
+            }
           } else {
             throw new Error(result.error || 'Shared credentials test failed');
           }
@@ -393,7 +420,15 @@ export function PiShockController({
       return;
     }
 
+    // Prevent rapid-fire commands (minimum 3 second cooldown)
+    const now = Date.now();
+    if (now - lastShockTime < 3000) {
+      addNotification('warning', 'Please Wait', 'Please wait a moment before sending another command');
+      return;
+    }
+
     setIsShocking(true);
+    setLastShockTime(now);
 
     try {
       const endpoint = sharedCredentialsConnected 
@@ -422,6 +457,13 @@ export function PiShockController({
           const actionName = operation === 0 ? 'Shock' : operation === 1 ? 'Vibration' : 'Beep';
           const method = sharedCredentialsConnected ? 'via shared credentials' : 'to their device';
           addNotification('success', 'Command Sent', `${actionName} sent to ${selectedUser.displayName || selectedUser.username} ${method} - Intensity: ${intensity}%, Duration: ${duration}s`);
+          
+          // Refresh user statuses after successful command
+          if (window.refreshAllUserStatuses) {
+            setTimeout(() => {
+              window.refreshAllUserStatuses();
+            }, 1000);
+          }
         } else {
           throw new Error(result.error || 'Command failed');
         }
@@ -457,7 +499,8 @@ export function PiShockController({
   const removeStoredCredentials = async () => {
     if (!currentUser || !auth) return;
 
-    if (hasConsentedToShared) {
+    // Remove shared credentials consent if it exists
+    if (sharedCredentialsConnected || hasConsentedToShared) {
       try {
         const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/shared-credentials`, {
           method: 'DELETE',
@@ -470,33 +513,99 @@ export function PiShockController({
           setSharedCredentialsConnected(false);
           setHasConsentedToShared(false);
           setUseSharedCredentials(false);
+          
+          // Update connection state - only personal credentials remain
           onConnectionChange(currentUserPiShockConnected);
           addNotification('info', 'Shared Credentials Disabled', 'You are no longer using shared credentials');
+          
+          // If no personal credentials either, show that user is disconnected
+          if (!currentUserPiShockConnected) {
+            addNotification('info', 'Disconnected', 'You are now disconnected. Configure your personal PiShock account or re-enable shared credentials.');
+          }
         }
       } catch (error) {
         console.error('Failed to disable shared credentials:', error);
         addNotification('error', 'Remove Failed', 'Failed to disable shared credentials');
       }
-      return;
     }
 
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${auth.access_token}`,
-        },
-      });
+    // Remove personal credentials if they exist
+    if (hasStoredCredentials) {
+      try {
+        const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${auth.access_token}`,
+          },
+        });
 
-      if (response.ok) {
-        setHasStoredCredentials(false);
-        setCurrentUserPiShockConnected(false);
-        onConnectionChange(false);
-        addNotification('info', 'Credentials Removed', 'Your PiShock credentials have been removed');
+        if (response.ok) {
+          setHasStoredCredentials(false);
+          setCurrentUserPiShockConnected(false);
+          
+          // Update connection state - check if shared credentials are still active
+          onConnectionChange(sharedCredentialsConnected);
+          addNotification('info', 'Credentials Removed', 'Your PiShock credentials have been removed');
+          
+          // If no shared credentials either, show that user is disconnected
+          if (!sharedCredentialsConnected) {
+            addNotification('info', 'Disconnected', 'You are now disconnected. Configure your PiShock account or enable shared credentials.');
+          }
+        }
+      } catch (error) {
+        console.error('Failed to remove personal credentials:', error);
+        addNotification('error', 'Remove Failed', 'Failed to remove stored credentials');
+      }
+    }
+    
+    // Refresh statuses after removal
+    if (window.refreshAllUserStatuses) {
+      setTimeout(() => {
+        window.refreshAllUserStatuses();
+      }, 1000);
+    }
+  };
+
+  // Function to completely reset all credential states
+  const resetAllCredentials = async () => {
+    if (!currentUser || !auth) return;
+
+    try {
+      // Remove both shared and personal credentials
+      await Promise.all([
+        fetch(`${getApiBaseUrl()}/users/${currentUser.id}/shared-credentials`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${auth.access_token}` },
+        }),
+        fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${auth.access_token}` },
+        })
+      ]);
+      
+      // Reset all states
+      setHasStoredCredentials(false);
+      setCurrentUserPiShockConnected(false);
+      setSharedCredentialsConnected(false);
+      setHasConsentedToShared(false);
+      setUseSharedCredentials(false);
+      setApiKey('');
+      setUsername('');
+      setSharecode('');
+      setHasOwnDevice(false);
+      onConnectionChange(false);
+      
+      addNotification('info', 'All Credentials Removed', 'All PiShock credentials have been removed. You can now start fresh.');
+      
+      // Refresh statuses
+      if (window.refreshAllUserStatuses) {
+        setTimeout(() => {
+          window.refreshAllUserStatuses();
+        }, 1000);
       }
     } catch (error) {
-      console.error('Failed to remove credentials:', error);
-      addNotification('error', 'Remove Failed', 'Failed to remove stored credentials');
+      console.error('Failed to reset all credentials:', error);
+      addNotification('error', 'Reset Failed', 'Failed to reset all credentials');
     }
   };
 
@@ -541,7 +650,13 @@ export function PiShockController({
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-3">
             <Settings className="h-5 w-5 text-purple-400" />
-            <h3 className="text-base sm:text-lg font-semibold">Your PiShock Settings</h3>
+            <h3 className={`${
+              isCompactMode 
+                ? 'text-sm' 
+                : 'text-base sm:text-lg'
+            } font-semibold`}>
+              {isCompactMode ? 'Settings' : 'Your PiShock Settings'}
+            </h3>
             {settingsLoading && <Loader className="h-4 w-4 animate-spin text-gray-400" />}
           </div>
           <button
@@ -605,6 +720,14 @@ export function PiShockController({
                 >
                   Remove
                 </button>
+                {(hasStoredCredentials || sharedCredentialsConnected) && (
+                  <button
+                    onClick={resetAllCredentials}
+                    className="px-3 py-1 bg-gray-600 hover:bg-gray-700 rounded text-xs transition-colors"
+                  >
+                    Reset All
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -624,6 +747,11 @@ export function PiShockController({
             <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg text-sm text-blue-200">
               <p className="font-semibold mb-1">Account Setup:</p>
               <p>Configure your PiShock account to participate. You can use account access even without owning a device.</p>
+              {isCompactMode && (
+                <p className="text-xs mt-2 text-blue-300">
+                  💡 Tip: Switch to full view for easier configuration
+                </p>
+              )}
             </div>
 
             {/* Account Type Selection */}
@@ -639,7 +767,7 @@ export function PiShockController({
                   name="accountType"
                   checked={!useSharedCredentials}
                   onChange={() => setUseSharedCredentials(false)}
-                  className="w-4 h-4 text-purple-600 bg-gray-800 border-gray-600 focus:ring-purple-500 mt-0.5"
+                  className={`${isCompactMode ? 'w-3 h-3' : 'w-4 h-4'} text-purple-600 bg-gray-800 border-gray-600 focus:ring-purple-500 mt-0.5`}
                 />
                 <div className="flex-1">
                   <div className="flex items-center space-x-2">
@@ -661,7 +789,7 @@ export function PiShockController({
                     name="accountType"
                     checked={useSharedCredentials}
                     onChange={() => setUseSharedCredentials(true)}
-                    className="w-4 h-4 text-orange-600 bg-gray-800 border-gray-600 focus:ring-orange-500 mt-0.5"
+                    className={`${isCompactMode ? 'w-3 h-3' : 'w-4 h-4'} text-orange-600 bg-gray-800 border-gray-600 focus:ring-orange-500 mt-0.5`}
                   />
                   <div className="flex-1">
                     <div className="flex items-center space-x-2">
@@ -697,13 +825,13 @@ export function PiShockController({
                       type="checkbox"
                       checked={hasConsentedToShared}
                       onChange={(e) => setHasConsentedToShared(e.target.checked)}
-                      className="w-4 h-4 text-orange-600 bg-gray-800 border-gray-600 rounded focus:ring-orange-500 mt-0.5"
+                      className={`${isCompactMode ? 'w-3 h-3' : 'w-4 h-4'} text-orange-600 bg-gray-800 border-gray-600 rounded focus:ring-orange-500 mt-0.5`}
                     />
                     <div className="text-sm text-gray-300">
                       <span className="font-medium">I understand and consent to using shared bot credentials</span>
-                      <p className="text-xs text-gray-400 mt-1">
+                      {!isCompactMode && <p className="text-xs text-gray-400 mt-1">
                         I acknowledge that these are shared credentials and I will use them responsibly according to all safety guidelines.
-                      </p>
+                      </p>}
                     </div>
                   </label>
                 </div>
@@ -722,9 +850,9 @@ export function PiShockController({
                         name="deviceType"
                         checked={!hasOwnDevice}
                         onChange={() => setHasOwnDevice(false)}
-                        className="w-4 h-4 text-purple-600 bg-gray-800 border-gray-600 focus:ring-purple-500"
+                        className={`${isCompactMode ? 'w-3 h-3' : 'w-4 h-4'} text-purple-600 bg-gray-800 border-gray-600 focus:ring-purple-500`}
                       />
-                      <span className="text-sm text-gray-300">Account Only (No Device)</span>
+                      <span className={`${isCompactMode ? 'text-xs' : 'text-sm'} text-gray-300`}>Account Only (No Device)</span>
                     </label>
                     <label className="flex items-center space-x-2 cursor-pointer">
                       <input
@@ -732,17 +860,17 @@ export function PiShockController({
                         name="deviceType"
                         checked={hasOwnDevice}
                         onChange={() => setHasOwnDevice(true)}
-                        className="w-4 h-4 text-purple-600 bg-gray-800 border-gray-600 focus:ring-purple-500"
+                        className={`${isCompactMode ? 'w-3 h-3' : 'w-4 h-4'} text-purple-600 bg-gray-800 border-gray-600 focus:ring-purple-500`}
                       />
-                      <span className="text-sm text-gray-300">Own Device</span>
+                      <span className={`${isCompactMode ? 'text-xs' : 'text-sm'} text-gray-300`}>Own Device</span>
                     </label>
                   </div>
-                  <p className="text-xs text-gray-400">
+                  {!isCompactMode && <p className="text-xs text-gray-400">
                     {hasOwnDevice 
                       ? "You own a PiShock device and want to receive commands on it"
                       : "You have a PiShock account but don't own a device (can still participate)"
                     }
-                  </p>
+                  </p>}
                 </div>
                 
                 <div>
@@ -781,9 +909,9 @@ export function PiShockController({
                       className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
                       placeholder="Device share code"
                     />
-                    <p className="text-xs text-gray-400 mt-1">
+                    {!isCompactMode && <p className="text-xs text-gray-400 mt-1">
                       Required only if you own a device and want to receive commands
-                    </p>
+                    </p>}
                   </div>
                 )}
               </>
@@ -809,7 +937,13 @@ export function PiShockController({
 
       {/* Control Panel */}
       <div className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex-1 flex flex-col min-h-0">
-        <h3 className="text-base sm:text-lg font-semibold mb-4 flex-shrink-0">Control Panel</h3>
+        <h3 className={`${
+          isCompactMode 
+            ? 'text-sm mb-3' 
+            : 'text-base sm:text-lg mb-4'
+        } font-semibold flex-shrink-0`}>
+          Control Panel
+        </h3>
 
         {!selectedUser ? (
           <div className="text-center py-8 text-gray-400 flex-1 flex flex-col justify-center">
@@ -825,7 +959,7 @@ export function PiShockController({
                 <img
                   src={selectedUser.guildAvatarUrl || selectedUser.avatarUrl || `https://cdn.discordapp.com/embed/avatars/0.png`}
                   alt={`${getDisplayName(selectedUser)}'s avatar`}
-                  className="w-8 h-8 rounded-full flex-shrink-0"
+                  className={`${isCompactMode ? 'w-6 h-6' : 'w-8 h-8'} rounded-full flex-shrink-0`}
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
                     target.src = `https://cdn.discordapp.com/embed/avatars/0.png`;
@@ -835,9 +969,11 @@ export function PiShockController({
                   <p className="text-blue-300 text-sm">
                     <span className="font-semibold">Target:</span> {getDisplayName(selectedUser)}
                   </p>
+                  {!isCompactMode && (
                   <p className="text-xs text-blue-400">
                     Commands will be sent {sharedCredentialsConnected ? 'via shared bot credentials' : 'through their PiShock account'}
                   </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -909,31 +1045,49 @@ export function PiShockController({
               </div>
 
               {/* Action Buttons */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 flex-shrink-0">
+              <div className={`grid gap-2 sm:gap-3 flex-shrink-0 ${
+                isCompactMode 
+                  ? 'grid-cols-3' // Always 3 columns in compact mode
+                  : orientation === 'PORTRAIT' 
+                    ? 'grid-cols-1' // Single column in portrait 
+                    : 'grid-cols-1 sm:grid-cols-3' // Responsive for landscape
+              }`}>
                 <button
                   onClick={() => handleShock(0)}
                   disabled={isShocking || (!currentUserPiShockConnected && !sharedCredentialsConnected)}
-                  className="py-2 sm:py-3 px-3 sm:px-4 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex flex-row sm:flex-col items-center justify-center space-x-2 sm:space-x-0 sm:space-y-1 transition-all text-xs sm:text-sm"
+                  className={`${
+                    isCompactMode 
+                      ? 'py-2 px-2 text-xs flex flex-col space-y-1' 
+                      : 'py-2 sm:py-3 px-3 sm:px-4 flex flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-1 text-xs sm:text-sm'
+                  } bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold items-center justify-center transition-all`}
                 >
-                  <Zap className="h-4 w-4 sm:h-5 sm:w-5" />
+                  <Zap className={`${isCompactMode ? 'h-3 w-3' : 'h-4 w-4 sm:h-5 sm:w-5'}`} />
                   <span>Shock</span>
                 </button>
 
                 <button
                   onClick={() => handleShock(1)}
                   disabled={isShocking || (!currentUserPiShockConnected && !sharedCredentialsConnected)}
-                  className="py-2 sm:py-3 px-3 sm:px-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex flex-row sm:flex-col items-center justify-center space-x-2 sm:space-x-0 sm:space-y-1 transition-all text-xs sm:text-sm"
+                  className={`${
+                    isCompactMode 
+                      ? 'py-2 px-2 text-xs flex flex-col space-y-1' 
+                      : 'py-2 sm:py-3 px-3 sm:px-4 flex flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-1 text-xs sm:text-sm'
+                  } bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold items-center justify-center transition-all`}
                 >
-                  <Play className="h-4 w-4 sm:h-5 sm:w-5" />
+                  <Play className={`${isCompactMode ? 'h-3 w-3' : 'h-4 w-4 sm:h-5 sm:w-5'}`} />
                   <span>Vibrate</span>
                 </button>
 
                 <button
                   onClick={() => handleShock(2)}
                   disabled={isShocking || (!currentUserPiShockConnected && !sharedCredentialsConnected)}
-                  className="py-2 sm:py-3 px-3 sm:px-4 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex flex-row sm:flex-col items-center justify-center space-x-2 sm:space-x-0 sm:space-y-1 transition-all text-xs sm:text-sm"
+                  className={`${
+                    isCompactMode 
+                      ? 'py-2 px-2 text-xs flex flex-col space-y-1' 
+                      : 'py-2 sm:py-3 px-3 sm:px-4 flex flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-1 text-xs sm:text-sm'
+                  } bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold items-center justify-center transition-all`}
                 >
-                  <Square className="h-4 w-4 sm:h-5 sm:w-5" />
+                  <Square className={`${isCompactMode ? 'h-3 w-3' : 'h-4 w-4 sm:h-5 sm:w-5'}`} />
                   <span>Beep</span>
                 </button>
               </div>
@@ -944,8 +1098,23 @@ export function PiShockController({
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400"></div>
                     <span>Executing command...</span>
                   </div>
+                  {!isCompactMode && <p className="text-xs text-gray-400 mt-1">
+                    Please wait, sending to {selectedUser?.displayName || selectedUser?.username || 'target'}...
+                  </p>}
                 </div>
               )}
+              
+              {/* Cooldown indicator */}
+              {(() => {
+                const now = Date.now();
+                return (now - lastShockTime < 3000) && !isShocking && (
+                  <div className="text-center flex-shrink-0">
+                    <div className={`${isCompactMode ? 'text-xs' : 'text-xs'} text-gray-400`}>
+                      Cooldown: {Math.ceil((3000 - (now - lastShockTime)) / 1000)}s remaining
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}

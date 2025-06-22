@@ -246,14 +246,23 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     // Try to get cached status first
     const cachedStatus = await getCachedUserStatus(env.PISHOCK_KV, userId);
     if (cachedStatus) {
-      return jsonResponse(cachedStatus, 200, {
-        'Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
-        'X-Cache-Status': 'HIT',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      const response = new Response(JSON.stringify(cachedStatus), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
+          'X-Cache-Status': 'HIT',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        }
       });
+      return response;
     }
+    
+    // Check both personal credentials and shared credentials status
+    const sharedConsentData = await env.PISHOCK_KV.get(`user:${userId}:shared_consent`);
+    const hasSharedConsent = !!sharedConsentData;
     
     // Get all user data from single key
     const userDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
@@ -266,6 +275,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     let lastTested = userData?.lastTested;
     let hasOwnDevice = userData?.hasOwnDevice || false;
     let encrypted = userData?.credentials;
+    let usingSharedCredentials = hasSharedConsent;
     
     if (encrypted) {
       try {
@@ -302,19 +312,23 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       } catch (error) {
         console.error('STATUS: Failed to test stored credentials:', error);
         isConnected = false;
+    console.log('STATUS: User has shared credentials consent:', hasSharedConsent);
         hasDevice = false;
       }
     }
 
     const result = { 
       hasCredentials: !!userData?.credentials, 
-      isConnected, 
+      isConnected: isConnected || hasSharedConsent, // Connected if personal OR shared credentials work
       hasDevice,
       deviceCount,
       hasOwnDevice,
       piShockUserId,
       lastTested,
-      isRelay: false // Personal accounts are never relay
+      isRelay: false, // Personal accounts are never relay
+      usingSharedCredentials: hasSharedConsent,
+      hasPersonalCredentials: !!encrypted,
+      personalCredentialsWorking: isConnected
     };
     
     console.log('STATUS: Final result for user', userId, ':', result);

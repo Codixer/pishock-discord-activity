@@ -22,6 +22,7 @@ interface ActivityLogProps {
   instanceId: string;
   auth: any;
   addNotification: (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => void;
+  isCompactMode?: boolean;
 }
 
 // Helper function to get the correct API base URL
@@ -38,7 +39,12 @@ function getApiBaseUrl(): string {
   }
 }
 
-export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogProps) {
+export function ActivityLog({ 
+  instanceId, 
+  auth, 
+  addNotification, 
+  isCompactMode = false 
+}: ActivityLogProps) {
   const [entries, setEntries] = useState<ActivityLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [isVisible, setIsVisible] = useState(true);
@@ -181,9 +187,13 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
       <div className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <Clock className="h-5 w-5 text-purple-400" />
-            <h3 className="text-lg font-semibold">Public Activity Log</h3>
-            <span className="text-sm text-gray-400">({entries.length} entries)</span>
+            <Clock className={`${isCompactMode ? 'h-4 w-4' : 'h-5 w-5'} text-purple-400`} />
+            <h3 className={`${isCompactMode ? 'text-sm' : 'text-lg'} font-semibold`}>
+              {isCompactMode ? 'Activity' : 'Public Activity Log'}
+            </h3>
+            {!isCompactMode && (
+              <span className="text-sm text-gray-400">({entries.length} entries)</span>
+            )}
           </div>
           <button
             onClick={() => setIsVisible(true)}
@@ -202,13 +212,18 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
       {/* Header */}
       <div className="p-4 pb-3 flex-shrink-0">
         <div className="flex items-center space-x-3">
-          <Clock className="h-5 w-5 text-purple-400" />
+          <Clock className={`${isCompactMode ? 'h-4 w-4' : 'h-5 w-5'} text-purple-400`} />
           <div>
-            <h3 className="text-base sm:text-lg font-semibold">Public Activity Log</h3>
-            <span className="text-sm text-gray-400">({entries.length} entries)</span>
+            <h3 className={`${isCompactMode ? 'text-sm' : 'text-base sm:text-lg'} font-semibold`}>
+              {isCompactMode ? 'Activity' : 'Public Activity Log'}
+            </h3>
+            {!isCompactMode && (
+              <span className="text-sm text-gray-400">({entries.length} entries)</span>
+            )}
           </div>
         </div>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-2 mt-3 sm:mt-0">
+        {!isCompactMode && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-2 mt-3">
           <button
             onClick={() => setAutoRefresh(!autoRefresh)}
             className={`flex items-center space-x-1 px-2 py-1 rounded text-xs transition-colors ${
@@ -235,13 +250,16 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
             <span className="hidden sm:inline">Hide</span>
           </button>
         </div>
+        )}
       </div>
 
       {/* Last Refresh Info */}
+      {!isCompactMode && (
       <div className="text-xs text-gray-400 px-4 pb-3 flex-shrink-0">
         Last updated: {lastRefresh.toLocaleTimeString()}
         {autoRefresh && <span className="ml-2">(Auto-refresh every 60s)</span>}
       </div>
+      )}
 
       {/* Activity Log Content */}
       <div className="flex-1 overflow-hidden px-4 pb-4">
@@ -253,7 +271,7 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
           <div className="text-center py-8 text-gray-400 h-full flex flex-col justify-center">
             <Users className="h-12 w-12 mx-auto mb-3 opacity-50" />
             <p>No activity recorded yet</p>
-            <p className="text-sm mt-1">Actions will appear here in real-time</p>
+            {!isCompactMode && <p className="text-sm mt-1">Actions will appear here in real-time</p>}
           </div>
         ) : (
           <div 
@@ -263,7 +281,7 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
             {entries.map((entry) => (
               <div
                 key={entry.id}
-                className={`p-3 rounded-lg border transition-all ${getActionColor(entry.action)}`}
+                className={`${isCompactMode ? 'p-2' : 'p-3'} rounded-lg border transition-all ${getActionColor(entry.action)}`}
               >
                 <div className="flex items-start space-x-3">
                   {/* Action Icon */}
@@ -278,7 +296,7 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
                       <img
                         src={entry.executorAvatar || `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(entry.executorUserId)}.png`}
                         alt={`${entry.executorUsername}'s avatar`}
-                        className="w-5 h-5 rounded-full flex-shrink-0"
+                        className={`${isCompactMode ? 'w-4 h-4' : 'w-5 h-5'} rounded-full flex-shrink-0`}
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
                           target.src = `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(entry.executorUserId)}.png`;
@@ -287,20 +305,24 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
                       <span className="font-semibold text-sm truncate">
                         {entry.executorUsername}
                       </span>
-                      <span className="text-xs text-gray-400">→</span>
+                      {!isCompactMode && <span className="text-xs text-gray-400">→</span>}
                       {/* Target Avatar */}
+                      {!isCompactMode && (
                       <img
                         src={entry.targetAvatar || `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(entry.targetUserId)}.png`}
                         alt={`${entry.targetUsername}'s avatar`}
-                        className="w-5 h-5 rounded-full flex-shrink-0"
+                        className={`${isCompactMode ? 'w-4 h-4' : 'w-5 h-5'} rounded-full flex-shrink-0`}
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
                           target.src = `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(entry.targetUserId)}.png`;
                         }}
                       />
+                      )}
+                      {!isCompactMode && (
                       <span className="font-semibold text-sm truncate">
                         {entry.targetUsername}
                       </span>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -314,7 +336,7 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
                         <span className="text-gray-400">
                           {entry.duration}s
                         </span>
-                        {entry.guildName && (
+                        {!isCompactMode && entry.guildName && (
                           <span className="text-gray-400 truncate max-w-24">
                             in {entry.guildName}
                           </span>

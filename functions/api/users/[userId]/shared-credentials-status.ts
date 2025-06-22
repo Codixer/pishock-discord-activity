@@ -160,10 +160,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     const hasConsented = !!consentData;
 
     let isConnected = false;
+    let sharedUserId = null;
     if (hasConsented) {
       // Test the shared credentials
       const credentialValidation = await validateSharedCredentials(sharedApiKey, sharedUsername);
       isConnected = credentialValidation.valid;
+      sharedUserId = credentialValidation.userId;
       
       console.log('SHARED_STATUS: Shared credentials test result:', isConnected);
     }
@@ -172,6 +174,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       available,
       isConnected: available && hasConsented && isConnected,
       hasConsented,
+      sharedUserId,
       message: available ? 'Shared credentials available' : 'Shared credentials not configured'
     };
     

@@ -9,6 +9,7 @@ interface UserSelectorProps {
   currentUser: any;
   instanceData: InstanceData;
   userPiShockStatus: Record<string, any>;
+  isCompactMode?: boolean;
 }
 
 export function UserSelector({ 
@@ -17,7 +18,8 @@ export function UserSelector({
   onUserSelect, 
   currentUser, 
   instanceData, 
-  userPiShockStatus 
+  userPiShockStatus,
+  isCompactMode = false
 }: UserSelectorProps) {
   // Safe BigInt conversion with fallback for development mock IDs
   const getDefaultAvatarIndex = (userId: string) => {
@@ -53,9 +55,15 @@ export function UserSelector({
   return (
     <div className="h-full bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex flex-col">
       <div className="flex items-center space-x-2 mb-4 flex-shrink-0">
-        <Users className="h-5 w-5 text-blue-400" />
+        <Users className={`${isCompactMode ? 'h-4 w-4' : 'h-5 w-5'} text-blue-400`} />
         <div className="min-w-0 flex-1">
-          <h2 className="text-base sm:text-lg font-semibold truncate">Activity Participants</h2>
+          <h2 className={`${
+            isCompactMode 
+              ? 'text-sm' 
+              : 'text-base sm:text-lg'
+          } font-semibold truncate`}>
+            {isCompactMode ? 'Participants' : 'Activity Participants'}
+          </h2>
         </div>
         <span className="text-xs sm:text-sm text-gray-400 flex-shrink-0">({members.length})</span>
       </div>
@@ -66,7 +74,7 @@ export function UserSelector({
             <div className="text-center py-8 text-gray-400">
               <Users className="h-12 w-12 mx-auto mb-3 opacity-50" />
               <p>No participants found</p>
-              <p className="text-sm mt-1">Waiting for users to join...</p>
+              {!isCompactMode && <p className="text-sm mt-1">Waiting for users to join...</p>}
             </div>
           ) : (
             <>
@@ -74,10 +82,10 @@ export function UserSelector({
               {currentUser && (
                 <div className="mb-4">
                   <h3 className="text-xs sm:text-sm font-medium text-gray-400 mb-2 flex items-center space-x-1">
-                    <Crown className="h-3 w-3" />
-                    <span>You</span>
+                    <Crown className={`${isCompactMode ? 'h-2 w-2' : 'h-3 w-3'}`} />
+                    <span>{isCompactMode ? 'You' : 'You'}</span>
                   </h3>
-                  <div className="p-2 sm:p-3 rounded-lg border bg-blue-900/20 border-blue-500/30">
+                  <div className={`${isCompactMode ? 'p-2' : 'p-2 sm:p-3'} rounded-lg border bg-blue-900/20 border-blue-500/30`}>
                     <div className="flex items-center space-x-3">
                       <img
                         src={getAvatarUrl(currentUser)}
@@ -92,6 +100,8 @@ export function UserSelector({
                         <p className="font-medium text-blue-300 text-xs sm:text-sm truncate">
                           {getDisplayName(currentUser)}
                         </p>
+                        {/* Hide detailed status in compact mode */}
+                        {!isCompactMode && (
                         <div className="flex flex-col space-y-1 mt-1">
                           <div className="flex items-center space-x-1">
                           {userPiShockStatus[currentUser.id]?.isConnected ? (
@@ -132,6 +142,7 @@ export function UserSelector({
                             </div>
                           )}
                         </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -141,7 +152,9 @@ export function UserSelector({
               {/* Other Participants */}
               {otherParticipants.length > 0 && (
                 <div>
-                  <h3 className="text-xs sm:text-sm font-medium text-gray-400 mb-2">Select Target</h3>
+                  <h3 className="text-xs sm:text-sm font-medium text-gray-400 mb-2">
+                    {isCompactMode ? 'Target' : 'Select Target'}
+                  </h3>
                   <div className="space-y-2">
                     {otherParticipants.map((member) => {
                       const userStatus = userPiShockStatus[member.id];
@@ -163,11 +176,11 @@ export function UserSelector({
                               : 'bg-gray-800/50 border-gray-600/50 hover:bg-gray-700/50 hover:border-gray-500/50'
                           }`}
                         >
-                          <div className="flex items-center space-x-2 sm:space-x-3">
+                          <div className={`flex items-center ${isCompactMode ? 'space-x-2' : 'space-x-2 sm:space-x-3'}`}>
                             <img
                               src={getAvatarUrl(member)}
                               alt={`${getDisplayName(member)}'s avatar`}
-                              className="w-6 h-6 sm:w-8 sm:h-8 rounded-full flex-shrink-0"
+                              className={`${isCompactMode ? 'w-6 h-6' : 'w-6 h-6 sm:w-8 sm:h-8'} rounded-full flex-shrink-0`}
                               onError={(e) => {
                                 const target = e.target as HTMLImageElement;
                                 target.src = `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(member.id)}.png`;
@@ -177,6 +190,8 @@ export function UserSelector({
                               <p className="font-medium text-white text-xs sm:text-sm truncate">
                                 {getDisplayName(member)}
                               </p>
+                              {/* Hide detailed status in compact mode */}
+                              {!isCompactMode && (
                               <div className="flex flex-col space-y-1 mt-1">
                                 <div className="flex items-center space-x-1">
                                 {isConnected ? (
@@ -235,6 +250,7 @@ export function UserSelector({
                                   </div>
                                 )}
                               </div>
+                              )}
                             </div>
                             {selectedUser?.id === member.id && !isDisabled && (
                               <div className="w-2 h-2 bg-purple-400 rounded-full flex-shrink-0"></div>
@@ -251,7 +267,7 @@ export function UserSelector({
                 <div className="text-center py-6 text-gray-400">
                   <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
                   <p className="text-xs sm:text-sm">You're the only participant</p>
-                  <p className="text-xs mt-1">Invite others to join the activity!</p>
+                  {!isCompactMode && <p className="text-xs mt-1">Invite others to join the activity!</p>}
                 </div>
               )}
             </>
@@ -265,7 +281,7 @@ export function UserSelector({
             <img
               src={getAvatarUrl(selectedUser)}
               alt={`${getDisplayName(selectedUser)}'s avatar`}
-              className="w-5 h-5 sm:w-6 sm:h-6 rounded-full flex-shrink-0"
+              className={`${isCompactMode ? 'w-4 h-4' : 'w-5 h-5 sm:w-6 sm:h-6'} rounded-full flex-shrink-0`}
               onError={(e) => {
                 const target = e.target as HTMLImageElement;
                 target.src = `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(selectedUser.id)}.png`;
@@ -273,7 +289,10 @@ export function UserSelector({
             />
             <div className="min-w-0 flex-1">
               <p className="text-green-300 text-xs sm:text-sm">
-                <span className="font-semibold">Target:</span> {getDisplayName(selectedUser)}
+                <span className="font-semibold">
+                  {isCompactMode ? '' : 'Target: '}
+                </span>
+                {getDisplayName(selectedUser)}
               </p>
             </div>
           </div>
