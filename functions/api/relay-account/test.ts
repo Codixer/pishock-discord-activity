@@ -182,7 +182,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       lastTested,
       message: credentialValidation.valid 
         ? 'Relay account credentials are valid and can send commands to user devices'
-        : `Relay account validation failed: ${credentialValidation.error}`
+        : `Relay account validation failed: ${credentialValidation.error}`,
       description: 'Relay account credentials validated - can send commands to user devices'
     });
   } catch (error) {

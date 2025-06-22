@@ -139,23 +139,23 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }, 400);
     }
 
-    const apiKey = env.PISHOCK_RELAY_API_KEY;
-    const username = env.PISHOCK_RELAY_USERNAME;
+    // Check if relay account is configured (for logging purposes)
+    const relayApiKey = env.PISHOCK_RELAY_API_KEY;
+    const relayUsername = env.PISHOCK_RELAY_USERNAME;
 
-    console.log('RELAY: Checking relay account credentials...');
-    console.log('RELAY: Has API key:', !!apiKey);
-    console.log('RELAY: Has username:', !!username);
-    console.log('RELAY: Username value:', username);
+    console.log('RELAY: Relay account status:');
+    console.log('RELAY: Has relay API key:', !!relayApiKey);
+    console.log('RELAY: Has relay username:', !!relayUsername);
 
-    if (!apiKey || !username) {
-      console.error('RELAY: Missing relay account credentials');
+    if (!relayApiKey || !relayUsername) {
+      console.error('RELAY: Relay account not configured in environment variables');
       return jsonResponse({ 
         success: false, 
-        error: 'Relay account not configured - missing API key or username' 
+        error: 'Relay account not configured - missing environment variables' 
       });
     }
 
-    // Get target user's PiShock credentials to get their share code
+    // Get target user's PiShock credentials - we'll use THEIR credentials to control THEIR device
     console.log('RELAY: Getting target user credentials...');
     const targetUserCredentials = await env.PISHOCK_KV.get(`user:${targetUserId}:pishock`);
     if (!targetUserCredentials) {
@@ -165,23 +165,29 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         error: 'Target user has no PiShock device configured' 
       });
     }
-
-    let targetShareCode; 
     let targetCreds;
     try {
       targetCreds = await decrypt(targetUserCredentials);
-      targetShareCode = targetCreds.sharecode;
       
       console.log('RELAY: Target user credentials decrypted');
       console.log('RELAY: Target username:', targetCreds.username);
-      console.log('RELAY: Target share code:', targetShareCode);
+      console.log('RELAY: Target share code:', targetCreds.sharecode ? `${targetCreds.sharecode.slice(0, 4)}****` : 'MISSING');
       console.log('RELAY: Target has own device:', targetCreds.hasOwnDevice);
+      console.log('RELAY: Target API key length:', targetCreds.apiKey ? targetCreds.apiKey.length : 0);
       
-      if (!targetShareCode || targetShareCode === 'account_access') {
+      if (!targetCreds.apiKey || !targetCreds.username) {
+        console.error('RELAY: Target user missing essential credentials');
+        return jsonResponse({ 
+          success: false, 
+          error: 'Target user has incomplete PiShock credentials' 
+        });
+      }
+
+      if (!targetCreds.sharecode || targetCreds.sharecode === 'account_access') {
         console.error('RELAY: Target user has no device configured (account-only access)');
         return jsonResponse({ 
           success: false, 
-          error: 'Target user has no device configured (account-only access)' 
+          error: 'Target user has no device configured (account-only access). Relay can only shock users with devices.' 
         });
       }
     } catch (error) {
@@ -193,17 +199,18 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     try {
-      // Execute PiShock command using relay account credentials but target user's device
+      // FIXED: Use target user's OWN credentials to control their OWN device
+      // This is the correct approach - we act as a proxy using their credentials
       const operationNames = ['shock', 'vibrate', 'beep'];
       const operationName = operationNames[operation];
       
-      console.log('RELAY: Executing', operationName, 'command via Legacy API');
-      console.log('RELAY: Using relay credentials with target device');
+      console.log('RELAY: Executing', operationName, 'command via target user\'s credentials');
+      console.log('RELAY: Using target user\'s API key and username with their device share code');
       
       const payload = {
-        Username: username, // Relay account username
-        Apikey: apiKey,     // Relay account API key
-        Code: targetShareCode, // Target user's device share code
+        Username: targetCreds.username,  // Target user's username
+        Apikey: targetCreds.apiKey,      // Target user's API key
+        Code: targetCreds.sharecode,     // Target user's device share code
         Intensity: intensity,
         Duration: duration,
         Op: operation,
@@ -211,9 +218,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       };
       
       console.log('RELAY: Request payload:', { 
-        ...payload, 
+        Username: targetCreds.username,
         Apikey: '***HIDDEN***',
-        Code: targetShareCode ? `${targetShareCode.slice(0, 4)}****` : 'MISSING'
+        Code: targetCreds.sharecode ? `${targetCreds.sharecode.slice(0, 4)}****` : 'MISSING',
+        Intensity: intensity,
+        Duration: duration,
+        Op: operation,
+        Name: 'DiscordActivity-Relay'
       });
       
       const response = await fetch('https://do.pishock.com/api/apioperate/', {
@@ -226,7 +237,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
 
       console.log('RELAY: Response status:', response.status);
-      console.log('RELAY: Response headers:', Object.fromEntries(response.headers.entries()));
       
       const responseText = await response.text();
       console.log('RELAY: Response text:', responseText);
@@ -254,8 +264,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           console.error('RELAY: ❌ Share code not found');
           throw new Error('Target user\'s share code not found. They may need to regenerate it.');
         } else if (responseText.includes('Not Authorized')) {
-          console.error('RELAY: ❌ Not authorized - relay account credentials invalid');
-          throw new Error('Relay account credentials are invalid. Please check configuration.');
+          console.error('RELAY: ❌ Not authorized - target user credentials invalid');
+          throw new Error('Target user\'s PiShock credentials are invalid. They need to reconfigure their account.');
         } else if (responseText.includes('Shocker is Paused')) {
           console.error('RELAY: ❌ Device is paused');
           throw new Error('Target device is paused. Ask them to unpause it in the PiShock web panel.');
@@ -320,10 +330,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         success: true, 
         logEntryId: logEntry.id,
         relayUsed: true,
-        message: `${operationName} command sent via relay account to ${targetUser?.global_name || targetUser?.username || 'target user'}'s device`,
+        message: `${operationName} command sent to ${targetUser?.global_name || targetUser?.username || 'target user'}'s device via relay`,
         debug: {
-          relayUsername: username,
-          targetShareCode: targetShareCode ? `${targetShareCode.slice(0, 4)}****` : 'MISSING',
+          method: 'target_user_credentials',
+          targetUsername: targetCreds.username,
+          targetDevice: targetCreds.sharecode ? `${targetCreds.sharecode.slice(0, 4)}****` : 'MISSING',
           response: responseText
         }
       });
@@ -334,8 +345,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         success: false, 
         error: error instanceof Error ? error.message : 'Command execution failed',
         debug: {
-          relayConfigured: !!(apiKey && username),
-          targetConfigured: !!targetShareCode,
+          method: 'target_user_credentials',
+          relayConfigured: !!(relayApiKey && relayUsername),
+          targetConfigured: !!(targetCreds?.apiKey && targetCreds?.username && targetCreds?.sharecode),
           errorType: error instanceof Error ? error.constructor.name : 'Unknown'
         }
       });
@@ -348,3 +360,4 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }, 500);
   }
 };
+</paramet
