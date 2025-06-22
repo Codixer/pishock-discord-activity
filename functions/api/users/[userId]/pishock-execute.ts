@@ -238,30 +238,90 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
     }
 
+    let creds;
     try {
-      const creds = await decrypt(encrypted);
+      creds = await decrypt(encrypted);
       console.log('EXECUTE: Successfully decrypted target user credentials');
       console.log('EXECUTE: Username:', creds.username);
-      console.log('EXECUTE: Share code:', creds.sharecode);
+      console.log('EXECUTE: Target share code:', creds.sharecode);
       
+      if (!creds.sharecode || creds.sharecode === 'account_access') {
+        console.error('EXECUTE: Target user has no device configured (account-only access)');
+        return jsonResponse({ 
+          success: false, 
+          error: 'Target user has no device configured (account-only access). Cannot send commands to users without devices.' 
+        });
+      }
+    } catch (error) {
+      console.error('EXECUTE: Failed to decrypt target user credentials:', error);
+      return jsonResponse({ 
+        success: false, 
+        error: 'Failed to decrypt target user credentials' 
+      });
+    }
+
+    // Get executor's credentials for API authentication
+    console.log('EXECUTE: Getting executor user credentials for API authentication...');
+    const executorDataStr = await env.PISHOCK_KV.get(`user:${executorUserId}:data`);
+    let executorData = executorDataStr ? JSON.parse(executorDataStr) : null;
+    let executorEncrypted = executorData?.credentials;
+    
+    if (!executorEncrypted) {
+      // Check old format for executor
+      const oldExecutorEncrypted = await env.PISHOCK_KV.get(`user:${executorUserId}:pishock`);
+      if (oldExecutorEncrypted) {
+        executorEncrypted = oldExecutorEncrypted;
+      }
+    }
+    
+    if (!executorEncrypted) {
+      console.error('EXECUTE: Executor has no PiShock credentials configured');
+      return jsonResponse({ 
+        success: false, 
+        error: 'You need to configure your own PiShock credentials to send commands' 
+      });
+    }
+
+    let executorCreds;
+    try {
+      executorCreds = await decrypt(executorEncrypted);
+      console.log('EXECUTE: Executor credentials found, username:', executorCreds.username);
+    } catch (error) {
+      console.error('EXECUTE: Failed to decrypt executor credentials:', error);
+      return jsonResponse({ 
+        success: false, 
+        error: 'Failed to decrypt your PiShock credentials' 
+      });
+    }
+
+    try {
+      // CORRECT APPROACH: Use executor's API key with target's share code
       // Execute PiShock command using Legacy API
       const operationNames = ['shock', 'vibrate', 'beep'];
       const operationName = operationNames[operation];
       
-      console.log('EXECUTE: Sending', operationName, 'command via Legacy API');
+      console.log('EXECUTE: Sending', operationName, 'command via executor\'s API key to target\'s device');
       
       // Use exact endpoint and format from Legacy API documentation
       const payload = {
-        Username: creds.username,
-        Apikey: creds.apiKey,
+        Username: executorCreds.username,    // Executor's username for authentication
+        Apikey: executorCreds.apiKey,        // Executor's API key for authentication  
         Code: creds.sharecode,
         Intensity: intensity,
         Duration: duration,
         Op: operation,
-        Name: 'DiscordActivity',
+        Name: 'DiscordActivity-Personal',
       };
       
-      console.log('EXECUTE: Request payload:', { ...payload, Apikey: '***' });
+      console.log('EXECUTE: Request payload:', { 
+        Username: executorCreds.username,
+        Apikey: '***HIDDEN***',
+        Code: creds.sharecode ? `${creds.sharecode.slice(0, 4)}****` : 'MISSING',
+        Intensity: intensity,
+        Duration: duration,
+        Op: operation,
+        Name: 'DiscordActivity-Personal'
+      });
       
       const response = await fetch('https://do.pishock.com/api/apioperate/', {
         method: 'POST',
