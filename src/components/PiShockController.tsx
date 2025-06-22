@@ -235,14 +235,17 @@ export function PiShockController({
     } finally {
       setSettingsSaving(false);
     }
-  };
-
-  const loadAvailableShockers = async () => {
-    if (!currentUser || !auth || !apiKey || !username) return;
+  };  const loadAvailableShockers = async () => {
+    if (!currentUser || !auth || !apiKey || !username) {
+      addNotification('warning', 'Missing Data', 'Please ensure you have entered your API key and username before loading shockers');
+      return;
+    }
     
     setLoadingShockers(true);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/available-shockers`, {
+      const apiUrl = `${getApiBaseUrl()}/users/${currentUser.id}/available-shockers`;
+      
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -253,9 +256,10 @@ export function PiShockController({
           username,
         }),
       });
-
+      
       if (response.ok) {
         const result = await response.json();
+        
         if (result.success && result.shockers) {
           setAvailableShockers(result.shockers);
           
@@ -263,13 +267,21 @@ export function PiShockController({
           if (!selectedShockerId && result.shockers.length > 0) {
             setSelectedShockerId(result.shockers[0].shockerId.toString());
           }
+          
+          addNotification('success', 'Shockers Loaded', `Found ${result.shockers.length} available shockers`);
         } else {
           addNotification('warning', 'No Shockers Found', 'No shockers found in your PiShock account');
           setAvailableShockers([]);
         }
       } else {
-        const result = await response.json();
-        addNotification('error', 'Failed to Load Shockers', result.error || 'Failed to get available shockers');
+        let errorMessage = 'Failed to get available shockers';
+        try {
+          const result = await response.json();
+          errorMessage = result.error || errorMessage;
+        } catch (parseError) {
+          errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        }
+        addNotification('error', 'Failed to Load Shockers', errorMessage);
       }
     } catch (error) {
       console.error('Failed to load shockers:', error);
@@ -585,14 +597,16 @@ export function PiShockController({
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">
                 API Key <span className="text-red-400">*</span>
-              </label>
-              <input
+              </label>              <input
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
                 placeholder="Enter your PiShock API key"
               />
+              <p className="text-xs text-gray-400 mt-1">
+                Get your API key from <a href="https://ps.pishock.com/#/account" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">your PiShock account page</a>
+              </p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -626,9 +640,7 @@ export function PiShockController({
                   Click to load available shockers from your PiShock account
                 </p>
               </div>
-            )}
-
-            {/* Shocker Selection */}
+            )}            {/* Shocker Selection */}
             {availableShockers.length > 0 && (
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -649,6 +661,16 @@ export function PiShockController({
                 <p className="text-xs text-gray-400 mt-1">
                   This shocker will be used when others send commands to you
                 </p>
+              </div>
+            )}
+
+            {/* Message when shockers haven't been loaded */}
+            {apiKey && username && availableShockers.length === 0 && !loadingShockers && (
+              <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg">
+                <div className="flex items-center space-x-2 text-blue-300 text-sm">
+                  <Zap className="h-4 w-4" />
+                  <span>Click "Load My Shockers" to see your available devices</span>
+                </div>
               </div>
             )}
             

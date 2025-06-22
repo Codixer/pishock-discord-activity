@@ -44,6 +44,7 @@ async function getUserDevicesShockers(apiKey: string, username: string): Promise
   try {
     console.log('=== Getting user shockers for selection ===');
     console.log('Username:', username);
+    console.log('API Key:', apiKey);
     
     // Use the v3 API to get user devices
     const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=0&token=${encodeURIComponent(apiKey)}&api=true`;
@@ -82,8 +83,7 @@ async function getUserDevicesShockers(apiKey: string, username: string): Promise
         error: 'Invalid devices response format'
       };
     }
-    
-    // Extract all available shockers from all devices
+      // Extract all available shockers from all devices
     const availableShockers: any[] = [];
     if (Array.isArray(devices)) {
       devices.forEach(device => {
@@ -91,10 +91,10 @@ async function getUserDevicesShockers(apiKey: string, username: string): Promise
           device.shockers.forEach(shocker => {
             availableShockers.push({
               shockerId: shocker.shockerId,
-              shockerName: shocker.shockerName || `Shocker ${shocker.shockerId}`,
+              shockerName: shocker.name || `Shocker ${shocker.shockerId}`, // Fixed: use 'name' property
               deviceId: device.clientId,
               deviceName: device.name || `Device ${device.clientId}`,
-              displayName: `${shocker.shockerName || `Shocker ${shocker.shockerId}`} (${device.name || `Device ${device.clientId}`})`
+              displayName: `${shocker.name || `Shocker ${shocker.shockerId}`} (${device.name || `Device ${device.clientId}`})` // Fixed: use 'name' property
             });
           });
         }
@@ -138,22 +138,41 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   if (method !== 'POST') {
     return new Response('Method not allowed', { status: 405 });
   }
-
   const token = await requireAuth(request);
-  if (!token) return new Response('Unauthorized', { status: 401 });
-
-  const user = await validateDiscordToken(token);
-  if (!user) return new Response('Invalid token', { status: 401 });
-
-  // Users can only get their own available shockers
-  if (user.id !== userId) {
-    return new Response('Forbidden', { status: 403 });
+  if (!token) {
+    console.log('No authorization token provided');
+    return jsonResponse({ 
+      success: false, 
+      error: 'Authorization required' 
+    }, 401);
   }
 
+  const user = await validateDiscordToken(token);
+  if (!user) {
+    console.log('Invalid Discord token');
+    return jsonResponse({ 
+      success: false, 
+      error: 'Invalid authorization token' 
+    }, 401);
+  }
+  // Users can only get their own available shockers
+  if (user.id !== userId) {
+    console.log(`User ${user.id} tried to access shockers for user ${userId}`);
+    return jsonResponse({ 
+      success: false, 
+      error: 'You can only access your own shockers' 
+    }, 403);
+  }
   try {
     const { apiKey, username } = await request.json();
+    
+    console.log('=== Available shockers endpoint called ===');
+    console.log('User ID:', userId);
+    console.log('API Key provided:', !!apiKey);
+    console.log('Username provided:', !!username);
 
     if (!apiKey || !username) {
+      console.log('Missing required fields');
       return jsonResponse({ 
         success: false, 
         error: 'Missing required fields: apiKey and username are required' 
@@ -163,13 +182,17 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     console.log('Getting available shockers for user:', userId);
     const result = await getUserDevicesShockers(apiKey, username);
     
+    console.log('Result from getUserDevicesShockers:', result);
+    
     if (!result.success) {
+      console.log('Failed to get shockers:', result.error);
       return jsonResponse({ 
         success: false, 
         error: result.error || 'Failed to get available shockers'
       });
     }
 
+    console.log('Returning successful response with', result.shockers?.length || 0, 'shockers');
     return jsonResponse({ 
       success: true, 
       shockers: result.shockers || []

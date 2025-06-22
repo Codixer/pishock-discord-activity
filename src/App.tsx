@@ -29,50 +29,22 @@ declare global {
 const urlParams = new URLSearchParams(window.location.search);
 const isEmbedded = urlParams.has('frame_id');
 
-// Debug environment variables
-const envCheck = {
-  client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
-  is_placeholder: import.meta.env.VITE_DISCORD_CLIENT_ID === 'YOUR_DISCORD_CLIENT_ID_HERE',
-  dev_mode: import.meta.env.DEV,
-  env_keys: Object.keys(import.meta.env).filter(key => key.startsWith('VITE_')),
-};
-console.log('Environment check:', envCheck);
-
-// Initialize Discord SDK with dummy parameters if not embedded
+// Initialize Discord SDK
 let discordSdk: DiscordSDK;
 
-if (isEmbedded) {
-  const clientId = import.meta.env.VITE_DISCORD_CLIENT_ID;
-  if (!clientId || clientId === 'YOUR_DISCORD_CLIENT_ID_HERE') {
-    console.error('❌ VITE_DISCORD_CLIENT_ID is not set or still using placeholder value');
-    console.error('💡 Solution: Set VITE_DISCORD_CLIENT_ID in Cloudflare Pages Dashboard → Settings → Environment variables');
-    throw new Error('Discord Client ID is required. Please set VITE_DISCORD_CLIENT_ID in Cloudflare Pages Dashboard');
-  }
-  discordSdk = new DiscordSDK(clientId);
-} else {
-  // Add dummy query parameters for development
-  const dummyParams = new URLSearchParams({
-    frame_id: 'dummy_frame_id',
-    instance_id: 'dummy_instance_id',
-    platform: 'desktop',
-    sdk_version: '1.0.0'
-  });
-  
-  // Temporarily modify the URL for SDK initialization
-  const originalSearch = window.location.search;
-  const newUrl = `${window.location.pathname}?${dummyParams.toString()}`;
-  window.history.replaceState({}, '', newUrl);
-  
-  // For development, use a dummy client ID if not set
-  const clientId = import.meta.env.VITE_DISCORD_CLIENT_ID || 'dev_dummy_client_id';
-  discordSdk = new DiscordSDK(clientId);
-  
-  // Restore original URL
-  window.history.replaceState({}, '', `${window.location.pathname}${originalSearch}`);
+const clientId = import.meta.env.VITE_DISCORD_CLIENT_ID;
+if (!clientId || clientId === 'YOUR_DISCORD_CLIENT_ID_HERE') {
+  console.error('❌ VITE_DISCORD_CLIENT_ID is not set or still using placeholder value');
+  console.error('💡 Solution: Set VITE_DISCORD_CLIENT_ID in Cloudflare Pages Dashboard → Settings → Environment variables');
+  throw new Error('Discord Client ID is required. Please set VITE_DISCORD_CLIENT_ID in Cloudflare Pages Dashboard');
 }
+discordSdk = new DiscordSDK(clientId);
 
 // Helper function to get the correct API base URL
 function getApiBaseUrl(): string {
+  const urlParams = new URLSearchParams(window.location.search);
+  const isEmbedded = urlParams.has('frame_id');
+  
   if (isEmbedded) {
     // Use Discord's proxy for embedded environment
     return '/.proxy/api';
@@ -245,119 +217,75 @@ function MainApp() {
   useEffect(() => {
     const initializeDiscord = async () => {
       try {
-        if (isEmbedded) {
-          await discordSdk.ready();
-          
-          // Set orientation lock based on device type and layout preferences
-          try {
-            await discordSdk.commands.setOrientationLockState({
-              lock_state: 'UNLOCKED', // Allow both orientations for flexibility
-              picture_in_picture_lock_state: 'LANDSCAPE', // PIP works better in landscape
-              grid_lock_state: 'PORTRAIT', // Grid tiles work better in portrait
-            });
-            console.log('✓ Orientation lock state configured');
-          } catch (orientationError) {
-            // Non-critical error, continue without orientation lock
-            console.warn('Failed to set orientation lock:', orientationError);
-          }
-          
-          // Get instance ID immediately after SDK construction
-          const currentInstanceId = discordSdk.instanceId;
-          setInstanceId(currentInstanceId);
-          
-          // Authenticate with Discord
-          const { code } = await discordSdk.commands.authorize({
-            client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
-            response_type: 'code',
-            state: '',
-            prompt: 'none',
-            scope: [
-              'identify',
-              'guilds',
-              'guilds.members.read',
-              'rpc.activities.write',
-            ],
+        await discordSdk.ready();
+        
+        // Set orientation lock based on device type and layout preferences
+        try {
+          await discordSdk.commands.setOrientationLockState({
+            lock_state: 2, // UNLOCKED - Allow both orientations for flexibility
+            picture_in_picture_lock_state: 1, // LANDSCAPE - PIP works better in landscape
+            grid_lock_state: 2, // PORTRAIT - Grid tiles work better in portrait
           });
-
-          // Exchange code for access token via backend using proxy
-          const response = await fetch(`${getApiBaseUrl()}/auth/discord`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              code,
-              instanceId: currentInstanceId,
-            }),
-          });
-
-          const { access_token, user } = await response.json();
-          
-          const authResult = await discordSdk.commands.authenticate({
-            access_token,
-          });
-
-          setAuth(authResult);
-
-          // Subscribe to participant updates
-          discordSdk.subscribe(
-            Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE,
-            (data: Types.GetActivityInstanceConnectedParticipantsResponse) => {
-              updateParticipants(data.participants);
-            }
-          );
-
-          // Get initial participants
-          const initialParticipants = await discordSdk.commands.getInstanceConnectedParticipants();
-          updateParticipants(initialParticipants.participants);
-
-          addNotification('success', 'Connected', 'Successfully connected to Discord');
-        } else {
-          // Mock data for development environment
-          const mockInstanceId = 'dev_instance_123';
-          setInstanceId(mockInstanceId);
-          
-          const mockAuth = {
-            user: {
-              id: 'dev_user_123',
-              username: 'DevUser',
-              discriminator: '0001',
-              avatar: null,
-              global_name: 'Development User'
-            }
-          };
-          
-          const mockParticipants = [
-            {
-              id: 'dev_user_123',
-              username: 'DevUser',
-              discriminator: '0001',
-              avatar: null,
-              global_name: 'Development User'
-            },
-            {
-              id: 'test_user_456',
-              username: 'TestUser',
-              discriminator: '0002',
-              avatar: null,
-              global_name: 'Test User'
-            }
-          ];
-
-          setAuth(mockAuth);
-          updateParticipants(mockParticipants);
-          addNotification('info', 'Development Mode', 'Running in development mode with mock data');
+          console.log('✓ Orientation lock state configured');
+        } catch (orientationError) {
+          // Non-critical error, continue without orientation lock
+          console.warn('Failed to set orientation lock:', orientationError);
         }
+        
+        // Get instance ID immediately after SDK construction
+        const currentInstanceId = discordSdk.instanceId;
+        setInstanceId(currentInstanceId);
+        
+        // Authenticate with Discord
+        const { code } = await discordSdk.commands.authorize({
+          client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
+          response_type: 'code',
+          state: '',
+          prompt: 'none',
+          scope: [
+            'identify',
+            'guilds',
+            'guilds.members.read',
+            'rpc.activities.write',
+          ],
+        });
 
+        // Exchange code for access token via backend using proxy
+        const response = await fetch(`${getApiBaseUrl()}/auth/discord`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            code,
+            instanceId: currentInstanceId,
+          }),
+        });
+
+        const { access_token } = await response.json();
+        
+        const authResult = await discordSdk.commands.authenticate({
+          access_token,
+        });
+
+        setAuth(authResult);
+
+        // Subscribe to participant updates
+        discordSdk.subscribe(
+          Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE,
+          (data: Types.GetActivityInstanceConnectedParticipantsResponse) => {
+            updateParticipants(data.participants);
+          }
+        );
+
+        // Get initial participants
+        const initialParticipants = await discordSdk.commands.getInstanceConnectedParticipants();
+        updateParticipants(initialParticipants.participants);
+
+        addNotification('success', 'Connected', 'Successfully connected to Discord');
         setLoading(false);
       } catch (error) {
         console.error('Discord initialization error:', error);
-        // Silently ignore BigInt conversion errors in development mode
-        if (!isEmbedded && error instanceof Error && error.message.includes('Cannot convert')) {
-          console.warn('Ignoring BigInt conversion error in development mode:', error.message);
-          setLoading(false);
-          return;
-        }
         addNotification('error', 'Connection Failed', 'Failed to connect to Discord. Please try again.');
         setLoading(false);
       }
@@ -367,8 +295,12 @@ function MainApp() {
 
     // Cleanup subscriptions on unmount
     return () => {
-      if (isEmbedded && discordSdk) {
-        discordSdk.unsubscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
+      if (discordSdk) {
+        try {
+          discordSdk.unsubscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
+        } catch (error) {
+          console.warn('Error unsubscribing from Discord events:', error);
+        }
       }
     };
   }, [addNotification, updateParticipants]);
@@ -390,13 +322,6 @@ function MainApp() {
           // Check if response is actually JSON
           const contentType = response.headers.get('content-type');
           if (!contentType || !contentType.includes('application/json')) {
-            const responseText = await response.text();
-            console.warn('Expected JSON response but received:', responseText.substring(0, 200));
-            // Silently ignore non-JSON responses in development mode
-            if (!isEmbedded) {
-              console.warn('Ignoring non-JSON response in development mode');
-              return {};
-            }
             throw new Error('Response is not JSON');
           }
           
@@ -413,15 +338,7 @@ function MainApp() {
         })
         .catch(error => {
           console.error('Failed to load instance data:', error);
-          // Silently ignore JSON parsing errors in development mode
-          if (!isEmbedded && (error.message.includes('Unexpected token') || error.message.includes('not valid JSON'))) {
-            console.warn('Ignoring JSON parsing error in development mode:', error.message);
-            return;
-          }
-          // Only show notification for non-development errors
-          if (isEmbedded) {
-            addNotification('warning', 'Data Load Failed', 'Could not load instance data');
-          }
+          addNotification('warning', 'Data Load Failed', 'Could not load instance data');
         });
     }
   }, [instanceId, auth, participants, updateInstanceData, addNotification]);
@@ -462,10 +379,7 @@ function MainApp() {
         }),
       }).catch(error => {
         console.error('Failed to save instance data:', error);
-        // Silently ignore save errors in development mode
-        if (isEmbedded) {
-          addNotification('warning', 'Save Failed', 'Could not save instance data');
-        }
+        addNotification('warning', 'Save Failed', 'Could not save instance data');
       });
     }
   }, [instanceId, auth, selectedUser, addNotification]);
@@ -490,13 +404,6 @@ function MainApp() {
 
   return (
     <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white overflow-hidden flex flex-col">
-      {/* Debug info for layout mode and orientation (only in dev) */}
-      {import.meta.env.DEV && (
-        <div className="fixed top-2 left-2 z-50 bg-black/50 text-xs p-2 rounded">
-          {layoutMode} | {orientation} | {isCompactMode ? 'Compact' : 'Full'}
-        </div>
-      )}
-      
       <NotificationSystem 
         notifications={notifications} 
         onDismiss={dismissNotification} 
@@ -666,7 +573,7 @@ function MainApp() {
       </div>
       
       {/* Version Warning Modal */}
-      {isOutdated && isShuttingDown && !import.meta.env.DEV && (
+      {isOutdated && isShuttingDown && (
         <VersionWarning
           timeRemaining={timeRemaining}
           onForceShutdown={forceShutdown}
@@ -681,7 +588,7 @@ function MainApp() {
             isShuttingDown ? 'bg-yellow-400 animate-pulse' : 'bg-green-400'
           }`}></div>
           <span className="text-gray-300 font-medium">
-            {import.meta.env.DEV ? 'dev' : `v${currentVersion.slice(-8)}`}
+            v{currentVersion.slice(-8)}
           </span>
           {/* Layout mode indicator */}
           {isCompactMode && (

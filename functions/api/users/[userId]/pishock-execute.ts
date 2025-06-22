@@ -225,13 +225,69 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     try {
       // Use the target user's selected shocker if available
-      const selectedShockerId = targetCreds.selectedShockerId;
+      const selectedShockerId = targetUserData.selectedShockerId;
       let targetShocker: any = null;
       let deviceWithShockers: any = null;
       
       if (selectedShockerId) {
         console.log('EXECUTE: Using pre-selected shocker ID:', selectedShockerId);
-        targetShocker = { shockerId: selectedShockerId };
+        
+        // We need to validate the shocker still exists and get device info
+        console.log('EXECUTE: Getting target user devices to validate selected shocker...');
+        const devicesUrl = `https://ps.pishock.com/PiShock/GetUserDevices?userId=${targetCreds.piShockUserId || 0}&token=${encodeURIComponent(targetCreds.apiKey)}&api=true`;
+        
+        const devicesResponse = await fetch(devicesUrl, {
+          method: 'GET',
+          headers: {
+            'User-Agent': 'PiShock-Discord-Activity/2.0',
+            'Accept': 'application/json'
+          }
+        });
+
+        if (!devicesResponse.ok) {
+          throw new Error(`Failed to get target devices: HTTP ${devicesResponse.status}`);
+        }
+
+        const devicesText = await devicesResponse.text();
+        let devices;
+        try {
+          devices = JSON.parse(devicesText);
+        } catch (parseError) {
+          throw new Error('Failed to parse devices response');
+        }
+
+        if (!Array.isArray(devices) || devices.length === 0) {
+          throw new Error('Target user has no devices available');
+        }
+
+        // Find the device that contains the selected shocker
+        let shockerFound = false;
+        for (const device of devices) {
+          if (device.shockers && Array.isArray(device.shockers)) {
+            const foundShocker = device.shockers.find((shocker: any) => 
+              shocker.shockerId.toString() === selectedShockerId.toString()
+            );
+            if (foundShocker) {
+              deviceWithShockers = device;
+              targetShocker = foundShocker;
+              shockerFound = true;
+              console.log('EXECUTE: Found selected shocker ID:', targetShocker.shockerId, 'in device:', deviceWithShockers.clientId);
+              break;
+            }
+          }
+        }
+
+        if (!shockerFound) {
+          console.warn('EXECUTE: Selected shocker not found, falling back to auto-discovery');
+          // Fall back to first available shocker
+          deviceWithShockers = devices.find((device: any) => 
+            device.shockers && Array.isArray(device.shockers) && device.shockers.length > 0
+          );
+          if (deviceWithShockers) {
+            targetShocker = deviceWithShockers.shockers[0];
+            console.log('EXECUTE: Fallback to auto-discovered shocker ID:', targetShocker.shockerId, 'from device:', deviceWithShockers.clientId);
+          }
+        }
       } else {
         // Fallback to auto-discovery (existing logic)
         console.log('EXECUTE: No pre-selected shocker, using auto-discovery...');
