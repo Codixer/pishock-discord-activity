@@ -1,22 +1,41 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { DiscordSDK, Events, type Types } from '@discord/embedded-app-sdk';
 import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText } from 'lucide-react';
 import { PiShockController } from './components/PiShockController';
 import { SafetyWarning } from './components/SafetyWarning';
 import { UserSelector } from './components/UserSelector';
+import { EnhancedUserSelector } from './components/EnhancedUserSelector';
 import { ConnectionStatus } from './components/ConnectionStatus';
 import { NotificationSystem } from './components/NotificationSystem';
 import { ActivityLog } from './components/ActivityLog';
 import { PrivacyPolicy } from './components/PrivacyPolicy';
 import { TermsOfService } from './components/TermsOfService';
+import { ShockCollarControl } from './components/ShockCollarControl';
+import { ErrorBoundary, RouteErrorBoundary } from './components/ErrorBoundary';
+import { NavigationManager, useNavigationControl } from './components/NavigationManager';
+import { LoadingSpinner, RouteLoadingSpinner } from './components/LoadingSpinner';
 import { useNotifications } from './hooks/useNotifications';
 import { useInstanceData } from './hooks/useInstanceData';
 import { useParticipants } from './hooks/useParticipants';
 import { useLayoutMode } from './hooks/useLayoutMode';
 import { useOrientation } from './hooks/useOrientation';
 import { useVersionCheck } from './hooks/useVersionCheck';
+import { usePersistentState, useGlobalState } from './hooks/usePersistentState';
+import { useRouteGuard, authGuard, mainAppGuard } from './hooks/useRouteGuard';
+import { useDeepLinking } from './hooks/useDeepLinking';
 import { VersionWarning } from './components/VersionWarning';
+
+// Lazy load components for better performance
+const LazyPrivacyPolicy = React.lazy(() => 
+  import('./components/PrivacyPolicy').then(module => ({ default: module.PrivacyPolicy }))
+);
+const LazyTermsOfService = React.lazy(() => 
+  import('./components/TermsOfService').then(module => ({ default: module.TermsOfService }))
+);
+const LazyShockCollarControl = React.lazy(() => 
+  import('./components/ShockCollarControl').then(module => ({ default: module.ShockCollarControl }))
+);
 
 // Global function to refresh user statuses
 declare global {
@@ -89,12 +108,21 @@ function MainApp() {
   const [safetyAccepted, setSafetyAccepted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [instanceId, setInstanceId] = useState<string>('');
-  const [showActivityLog, setShowActivityLog] = useState(true);
+  const [showActivityLog, setShowActivityLog] = usePersistentState('showActivityLog', true);
   const [userPiShockStatus, setUserPiShockStatus] = useState<Record<string, any>>({});
+  
+  // Global state management
+  const [appState, setAppState] = useGlobalState('appState', {
+    initialized: false,
+    connectionRetries: 0,
+    lastError: null
+  });
+  
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const { layoutMode, isCompactMode } = useLayoutMode(discordSdk, isEmbedded);
   const { orientation, isLandscape, isPortrait } = useOrientation(discordSdk, isEmbedded);
-  const navigate = useNavigate();
+  const { navigateWithState } = useNavigationControl();
+  const { currentParams } = useDeepLinking();
   
   // Get current version from build
   const currentVersion = __BUILD_VERSION__;
@@ -102,6 +130,13 @@ function MainApp() {
   // Custom hooks for managing instance data and participants
   const { instanceData, updateInstanceData } = useInstanceData(instanceId);
   const { participants, updateParticipants } = useParticipants(discordSdk, isEmbedded);
+  
+  // Route guards for authentication and safety
+  const routeGuards = [
+    authGuard(!!auth),
+    mainAppGuard(safetyAccepted)
+  ];
+  const { isChecking: guardChecking, isBlocked: guardBlocked } = useRouteGuard(routeGuards);
   
   // Version checking and session management
   const {
@@ -375,6 +410,10 @@ function MainApp() {
 
   // Load instance data when instanceId changes
   useEffect(() => {
+    if (!auth || !instanceId) return;
+    
+    setAppState(prev => ({ ...prev, initialized: true }));
+    
     if (instanceId && auth) {
       // Load instance-specific data from backend using proxy
       fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
@@ -404,8 +443,11 @@ function MainApp() {
         })
         .then(data => {
           updateInstanceData(data);
-          if (data.selectedUserId) {
-            const selectedParticipant = participants.find(p => p.id === data.selectedUserId);
+          
+          // Use deep link state if available, otherwise use stored data
+          const targetUserId = currentParams.selectedUserId || data.selectedUserId;
+          if (targetUserId) {
+            const selectedParticipant = participants.find(p => p.id === targetUserId);
             if (selectedParticipant) {
               setSelectedUser(selectedParticipant);
             }
@@ -413,6 +455,7 @@ function MainApp() {
         })
         .catch(error => {
           console.error('Failed to load instance data:', error);
+          setAppState(prev => ({ ...prev, lastError: error.message }));
           // Silently ignore JSON parsing errors in development mode
           if (!isEmbedded && (error.message.includes('Unexpected token') || error.message.includes('not valid JSON'))) {
             console.warn('Ignoring JSON parsing error in development mode:', error.message);
@@ -424,7 +467,7 @@ function MainApp() {
           }
         });
     }
-  }, [instanceId, auth, participants, updateInstanceData, addNotification]);
+  }, [instanceId, auth, participants, updateInstanceData, addNotification, currentParams, setAppState]);
 
   // Check PiShock status for all participants
   useEffect(() => {
@@ -469,6 +512,16 @@ function MainApp() {
       });
     }
   }, [instanceId, auth, selectedUser, addNotification]);
+
+  // Handle loading states
+  if (loading || guardChecking) {
+    return <RouteLoadingSpinner message={loading ? "Connecting to Discord..." : "Checking permissions..."} />;
+  }
+
+  // Handle blocked routes
+  if (guardBlocked) {
+    return <RouteLoadingSpinner message="Access denied - redirecting..." />;
+  }
 
   if (loading) {
     return (
@@ -574,7 +627,7 @@ function MainApp() {
           }`}>
             {/* User Selection */}
             <div className={`${isCompactMode ? 'order-2' : 'lg:col-span-1'} flex flex-col min-h-0`}>
-              <UserSelector
+              <EnhancedUserSelector
                 members={participants}
                 selectedUser={selectedUser}
                 onUserSelect={setSelectedUser}
@@ -703,22 +756,60 @@ function MainApp() {
 }
 
 function App() {
-  const location = useLocation();
-  const navigate = useNavigate();
+  const { navigateWithState } = useNavigationControl();
 
   // Handle navigation back to main app
   const handleBackToApp = () => {
-    navigate('/');
+    navigateWithState('/');
   };
 
   return (
-    <Routes>
-      <Route path="/" element={<MainApp />} />
-      <Route path="/privacy" element={<PrivacyPolicy onBack={handleBackToApp} />} />
-      <Route path="/terms" element={<TermsOfService onBack={handleBackToApp} />} />
-      {/* Fallback route for any unmatched paths */}
-      <Route path="*" element={<MainApp />} />
-    </Routes>
+    <ErrorBoundary>
+      <NavigationManager>
+        <Routes>
+          <Route 
+            path="/" 
+            element={
+              <RouteErrorBoundary>
+                <MainApp />
+              </RouteErrorBoundary>
+            } 
+          />
+          <Route 
+            path="/privacy" 
+            element={
+              <RouteErrorBoundary>
+                <React.Suspense fallback={<RouteLoadingSpinner message="Loading Privacy Policy..." />}>
+                  <LazyPrivacyPolicy onBack={handleBackToApp} />
+                </React.Suspense>
+              </RouteErrorBoundary>
+            } 
+          />
+          <Route 
+            path="/terms" 
+            element={
+              <RouteErrorBoundary>
+                <React.Suspense fallback={<RouteLoadingSpinner message="Loading Terms of Service..." />}>
+                  <LazyTermsOfService onBack={handleBackToApp} />
+                </React.Suspense>
+              </RouteErrorBoundary>
+            } 
+          />
+          <Route 
+            path="/control" 
+            element={
+              <RouteErrorBoundary>
+                <React.Suspense fallback={<RouteLoadingSpinner message="Loading Control System..." />}>
+                  <LazyShockCollarControl onBack={handleBackToApp} />
+                </React.Suspense>
+              </RouteErrorBoundary>
+            } 
+          />
+          {/* Redirect unknown routes to home */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </NavigationManager>
+    </ErrorBoundary>
   );
 }
 

@@ -45,16 +45,15 @@ async function decrypt(encryptedData: string): Promise<any> {
   }
 }
 
-async function testPiShockConnection(apiKey: string, username: string, sharecode: string): Promise<boolean> {
+async function testPiShockConnection(apiKey: string, username: string): Promise<boolean> {
   try {
-    const response = await fetch('https://do.pishock.com/api/GetShockerInfo', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        Username: username,
-        Apikey: apiKey,
-        Code: sharecode,
-      }),
+    // Use the v3 API to validate credentials by attempting to get user devices
+    const response = await fetch(`https://ps.pishock.com/PiShock/GetUserDevices?userId=0&token=${encodeURIComponent(apiKey)}&api=true`, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'PiShock-Discord-Activity/2.0',
+        'Accept': 'application/json'
+      },
     });
     
     return response.ok;
@@ -103,7 +102,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     try {
       const creds = await decrypt(encrypted);
-      const isConnected = await testPiShockConnection(creds.apiKey, creds.username, creds.sharecode);
+      const isConnected = await testPiShockConnection(creds.apiKey, creds.username);
       const lastTested = new Date().toISOString();
       
       await env.PISHOCK_KV.put(`instance:${instanceId}:pishock:lastTested`, lastTested);
