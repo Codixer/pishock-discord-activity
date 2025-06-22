@@ -125,7 +125,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   try {
     const { executorUserId, intensity, duration, operation } = await request.json();
 
-    console.log('EXECUTE: Starting PiShock command execution');
+    console.log('EXECUTE: Starting PiShock command execution via v3 API');
     console.log('EXECUTE: Target user:', targetUserId);
     console.log('EXECUTE: Executor user:', executorUserId);
     console.log('EXECUTE: Operation:', operation, '(0=shock, 1=vibrate, 2=beep)');
@@ -140,116 +140,36 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }, 400);
     }
 
-    // First, let's check what data exists for this user
-    console.log('EXECUTE: Checking all possible data locations for user:', targetUserId);
+    // Get target user's data
+    console.log('EXECUTE: Getting target user data for:', targetUserId);
+    const targetUserDataStr = await env.PISHOCK_KV.get(`user:${targetUserId}:data`);
+    const targetUserData = targetUserDataStr ? JSON.parse(targetUserDataStr) : null;
     
-    // Check all possible keys for this user
-    const possibleKeys = [
-      `user:${targetUserId}:data`,
-      `user:${targetUserId}:pishock`,
-      `user:${targetUserId}:pishock:credentials`,
-      `discord_user:${targetUserId}`,
-      `instance:${targetUserId}:pishock`
-    ];
-    
-    for (const key of possibleKeys) {
-      const data = await env.PISHOCK_KV.get(key);
-      console.log(`EXECUTE: Key "${key}":`, data ? 'EXISTS' : 'NOT FOUND');
-      if (data && key.includes('data')) {
-        try {
-          const parsed = JSON.parse(data);
-          console.log(`EXECUTE: Parsed data for "${key}":`, {
-            hasCredentials: !!parsed.credentials,
-            hasOldFormat: !!parsed.apiKey,
-            keys: Object.keys(parsed)
-          });
-        } catch (e) {
-          console.log(`EXECUTE: Failed to parse data for "${key}":`, e.message);
-        }
-      }
-    }
-    // Get target user's PiShock credentials
-    // Get all user data from single key (new format)
-    console.log('EXECUTE: Looking for credentials for target user:', targetUserId);
-    const userDataStr = await env.PISHOCK_KV.get(`user:${targetUserId}:data`);
-    let userData = userDataStr ? JSON.parse(userDataStr) : null;
-    let encrypted = userData?.credentials;
-    
-    console.log('EXECUTE: User data found:', !!userData);
-    console.log('EXECUTE: Credentials found in new format:', !!encrypted);
-    if (userData) {
-      console.log('EXECUTE: User data structure:', Object.keys(userData));
-    }
-    
-    // Migration: Check old format if new format not found
-    if (!encrypted) {
-      console.log('EXECUTE: Checking old format for user:', targetUserId);
-      const oldEncrypted = await env.PISHOCK_KV.get(`user:${targetUserId}:pishock`);
-      if (oldEncrypted) {
-        console.log('EXECUTE: Found data in old format, migrating...');
-        // Migrate old data to new format
-        userData = {
-          credentials: oldEncrypted,
-          lastTested: await env.PISHOCK_KV.get(`user:${targetUserId}:pishock:lastTested`) || new Date().toISOString(),
-          configuredBy: await env.PISHOCK_KV.get(`user:${targetUserId}:pishock:configuredBy`) || 'unknown',
-          hasOwnDevice: (await env.PISHOCK_KV.get(`user:${targetUserId}:pishock:hasOwnDevice`)) === 'true',
-          piShockUserId: await env.PISHOCK_KV.get(`user:${targetUserId}:pishock:piShockUserId`) || null,
-          lastUpdated: new Date().toISOString()
-        };
-        
-        // Save in new format
-        await env.PISHOCK_KV.put(`user:${targetUserId}:data`, JSON.stringify(userData));
-        
-        // Clean up old keys
-        await Promise.all([
-          env.PISHOCK_KV.delete(`user:${targetUserId}:pishock`),
-          env.PISHOCK_KV.delete(`user:${targetUserId}:pishock:lastTested`),
-          env.PISHOCK_KV.delete(`user:${targetUserId}:pishock:configuredBy`),
-          env.PISHOCK_KV.delete(`user:${targetUserId}:pishock:hasOwnDevice`),
-          env.PISHOCK_KV.delete(`user:${targetUserId}:pishock:piShockUserId`)
-        ]);
-        
-        encrypted = userData.credentials;
-        console.log('EXECUTE: Migration completed for user:', targetUserId);
-      }
-    } else {
-      console.log('EXECUTE: Using credentials from new format');
-    }
-    
-    // List all keys with this user ID to see what exists
-    const allUserKeys = await env.PISHOCK_KV.list({ prefix: `user:${targetUserId}` });
-    console.log('EXECUTE: All keys for user:', allUserKeys.keys.map(k => k.name));
-    
-    if (!encrypted) {
-      console.error('EXECUTE: No credentials found for user:', targetUserId);
-      console.error('EXECUTE: Checked keys:', possibleKeys);
-      
+    if (!targetUserData?.credentials) {
+      console.error('EXECUTE: Target user has no credentials configured');
       return jsonResponse({ 
         success: false, 
-        error: `Target user (${targetUserId}) has no PiShock device configured. They need to set up their PiShock credentials first in the application.`,
+        error: `Target user has no PiShock device configured. They need to set up their PiShock credentials first in the application.`,
         debug: {
           targetUserId,
           executorUserId,
-          userDataFound: !!userData,
-          credentialsFound: !!encrypted,
-          checkedKeys: possibleKeys,
-          availableUserKeys: allUserKeys?.keys?.map(k => k.name) || []
+          targetUserDataFound: !!targetUserData,
+          credentialsFound: !!targetUserData?.credentials
         }
       });
     }
 
-    let creds;
+    let targetCreds;
     try {
-      creds = await decrypt(encrypted);
+      targetCreds = await decrypt(targetUserData.credentials);
       console.log('EXECUTE: Successfully decrypted target user credentials');
-      console.log('EXECUTE: Username:', creds.username);
-      console.log('EXECUTE: Target share code:', creds.sharecode);
+      console.log('EXECUTE: Target username:', targetCreds.username);
       
-      if (!creds.sharecode || creds.sharecode === 'account_access') {
-        console.error('EXECUTE: Target user has no device configured (account-only access)');
+      if (!targetUserData.hasDevices) {
+        console.error('EXECUTE: Target user has no devices');
         return jsonResponse({ 
           success: false, 
-          error: 'Target user has no device configured (account-only access). Cannot send commands to users without devices.' 
+          error: 'Target user has no PiShock devices configured.' 
         });
       }
     } catch (error) {
@@ -263,18 +183,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     // Get executor's credentials for API authentication
     console.log('EXECUTE: Getting executor user credentials for API authentication...');
     const executorDataStr = await env.PISHOCK_KV.get(`user:${executorUserId}:data`);
-    let executorData = executorDataStr ? JSON.parse(executorDataStr) : null;
-    let executorEncrypted = executorData?.credentials;
+    const executorData = executorDataStr ? JSON.parse(executorDataStr) : null;
     
-    if (!executorEncrypted) {
-      // Check old format for executor
-      const oldExecutorEncrypted = await env.PISHOCK_KV.get(`user:${executorUserId}:pishock`);
-      if (oldExecutorEncrypted) {
-        executorEncrypted = oldExecutorEncrypted;
-      }
-    }
-    
-    if (!executorEncrypted) {
+    if (!executorData?.credentials) {
       console.error('EXECUTE: Executor has no PiShock credentials configured');
       return jsonResponse({ 
         success: false, 
@@ -284,7 +195,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     let executorCreds;
     try {
-      executorCreds = await decrypt(executorEncrypted);
+      executorCreds = await decrypt(executorData.credentials);
       console.log('EXECUTE: Executor credentials found, username:', executorCreds.username);
     } catch (error) {
       console.error('EXECUTE: Failed to decrypt executor credentials:', error);
@@ -294,40 +205,102 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
     }
 
+    // Check intensity/duration limits from target user's settings
+    const maxIntensity = targetUserData.maxIntensity || 100;
+    const maxDuration = targetUserData.maxDuration || 15;
+    
+    if (intensity > maxIntensity) {
+      return jsonResponse({ 
+        success: false, 
+        error: `Intensity ${intensity}% exceeds target user's limit of ${maxIntensity}%` 
+      });
+    }
+    
+    if (duration > maxDuration) {
+      return jsonResponse({ 
+        success: false, 
+        error: `Duration ${duration}s exceeds target user's limit of ${maxDuration}s` 
+      });
+    }
+
     try {
-      // CORRECT APPROACH: Use executor's API key with target's share code
-      // Execute PiShock command using Legacy API
+      // Get target user's devices first to get their device IDs
+      console.log('EXECUTE: Getting target user devices...');
+      const devicesUrl = `https://ps.pishock.com/PiShock/GetUserDevices?userId=${targetCreds.piShockUserId || 0}&token=${encodeURIComponent(targetCreds.apiKey)}&api=true`;
+      
+      const devicesResponse = await fetch(devicesUrl, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'PiShock-Discord-Activity/2.0',
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!devicesResponse.ok) {
+        throw new Error(`Failed to get target devices: HTTP ${devicesResponse.status}`);
+      }
+
+      const devicesText = await devicesResponse.text();
+      let devices;
+      try {
+        devices = JSON.parse(devicesText);
+      } catch (parseError) {
+        throw new Error('Failed to parse devices response');
+      }
+
+      if (!Array.isArray(devices) || devices.length === 0) {
+        throw new Error('Target user has no devices available');
+      }
+
+      // Find the first device with shockers
+      const deviceWithShockers = devices.find(device => 
+        device.shockers && Array.isArray(device.shockers) && device.shockers.length > 0
+      );
+
+      if (!deviceWithShockers) {
+        throw new Error('Target user has no shockers available');
+      }
+
+      // Use the first shocker from the first device
+      const targetShocker = deviceWithShockers.shockers[0];
+      console.log('EXECUTE: Using shocker ID:', targetShocker.shockerId, 'from device:', deviceWithShockers.clientId);
+
+      // Execute PiShock command using v3 API
       const operationNames = ['shock', 'vibrate', 'beep'];
       const operationName = operationNames[operation];
       
-      console.log('EXECUTE: Sending', operationName, 'command via executor\'s API key to target\'s device');
+      console.log('EXECUTE: Sending', operationName, 'command via v3 API');
       
-      // Use exact endpoint and format from Legacy API documentation
+      // Use the v3 API Operate endpoint
       const payload = {
-        Username: executorCreds.username,    // Executor's username for authentication
-        Apikey: executorCreds.apiKey,        // Executor's API key for authentication  
-        Code: creds.sharecode,
-        Intensity: intensity,
-        Duration: duration,
-        Op: operation,
-        Name: 'DiscordActivity-Personal',
+        code: targetShocker.shockerId.toString(), // Use the shocker ID as the code
+        duration: duration,
+        intensity: intensity,
+        op: operation,
+        apikey: executorCreds.apiKey,        // Executor's API key for authentication  
+        username: executorCreds.username,    // Executor's username for authentication
+        name: 'DiscordActivity-v3',
+        random: false,
+        scale: false
       };
       
       console.log('EXECUTE: Request payload:', { 
-        Username: executorCreds.username,
-        Apikey: '***HIDDEN***',
-        Code: creds.sharecode ? `${creds.sharecode.slice(0, 4)}****` : 'MISSING',
-        Intensity: intensity,
-        Duration: duration,
-        Op: operation,
-        Name: 'DiscordActivity-Personal'
+        code: targetShocker.shockerId.toString(),
+        duration: duration,
+        intensity: intensity,
+        op: operation,
+        apikey: '***HIDDEN***',
+        username: executorCreds.username,
+        name: 'DiscordActivity-v3',
+        random: false,
+        scale: false
       });
       
-      const response = await fetch('https://do.pishock.com/api/apioperate/', {
+      const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'User-Agent': 'PiShock-Discord-Activity/1.0'
+          'User-Agent': 'PiShock-Discord-Activity/2.0'
         },
         body: JSON.stringify(payload),
       });
@@ -341,38 +314,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         throw new Error(`PiShock API error: HTTP ${response.status} - ${responseText}`);
       }
 
-      // Check for success responses as per Legacy API documentation
-      if (responseText.includes('Operation Succeeded')) {
-        console.log('EXECUTE: ✓ Command executed successfully');
+      // Check for success responses (v3 API may return different success indicators)
+      if (response.status === 200) {
+        console.log('EXECUTE: ✓ Command executed successfully via v3 API');
       } else {
-        // Log specific error messages from documentation
-        if (responseText.includes("This code doesn't exist")) {
-          throw new Error('Share code not found. Please check device configuration.');
-        } else if (responseText.includes('Not Authorized')) {
-          throw new Error('Not authorized. Please check API credentials.');
-        } else if (responseText.includes('Shocker is Paused')) {
-          throw new Error('Device is paused. Please unpause it in the PiShock web panel.');
-        } else if (responseText.includes('Device currently not connected')) {
-          throw new Error('Device is not connected. Please ensure the device is online.');
-        } else if (responseText.includes('already been used by somebody else')) {
-          throw new Error('Share code is already in use. Please generate a new one.');
-        } else if (responseText.includes('Unknown Op')) {
-          throw new Error('Invalid operation specified.');
-        } else if (responseText.includes('Intensity must be between')) {
-          throw new Error('Invalid intensity specified.');
-        } else if (responseText.includes('Duration must be between')) {
-          throw new Error('Invalid duration specified.');
-        } else {
-          console.log('EXECUTE: Warning - unexpected response but will proceed:', responseText);
-        }
+        console.log('EXECUTE: Warning - unexpected response but will proceed:', responseText);
       }
 
       // Get user info for logging
       const executorUserData = await env.PISHOCK_KV.get(`discord_user:${executorUserId}`);
       const executorUser = executorUserData ? JSON.parse(executorUserData) : null;
       
-      const targetUserData = await env.PISHOCK_KV.get(`discord_user:${targetUserId}`);
-      const targetUser = targetUserData ? JSON.parse(targetUserData) : null;
+      const targetUserDiscordData = await env.PISHOCK_KV.get(`discord_user:${targetUserId}`);
+      const targetUser = targetUserDiscordData ? JSON.parse(targetUserDiscordData) : null;
 
       // Create activity log entry
       const logEntry: ActivityLogEntry = {
@@ -398,7 +352,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return jsonResponse({ 
         success: true, 
         logEntryId: logEntry.id,
-        message: `${operationName} command executed successfully`
+        message: `${operationName} command executed successfully via v3 API`,
+        debug: {
+          targetShockerId: targetShocker.shockerId,
+          deviceId: deviceWithShockers.clientId,
+          maxIntensity,
+          maxDuration,
+          response: responseText
+        }
       });
 
     } catch (error) {

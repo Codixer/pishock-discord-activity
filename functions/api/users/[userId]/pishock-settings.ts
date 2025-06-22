@@ -43,7 +43,7 @@ async function encrypt(data: any): Promise<string> {
 
 async function validatePiShockCredentials(apiKey: string, username: string): Promise<{ valid: boolean; userId?: string; error?: string; debugInfo?: any }> {
   try {
-    console.log('=== PiShock Legacy API Validation ===');
+    console.log('=== PiShock API v3 Validation ===');
     console.log('Username:', username);
     console.log('API Key length:', apiKey.length);
 
@@ -55,19 +55,19 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
         debugInfo: { reason: 'empty_credentials' }
       };
     }
-    // Use the exact endpoint from Legacy API documentation
-    const url = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
-    console.log('Making request to:', url);
+
+    // Use the new v3 API endpoint to validate credentials by attempting to get user devices
+    const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=0&token=${encodeURIComponent(apiKey)}&api=true`;
+    console.log('Making request to v3 API:', url);
 
     let response;
     try {
       response = await fetch(url, {
         method: 'GET',
         headers: {
-          'User-Agent': 'PiShock-Discord-Activity/1.0',
-          'Accept': 'application/json, text/plain, */*'
+          'User-Agent': 'PiShock-Discord-Activity/2.0',
+          'Accept': 'application/json'
         },
-        // Add timeout to prevent hanging
         signal: AbortSignal.timeout(10000) // 10 second timeout
       });
     } catch (fetchError) {
@@ -115,6 +115,7 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
         }
       };
     }
+
     if (!response.ok) {
       console.log('HTTP error response:', responseText);
       return { 
@@ -124,82 +125,48 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       };
     }
 
-
     // Parse the response
-    let authData;
+    let devicesData;
     try {
-      authData = JSON.parse(responseText);
-      console.log('Parsed JSON response:', authData);
+      devicesData = JSON.parse(responseText);
+      console.log('Parsed devices response:', devicesData);
     } catch (parseError) {
-      console.log('Failed to parse as JSON, trying as plain text');
-      
-      // Sometimes the API returns just a plain number (user ID)
-      if (/^\d+$/.test(responseText.trim())) {
-        const userId = responseText.trim();
-        console.log('Found plain text user ID:', userId);
-        return { 
-          valid: true, 
-          userId,
-          debugInfo: { type: 'plain_text', value: userId }
-        };
-      }
-      
+      console.log('Failed to parse devices JSON:', parseError);
       return { 
         valid: false, 
         error: 'PiShock API returned unexpected response format. This might indicate invalid credentials or an API issue.',
         debugInfo: { 
           parseError: parseError.message, 
           responseText: responseText.substring(0, 200),
-          responseLength: responseText.length,
-          isEmptyResponse: responseText.trim().length === 0
+          responseLength: responseText.length
         }
       };
     }
 
-    // Look for UserID field as specified in documentation
-    let userId = null;
-    
-    // Check for UserID field variations (the API actually returns "UserId")
-    if (authData.UserId !== undefined && authData.UserId !== null) {
-      userId = authData.UserId.toString();
-      console.log('Found UserId in response:', userId);
-    }
-    // Check for UserID field (exact field name from documentation)
-    else if (authData.UserID !== undefined && authData.UserID !== null) {
-    }
-    if (authData.UserID !== undefined && authData.UserID !== null) {
-      userId = authData.UserID.toString();
-      console.log('Found UserID in response:', userId);
-    }
-    // Fallback checks for common variations
-    else if (authData.userId !== undefined && authData.userId !== null) {
-      userId = authData.userId.toString();
-      console.log('Found userId in response:', userId);
-    }
-    else if (authData.id !== undefined && authData.id !== null) {
-      userId = authData.id.toString();
-      console.log('Found id in response:', userId);
-    }
-    // Check if the response itself is just a number
-    else if (typeof authData === 'number') {
-      userId = authData.toString();
-      console.log('Response is a number:', userId);
-    }
-
-    if (userId && /^\d+$/.test(userId)) {
-      console.log('✓ Successfully validated PiShock credentials');
-      return { 
-        valid: true, 
-        userId,
-        debugInfo: { authData, foundUserId: userId }
+    // Check if we got a valid devices array
+    if (!Array.isArray(devicesData)) {
+      console.log('Response is not an array:', devicesData);
+      return {
+        valid: false,
+        error: 'PiShock API response missing devices data. This might indicate invalid credentials.',
+        debugInfo: { devicesData, responseType: typeof devicesData }
       };
     }
 
-    console.log('No valid UserID found in response');
+    // Credentials are valid if we got a devices array (even if empty)
+    console.log('✓ Successfully validated PiShock credentials via v3 API');
+    console.log('✓ Found', devicesData.length, 'devices');
+    
+    // Extract userId from the first device if available
+    let userId = null;
+    if (devicesData.length > 0 && devicesData[0].userId) {
+      userId = devicesData[0].userId.toString();
+    }
+
     return { 
-      valid: false, 
-      error: 'PiShock API response missing UserID. This might indicate invalid credentials.',
-      debugInfo: { authData, availableFields: Object.keys(authData || {}) }
+      valid: true, 
+      userId,
+      debugInfo: { devicesData, deviceCount: devicesData.length }
     };
 
   } catch (error) {
@@ -215,19 +182,19 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
   }
 }
 
-async function checkUserDevices(userId: string, apiKey: string): Promise<{ hasDevices: boolean; devices?: any[]; error?: string; debugInfo?: any }> {
+async function getUserDevices(apiKey: string, username: string): Promise<{ hasDevices: boolean; devices?: any[]; error?: string; debugInfo?: any }> {
   try {
-    console.log('=== Checking user devices (Legacy API) ===');
-    console.log('User ID:', userId);
+    console.log('=== Getting user devices (v3 API) ===');
+    console.log('Username:', username);
     
-    // Use exact endpoint from Legacy API documentation
-    const url = `https://ps.pishock.com/PiShock/GetUserDevices?UserId=${userId}&Token=${encodeURIComponent(apiKey)}&api=true`;
+    // Use the v3 API to get user devices
+    const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=0&token=${encodeURIComponent(apiKey)}&api=true`;
     console.log('Making devices request to:', url);
     
     const response = await fetch(url, {
       method: 'GET',
       headers: {
-        'User-Agent': 'PiShock-Discord-Activity/1.0',
+        'User-Agent': 'PiShock-Discord-Activity/2.0',
         'Accept': 'application/json'
       }
     });
@@ -260,7 +227,7 @@ async function checkUserDevices(userId: string, apiKey: string): Promise<{ hasDe
       };
     }
     
-    // Check if user has any devices with shockers (as per documentation format)
+    // Check if user has any devices with shockers
     const hasDevices = Array.isArray(devices) && devices.length > 0 && 
                       devices.some(device => device.shockers && Array.isArray(device.shockers) && device.shockers.length > 0);
     
@@ -274,80 +241,9 @@ async function checkUserDevices(userId: string, apiKey: string): Promise<{ hasDe
     };
     
   } catch (error) {
-    console.error('Failed to check user devices:', error);
+    console.error('Failed to get user devices:', error);
     return { 
       hasDevices: false, 
-      error: `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      debugInfo: { networkError: error instanceof Error ? error.message : 'Unknown error' }
-    };
-  }
-}
-
-async function validateShareCode(username: string, apiKey: string, sharecode: string): Promise<{ valid: boolean; error?: string; debugInfo?: any }> {
-  try {
-    console.log('=== Validating share code (Legacy API) ===');
-    console.log('Share code:', sharecode);
-    
-    // Use exact endpoint from Legacy API documentation
-    const response = await fetch('https://do.pishock.com/api/GetShockerInfo', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'User-Agent': 'PiShock-Discord-Activity/1.0'
-      },
-      body: JSON.stringify({
-        Username: username,
-        Apikey: apiKey,
-        Code: sharecode,
-      }),
-    });
-    
-    console.log('Share code validation response status:', response.status);
-    
-    const responseText = await response.text();
-    console.log('Share code validation response:', responseText);
-    
-    if (!response.ok) {
-      return { 
-        valid: false, 
-        error: `Share code validation failed: HTTP ${response.status}`,
-        debugInfo: { status: response.status, response: responseText }
-      };
-    }
-    
-    // Check for success responses as per documentation
-    if (responseText.includes('Operation Succeeded') || response.status === 200) {
-      console.log('✓ Share code validation successful');
-      return { valid: true, debugInfo: { response: responseText } };
-    }
-    
-    // Check for specific error messages from documentation
-    if (responseText.includes("This code doesn't exist")) {
-      return { valid: false, error: 'Share code not found. Please check your share code.', debugInfo: { response: responseText } };
-    }
-    if (responseText.includes('Not Authorized')) {
-      return { valid: false, error: 'Not authorized. Please check your credentials.', debugInfo: { response: responseText } };
-    }
-    if (responseText.includes('Shocker is Paused')) {
-      return { valid: false, error: 'Shocker is paused. Please unpause it in the PiShock web panel.', debugInfo: { response: responseText } };
-    }
-    if (responseText.includes('Device currently not connected')) {
-      return { valid: false, error: 'Device is not connected. Please ensure your PiShock device is online.', debugInfo: { response: responseText } };
-    }
-    if (responseText.includes('already been used by somebody else')) {
-      return { valid: false, error: 'Share code is already in use. Please generate a new one.', debugInfo: { response: responseText } };
-    }
-    
-    return { 
-      valid: false, 
-      error: `Unexpected response: ${responseText}`,
-      debugInfo: { response: responseText }
-    };
-    
-  } catch (error) {
-    console.error('Share code validation error:', error);
-    return { 
-      valid: false, 
       error: `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       debugInfo: { networkError: error instanceof Error ? error.message : 'Unknown error' }
     };
@@ -385,7 +281,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   try {
     if (method === 'PUT') {
-      const { apiKey, username, sharecode, hasOwnDevice } = await request.json();
+      const { apiKey, username, maxIntensity, maxDuration } = await request.json();
 
       if (!apiKey || !username) {
         return jsonResponse({ 
@@ -394,12 +290,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         }, 400);
       }
 
-      console.log('=== Starting PiShock Legacy API validation ===');
-      console.log('Username:', username);
-      console.log('Has own device:', hasOwnDevice);
-      console.log('Share code provided:', !!sharecode);
+      // Validate user-provided limits
+      const finalMaxIntensity = Math.min(Math.max(parseInt(maxIntensity) || 100, 1), 100);
+      const finalMaxDuration = Math.min(Math.max(parseInt(maxDuration) || 15, 1), 15);
 
-      // Step 1: Validate credentials and get UserID using Legacy API
+      console.log('=== Starting PiShock v3 API validation ===');
+      console.log('Username:', username);
+      console.log('User limits - Max Intensity:', finalMaxIntensity, 'Max Duration:', finalMaxDuration);
+
+      // Step 1: Validate credentials and get devices using v3 API
       const credentialValidation = await validatePiShockCredentials(apiKey, username);
       
       if (!credentialValidation.valid) {
@@ -415,57 +314,24 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         });
       }
 
-      const piShockUserId = credentialValidation.userId!;
+      const piShockUserId = credentialValidation.userId;
       console.log('✓ Credential validation successful, PiShock User ID:', piShockUserId);
       
-      // Step 2: Check if user has devices using Legacy API
-      const deviceCheck = await checkUserDevices(piShockUserId, apiKey);
+      // Step 2: Check if user has devices using v3 API
+      const deviceCheck = await getUserDevices(apiKey, username);
       console.log('Device check result:', deviceCheck);
       
-      // Step 3: If user claims to have a device, validate the sharecode using Legacy API
-      let shareCodeValid = true;
-      let shareCodeError = null;
-      let shareCodeDebug = null;
-      
-      if (hasOwnDevice && sharecode && sharecode !== 'account_access') {
-        console.log('Validating share code for own device...');
-        const shareCodeValidation = await validateShareCode(username, apiKey, sharecode);
-        shareCodeValid = shareCodeValidation.valid;
-        shareCodeError = shareCodeValidation.error;
-        shareCodeDebug = shareCodeValidation.debugInfo;
-        
-        if (!shareCodeValid) {
-          console.log('Share code validation failed:', shareCodeError);
-          return jsonResponse({ 
-            success: false, 
-            isConnected: false, 
-            error: shareCodeError || 'Invalid share code. Please check your device share code or select "Account Only".',
-            debug: {
-              step: 'share_code_validation',
-              ...shareCodeDebug
-            }
-          });
-        }
-        console.log('✓ Share code validation successful');
-      }
+      const hasDevices = deviceCheck.hasDevices;
+      const deviceCount = deviceCheck.devices?.length || 0;
 
-      // Determine final configuration
-      const finalSharecode = hasOwnDevice && sharecode ? sharecode : 'account_access';
-      const actuallyHasDevice = hasOwnDevice && shareCodeValid && deviceCheck.hasDevices;
-      
-      console.log('Final configuration:');
-      console.log('- Share code:', finalSharecode);
-      console.log('- Actually has device:', actuallyHasDevice);
-      console.log('- Device count:', deviceCheck.devices?.length || 0);
-      
-      // Encrypt and store credentials
+      // Store credentials with user-configured limits
       const credentialsToStore = {
         apiKey,
         username,
-        sharecode: finalSharecode,
-        hasOwnDevice: actuallyHasDevice,
         piShockUserId,
-        deviceCount: deviceCheck.devices?.length || 0,
+        deviceCount,
+        maxIntensity: finalMaxIntensity,
+        maxDuration: finalMaxDuration,
         lastValidated: new Date().toISOString()
       };
       
@@ -476,9 +342,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         credentials: encrypted,
         lastTested: new Date().toISOString(),
         configuredBy: user.id,
-        hasOwnDevice: actuallyHasDevice,
+        hasDevices,
         piShockUserId,
-        deviceCount: deviceCheck.devices?.length || 0,
+        deviceCount,
+        maxIntensity: finalMaxIntensity,
+        maxDuration: finalMaxDuration,
         lastUpdated: new Date().toISOString()
       };
       
@@ -498,13 +366,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return jsonResponse({ 
         success: true, 
         isConnected: true,
-        hasOwnDevice: actuallyHasDevice,
-        deviceCount: deviceCheck.devices?.length || 0,
+        hasDevices,
+        deviceCount,
         piShockUserId,
+        maxIntensity: finalMaxIntensity,
+        maxDuration: finalMaxDuration,
         debug: {
           credentialValidation: credentialValidation.debugInfo,
-          deviceCheck: deviceCheck.debugInfo,
-          shareCodeValidation: shareCodeDebug
+          deviceCheck: deviceCheck.debugInfo
         }
       });
     }
@@ -512,6 +381,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (method === 'DELETE') {
       // Delete the single user data key
       await env.PISHOCK_KV.delete(`user:${userId}:data`);
+      
+      // Clear cache
+      try {
+        const statusCacheKey = `cache:user_status:${userId}`;
+        await env.PISHOCK_KV.delete(statusCacheKey);
+      } catch (error) {
+        console.warn('Failed to clear status cache:', error);
+      }
+      
       return jsonResponse({ success: true });
     }
 

@@ -47,7 +47,7 @@ async function decrypt(encryptedData: string): Promise<any> {
 
 async function validatePiShockCredentials(apiKey: string, username: string): Promise<{ valid: boolean; userId?: string; error?: string; debugInfo?: any }> {
   try {
-    console.log('TEST: Validating PiShock credentials using Legacy API');
+    console.log('TEST: Validating PiShock credentials using v3 API');
     console.log('TEST: Username:', username);
     console.log('TEST: API Key length:', apiKey.length);
 
@@ -59,17 +59,18 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
         debugInfo: { reason: 'empty_credentials' }
       };
     }
-    // Use exact endpoint from Legacy API documentation
-    const url = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
-    console.log('TEST: Making request to:', url);
+
+    // Use the v3 API to validate credentials
+    const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=0&token=${encodeURIComponent(apiKey)}&api=true`;
+    console.log('TEST: Making request to v3 API:', url);
 
     let response;
     try {
       response = await fetch(url, {
         method: 'GET',
         headers: {
-          'User-Agent': 'PiShock-Discord-Activity/1.0',
-          'Accept': 'application/json, text/plain, */*'
+          'User-Agent': 'PiShock-Discord-Activity/2.0',
+          'Accept': 'application/json'
         },
         signal: AbortSignal.timeout(10000) // 10 second timeout
       });
@@ -117,6 +118,7 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
         }
       };
     }
+
     if (!response.ok) {
       console.log('TEST: HTTP error response:', responseText);
       return { 
@@ -126,26 +128,13 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       };
     }
 
-
     // Parse the response
-    let authData;
+    let devicesData;
     try {
-      authData = JSON.parse(responseText);
-      console.log('TEST: Parsed JSON response:', authData);
+      devicesData = JSON.parse(responseText);
+      console.log('TEST: Parsed devices response:', devicesData);
     } catch (parseError) {
       console.log('TEST: Failed to parse as JSON, trying as plain text');
-      
-      // Sometimes the API returns just a plain number (user ID)
-      if (/^\d+$/.test(responseText.trim())) {
-        const userId = responseText.trim();
-        console.log('TEST: Found plain text user ID:', userId);
-        return { 
-          valid: true, 
-          userId,
-          debugInfo: { type: 'plain_text', value: userId }
-        };
-      }
-      
       return { 
         valid: false, 
         error: 'PiShock API returned unexpected response format',
@@ -157,50 +146,27 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       };
     }
 
-    // Look for UserID field as specified in documentation
-    let userId = null;
-    
-    // Check for UserID field variations (the API actually returns "UserId")
-    if (authData.UserId !== undefined && authData.UserId !== null) {
-      userId = authData.UserId.toString();
-      console.log('TEST: Found UserId in response:', userId);
-    }
-    // Check for UserID field (exact field name from documentation)
-    else if (authData.UserID !== undefined && authData.UserID !== null) {
-    }
-    if (authData.UserID !== undefined && authData.UserID !== null) {
-      userId = authData.UserID.toString();
-      console.log('TEST: Found UserID in response:', userId);
-    }
-    // Fallback checks for common variations
-    else if (authData.userId !== undefined && authData.userId !== null) {
-      userId = authData.userId.toString();
-      console.log('TEST: Found userId in response:', userId);
-    }
-    else if (authData.id !== undefined && authData.id !== null) {
-      userId = authData.id.toString();
-      console.log('TEST: Found id in response:', userId);
-    }
-    // Check if the response itself is just a number
-    else if (typeof authData === 'number') {
-      userId = authData.toString();
-      console.log('TEST: Response is a number:', userId);
-    }
-
-    if (userId && /^\d+$/.test(userId)) {
-      console.log('TEST: ✓ Successfully validated PiShock credentials');
-      return { 
-        valid: true, 
-        userId,
-        debugInfo: { authData, foundUserId: userId }
+    // Check if we got a valid devices array
+    if (!Array.isArray(devicesData)) {
+      console.log('TEST: Response is not a devices array');
+      return {
+        valid: false,
+        error: 'PiShock API response missing devices data',
+        debugInfo: { devicesData, responseType: typeof devicesData }
       };
     }
 
-    console.log('TEST: No valid UserID found in response');
+    // Extract userId from the first device if available
+    let userId = null;
+    if (devicesData.length > 0 && devicesData[0].userId) {
+      userId = devicesData[0].userId.toString();
+    }
+
+    console.log('TEST: ✓ Successfully validated PiShock credentials');
     return { 
-      valid: false, 
-      error: 'PiShock API response missing UserID',
-      debugInfo: { authData, availableFields: Object.keys(authData || {}) }
+      valid: true, 
+      userId,
+      debugInfo: { devicesData, deviceCount: devicesData.length }
     };
 
   } catch (error) {
@@ -216,19 +182,19 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
   }
 }
 
-async function checkUserDevices(userId: string, apiKey: string): Promise<{ hasDevices: boolean; devices?: any[]; error?: string; debugInfo?: any }> {
+async function checkUserDevices(apiKey: string, username: string): Promise<{ hasDevices: boolean; devices?: any[]; error?: string; debugInfo?: any }> {
   try {
-    console.log('TEST: Checking user devices using Legacy API');
-    console.log('TEST: User ID:', userId);
+    console.log('TEST: Checking user devices using v3 API');
+    console.log('TEST: Username:', username);
     
-    // Use exact endpoint from Legacy API documentation
-    const url = `https://ps.pishock.com/PiShock/GetUserDevices?UserId=${userId}&Token=${encodeURIComponent(apiKey)}&api=true`;
+    // Use the v3 API to get user devices
+    const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=0&token=${encodeURIComponent(apiKey)}&api=true`;
     console.log('TEST: Making devices request to:', url);
     
     const response = await fetch(url, {
       method: 'GET',
       headers: {
-        'User-Agent': 'PiShock-Discord-Activity/1.0',
+        'User-Agent': 'PiShock-Discord-Activity/2.0',
         'Accept': 'application/json'
       }
     });
@@ -261,7 +227,7 @@ async function checkUserDevices(userId: string, apiKey: string): Promise<{ hasDe
       };
     }
     
-    // Check if user has any devices with shockers (as per documentation format)
+    // Check if user has any devices with shockers
     const hasDevices = Array.isArray(devices) && devices.length > 0 && 
                       devices.some(device => device.shockers && Array.isArray(device.shockers) && device.shockers.length > 0);
     
@@ -325,7 +291,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     return new Response('Forbidden', { status: 403 });
   }
 
-  console.log('=== STARTING PISHOCK TEST (Legacy API) ===');
+  console.log('=== STARTING PISHOCK TEST (v3 API) ===');
   console.log('TEST: User ID:', userId);
   console.log('TEST: Discord user:', user.username);
 
@@ -351,10 +317,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       console.log('TEST: Username:', creds.username);
       console.log('TEST: Has API key:', !!creds.apiKey);
       console.log('TEST: API key length:', creds.apiKey?.length || 0);
-      console.log('TEST: Share code:', creds.sharecode);
-      console.log('TEST: Has own device:', creds.hasOwnDevice);
+      console.log('TEST: Max intensity:', creds.maxIntensity || 100);
+      console.log('TEST: Max duration:', creds.maxDuration || 15);
       
-      // Validate credentials using Legacy API
+      // Validate credentials using v3 API
       console.log('TEST: Starting credential validation...');
       const credentialValidation = await validatePiShockCredentials(creds.apiKey, creds.username);
       
@@ -366,8 +332,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       
       if (credentialValidation.valid && credentialValidation.userId) {
         console.log('TEST: Credentials valid, checking for devices...');
-        // Check for devices using Legacy API
-        const deviceCheck = await checkUserDevices(credentialValidation.userId, creds.apiKey);
+        // Check for devices using v3 API
+        const deviceCheck = await checkUserDevices(creds.apiKey, creds.username);
         hasDevice = deviceCheck.hasDevices;
         deviceCount = deviceCheck.devices?.length || 0;
         deviceDebugInfo = deviceCheck.debugInfo;
@@ -392,6 +358,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         hasDevice,
         deviceCount,
         piShockUserId: credentialValidation.userId,
+        maxIntensity: creds.maxIntensity || 100,
+        maxDuration: creds.maxDuration || 15,
         lastTested: userData.lastTested,
         debug: {
           credentialValidation: credentialValidation.debugInfo,
@@ -400,8 +368,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
             username: creds.username,
             hasApiKey: !!creds.apiKey,
             apiKeyLength: creds.apiKey?.length || 0,
-            sharecode: creds.sharecode,
-            hasOwnDevice: creds.hasOwnDevice
+            maxIntensity: creds.maxIntensity || 100,
+            maxDuration: creds.maxDuration || 15
           }
         }
       };

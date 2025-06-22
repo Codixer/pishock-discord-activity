@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Zap, Settings, Play, Square, AlertTriangle, Wifi, Save, Loader, User, Shield, Lock } from 'lucide-react';
+import { Zap, Settings, Play, Square, AlertTriangle, Wifi, Save, Loader, User, Lock } from 'lucide-react';
 
 interface PiShockControllerProps {
   selectedUser: any;
@@ -40,10 +40,8 @@ export function PiShockController({
 }: PiShockControllerProps) {
   const [apiKey, setApiKey] = useState('');
   const [username, setUsername] = useState('');
-  const [sharecode, setSharecode] = useState('');
-  const [hasOwnDevice, setHasOwnDevice] = useState(false);
-  const [useSharedCredentials, setUseSharedCredentials] = useState(false);
-  const [hasConsentedToShared, setHasConsentedToShared] = useState(false);
+  const [maxIntensity, setMaxIntensity] = useState(100);
+  const [maxDuration, setMaxDuration] = useState(15);
   const [intensity, setIntensity] = useState(1);
   const [duration, setDuration] = useState(1);
   const [isShocking, setIsShocking] = useState(false);
@@ -52,17 +50,17 @@ export function PiShockController({
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [hasStoredCredentials, setHasStoredCredentials] = useState(false);
   const [currentUserPiShockConnected, setCurrentUserPiShockConnected] = useState(false);
-  const [sharedCredentialsAvailable, setSharedCredentialsAvailable] = useState(false);
-  const [sharedCredentialsConnected, setSharedCredentialsConnected] = useState(false);
   const [currentUserPiShockUserId, setCurrentUserPiShockUserId] = useState<string>('');
   const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
   const [lastShockTime, setLastShockTime] = useState<number>(0);
+  const [currentUserMaxIntensity, setCurrentUserMaxIntensity] = useState(100);
+  const [currentUserMaxDuration, setCurrentUserMaxDuration] = useState(15);
 
   // Get the effective limits based on selected user
   const getEffectiveLimits = () => {
     if (!selectedUser) return { maxIntensity: 100, maxDuration: 15 };
     
-    // Get the user's PiShock status which includes their sharecode limits
+    // Get the user's PiShock status which includes their user-configured limits
     const userStatus = (window as any).userPiShockStatus?.[selectedUser.id];
     if (userStatus && userStatus.maxIntensity && userStatus.maxDuration) {
       return {
@@ -90,43 +88,12 @@ export function PiShockController({
     }
   }, [selectedUser, intensity, duration]);
 
-  // 🔒 Security Check: Ensure no sensitive data is exposed in frontend
-  useEffect(() => {
-    const envKeys = Object.keys(import.meta.env);
-    const sensitiveKeys = envKeys.filter(key => 
-      key.includes('PISHOCK') && key.includes('API_KEY') ||
-      key.includes('PISHOCK') && key.includes('USERNAME') ||
-      key.includes('SECRET')
-    );
-    
-    if (sensitiveKeys.length > 0) {
-      console.error('🚨 SECURITY ALERT: Sensitive data detected in frontend environment!');
-      console.error('Exposed keys:', sensitiveKeys);
-      console.error('These should NOT have VITE_ prefix!');
-    }
-  }, []);
-
   // Load current user's PiShock connection status when component mounts
   useEffect(() => {
     if (currentUser && auth) {
       checkCurrentUserCredentials();
-      checkSharedCredentialsStatus();
     }
   }, [currentUser, auth]);
-
-  // Reset states when switching between credential types
-  useEffect(() => {
-    if (useSharedCredentials) {
-      // When switching to shared credentials, clear personal credential states
-      setApiKey('');
-      setUsername('');
-      setSharecode('');
-      setHasOwnDevice(false);
-    } else {
-      // When switching to personal credentials, clear shared credential states  
-      setHasConsentedToShared(false);
-    }
-  }, [useSharedCredentials]);
 
   const checkCurrentUserCredentials = async () => {
     setSettingsLoading(true);
@@ -142,7 +109,9 @@ export function PiShockController({
         const status = await response.json();
         setHasStoredCredentials(status.hasCredentials);
         setCurrentUserPiShockConnected(status.isConnected);
-        onConnectionChange(status.isConnected || sharedCredentialsConnected);
+        setCurrentUserMaxIntensity(status.maxIntensity || 100);
+        setCurrentUserMaxDuration(status.maxDuration || 15);
+        onConnectionChange(status.isConnected);
         
         // Store user's PiShock ID for display
         if (status.piShockUserId) {
@@ -162,88 +131,17 @@ export function PiShockController({
     }
   };
 
-  const checkSharedCredentialsStatus = async () => {
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/shared-credentials-status`, {
-        headers: {
-          'Authorization': `Bearer ${auth.access_token}`,
-        },
-      });
-
-      if (response.ok) {
-        const status = await response.json();
-        setSharedCredentialsAvailable(status.available);
-        setSharedCredentialsConnected(status.isConnected && status.hasConsented);
-        setHasConsentedToShared(status.hasConsented);
-        
-        // Update connection state based on shared credentials OR personal credentials
-        onConnectionChange(currentUserPiShockConnected || (status.isConnected && status.hasConsented));
-      }
-    } catch (error) {
-      console.error('Failed to check shared credentials status:', error);
-      setSharedCredentialsAvailable(false);
-      setSharedCredentialsConnected(false);
-    }
-  };
-
   const savePiShockSettings = async () => {
     if (!currentUser || !auth) return;
     
-    if (useSharedCredentials) {
-      if (!hasConsentedToShared) {
-        addNotification('warning', 'Consent Required', 'Please check the consent box to use shared credentials');
-        return;
-      }
-
-      setSettingsSaving(true);
-      try {
-        const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/shared-credentials`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${auth.access_token}`,
-          },
-          body: JSON.stringify({
-            consent: hasConsentedToShared,
-          }),
-        });
-
-        const result = await response.json();
-        
-        if (response.ok && result.success) {
-          setSharedCredentialsConnected(true);
-          onConnectionChange(true);
-          
-          addNotification('success', 'Shared Credentials Enabled', 'You are now using shared bot credentials. You can now target users with devices.');
-          
-          setShowSettings(false);
-          
-          // Trigger a status refresh for all participants
-          if (window.refreshAllUserStatuses) {
-            window.refreshAllUserStatuses();
-          }
-        } else {
-          const errorMessage = result.error || `HTTP ${response.status}: Failed to enable shared credentials`;
-          console.error('Shared credentials save error:', result);
-          throw new Error(errorMessage);
-        }
-      } catch (error) {
-        console.error('Failed to enable shared credentials:', error);
-        addNotification('error', 'Save Failed', error instanceof Error ? error.message : 'Failed to enable shared credentials');
-      } finally {
-        setSettingsSaving(false);
-      }
-      
-      return;
-    }
-
     if (!apiKey || !username) {
-      addNotification('warning', 'Missing Information', 'Please fill in API Key and Username at minimum');
+      addNotification('warning', 'Missing Information', 'Please fill in API Key and Username');
       return;
     }
 
-    // If no sharecode provided, use a placeholder for account-only access
-    const finalSharecode = sharecode.trim() || 'account_access';
+    // Validate user limits
+    const finalMaxIntensity = Math.min(Math.max(maxIntensity, 1), 100);
+    const finalMaxDuration = Math.min(Math.max(maxDuration, 1), 15);
 
     setSettingsSaving(true);
     try {
@@ -256,8 +154,8 @@ export function PiShockController({
         body: JSON.stringify({
           apiKey,
           username,
-          sharecode: finalSharecode,
-          hasOwnDevice,
+          maxIntensity: finalMaxIntensity,
+          maxDuration: finalMaxDuration,
         }),
       });
 
@@ -266,20 +164,16 @@ export function PiShockController({
       if (response.ok && result.success) {
         setHasStoredCredentials(true);
         setCurrentUserPiShockConnected(true);
+        setCurrentUserMaxIntensity(finalMaxIntensity);
+        setCurrentUserMaxDuration(finalMaxDuration);
         onConnectionChange(true);
         
-        const deviceType = hasOwnDevice ? 'device' : 'account';
-        addNotification('success', 'Settings Saved', `Your PiShock ${deviceType} settings saved and connection verified`);
+        addNotification('success', 'Settings Saved', `PiShock account connected successfully with limits: ${finalMaxIntensity}%/${finalMaxDuration}s`);
         
         // Clear the form fields for security
         setApiKey('');
         setUsername('');
-        setSharecode('');
         setShowSettings(false);
-        
-        // Disable shared credentials when personal credentials are successfully saved
-        setUseSharedCredentials(false);
-        setSharedCredentialsConnected(false);
         
         // Update the stored PiShock user ID from save result
         if (result.piShockUserId) {
@@ -319,41 +213,6 @@ export function PiShockController({
   const testConnection = async () => {
     if (!currentUser || !auth) return;
 
-    if (useSharedCredentials) {
-      try {
-        const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/shared-credentials-test`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${auth.access_token}`,
-          },
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          if (result.success) {
-            setSharedCredentialsConnected(true);
-            onConnectionChange(true);
-            addNotification('success', 'Shared Credentials Test Successful', 'The shared bot credentials are working correctly');
-            
-            // Refresh all user statuses after successful test
-            if (window.refreshAllUserStatuses) {
-              window.refreshAllUserStatuses();
-            }
-          } else {
-            throw new Error(result.error || 'Shared credentials test failed');
-          }
-        } else {
-          throw new Error('Shared credentials test failed');
-        }
-      } catch (error) {
-        console.error('Shared credentials test error:', error);
-        setSharedCredentialsConnected(false);
-        onConnectionChange(false);
-        addNotification('error', 'Shared Credentials Test Failed', error instanceof Error ? error.message : 'Failed to test shared credentials');
-      }
-      return;
-    }
-
     setSettingsLoading(true);
     try {
       const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-test`, {
@@ -367,8 +226,10 @@ export function PiShockController({
         const result = await response.json();
         if (result.success) {
           setCurrentUserPiShockConnected(true);
+          setCurrentUserMaxIntensity(result.maxIntensity || 100);
+          setCurrentUserMaxDuration(result.maxDuration || 15);
           onConnectionChange(true);
-          addNotification('success', 'Connection Test', 'Your PiShock account is responding correctly');
+          addNotification('success', 'Connection Test', `Your PiShock account is responding correctly. Limits: ${result.maxIntensity || 100}%/${result.maxDuration || 15}s`);
           
           // Update the stored PiShock user ID from test result
           if (result.piShockUserId) {
@@ -415,7 +276,7 @@ export function PiShockController({
       return;
     }
 
-    if (!currentUserPiShockConnected && !sharedCredentialsConnected) {
+    if (!currentUserPiShockConnected) {
       addNotification('warning', 'Not Connected', 'Please connect your PiShock account first');
       return;
     }
@@ -431,9 +292,7 @@ export function PiShockController({
     setLastShockTime(now);
 
     try {
-      const endpoint = sharedCredentialsConnected 
-        ? `${getApiBaseUrl()}/users/${currentUser.id}/shared-credentials-execute`
-        : `${getApiBaseUrl()}/users/${selectedUser.id}/pishock-execute`;
+      const endpoint = `${getApiBaseUrl()}/users/${selectedUser.id}/pishock-execute`;
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -447,7 +306,6 @@ export function PiShockController({
           intensity,
           duration,
           operation, // 0 = shock, 1 = vibrate, 2 = beep
-          useShared: sharedCredentialsConnected,
         }),
       });
 
@@ -455,8 +313,7 @@ export function PiShockController({
         const result = await response.json();
         if (result.success) {
           const actionName = operation === 0 ? 'Shock' : operation === 1 ? 'Vibration' : 'Beep';
-          const method = sharedCredentialsConnected ? 'via shared credentials' : 'to their device';
-          addNotification('success', 'Command Sent', `${actionName} sent to ${selectedUser.displayName || selectedUser.username} ${method} - Intensity: ${intensity}%, Duration: ${duration}s`);
+          addNotification('success', 'Command Sent', `${actionName} sent to ${selectedUser.displayName || selectedUser.username} - Intensity: ${intensity}%, Duration: ${duration}s`);
           
           // Refresh user statuses after successful command
           if (window.refreshAllUserStatuses) {
@@ -479,12 +336,14 @@ export function PiShockController({
       if (error instanceof Error) {
         if (error.message.includes('no PiShock device configured')) {
           const displayName = selectedUser?.guildDisplayName || selectedUser?.displayName || selectedUser?.global_name || selectedUser?.username || 'Unknown';
-          errorMessage = `❌ ${displayName} hasn't set up their PiShock device yet.\n\nThey need to:\n• Click the gear icon (⚙️) to open settings\n• Add their PiShock API key & username\n• Configure their device share code\n• Test the connection\n\nOnly users with configured devices can receive commands.`;
+          errorMessage = `❌ ${displayName} hasn't set up their PiShock device yet.\n\nThey need to:\n• Click the gear icon (⚙️) to open settings\n• Add their PiShock API key & username\n• Configure their device limits\n• Test the connection\n\nOnly users with configured devices can receive commands.`;
         } else if (error.message.includes('Invalid parameters')) {
           errorMessage = 'Invalid shock parameters. Please check intensity and duration settings.';
         } else if (error.message.includes('Target user') && error.message.includes('no PiShock device configured')) {
           const displayName = selectedUser?.guildDisplayName || selectedUser?.displayName || selectedUser?.global_name || selectedUser?.username || 'Unknown';
-          errorMessage = `❌ Cannot send command to ${displayName}.\n\nThey haven't configured their PiShock device in this app yet. Ask them to:\n• Open the app\n• Click the settings gear (⚙️)\n• Enter their PiShock credentials\n• Test the connection`;
+          errorMessage = `❌ Cannot send command to ${displayName}.\n\nThey haven't configured their PiShock device in this app yet. Ask them to:\n• Open the app\n• Click the settings gear (⚙️)\n• Enter their PiShock credentials\n• Set their limits\n• Test the connection`;
+        } else if (error.message.includes('exceeds') && error.message.includes('limit')) {
+          errorMessage = `❌ ${error.message}\n\nThe user has set lower limits for their safety. Please reduce the intensity or duration and try again.`;
         } else {
           errorMessage = `Command failed: ${error.message}`;
         }
@@ -499,113 +358,32 @@ export function PiShockController({
   const removeStoredCredentials = async () => {
     if (!currentUser || !auth) return;
 
-    // Remove shared credentials consent if it exists
-    if (sharedCredentialsConnected || hasConsentedToShared) {
-      try {
-        const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/shared-credentials`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${auth.access_token}`,
-          },
-        });
-
-        if (response.ok) {
-          setSharedCredentialsConnected(false);
-          setHasConsentedToShared(false);
-          setUseSharedCredentials(false);
-          
-          // Update connection state - only personal credentials remain
-          onConnectionChange(currentUserPiShockConnected);
-          addNotification('info', 'Shared Credentials Disabled', 'You are no longer using shared credentials');
-          
-          // If no personal credentials either, show that user is disconnected
-          if (!currentUserPiShockConnected) {
-            addNotification('info', 'Disconnected', 'You are now disconnected. Configure your personal PiShock account or re-enable shared credentials.');
-          }
-        }
-      } catch (error) {
-        console.error('Failed to disable shared credentials:', error);
-        addNotification('error', 'Remove Failed', 'Failed to disable shared credentials');
-      }
-    }
-
-    // Remove personal credentials if they exist
-    if (hasStoredCredentials) {
-      try {
-        const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${auth.access_token}`,
-          },
-        });
-
-        if (response.ok) {
-          setHasStoredCredentials(false);
-          setCurrentUserPiShockConnected(false);
-          
-          // Update connection state - check if shared credentials are still active
-          onConnectionChange(sharedCredentialsConnected);
-          addNotification('info', 'Credentials Removed', 'Your PiShock credentials have been removed');
-          
-          // If no shared credentials either, show that user is disconnected
-          if (!sharedCredentialsConnected) {
-            addNotification('info', 'Disconnected', 'You are now disconnected. Configure your PiShock account or enable shared credentials.');
-          }
-        }
-      } catch (error) {
-        console.error('Failed to remove personal credentials:', error);
-        addNotification('error', 'Remove Failed', 'Failed to remove stored credentials');
-      }
-    }
-    
-    // Refresh statuses after removal
-    if (window.refreshAllUserStatuses) {
-      setTimeout(() => {
-        window.refreshAllUserStatuses();
-      }, 1000);
-    }
-  };
-
-  // Function to completely reset all credential states
-  const resetAllCredentials = async () => {
-    if (!currentUser || !auth) return;
-
     try {
-      // Remove both shared and personal credentials
-      await Promise.all([
-        fetch(`${getApiBaseUrl()}/users/${currentUser.id}/shared-credentials`, {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${auth.access_token}` },
-        }),
-        fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${auth.access_token}` },
-        })
-      ]);
-      
-      // Reset all states
-      setHasStoredCredentials(false);
-      setCurrentUserPiShockConnected(false);
-      setSharedCredentialsConnected(false);
-      setHasConsentedToShared(false);
-      setUseSharedCredentials(false);
-      setApiKey('');
-      setUsername('');
-      setSharecode('');
-      setHasOwnDevice(false);
-      onConnectionChange(false);
-      
-      addNotification('info', 'All Credentials Removed', 'All PiShock credentials have been removed. You can now start fresh.');
-      
-      // Refresh statuses
-      if (window.refreshAllUserStatuses) {
-        setTimeout(() => {
-          window.refreshAllUserStatuses();
-        }, 1000);
+      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+      });
+
+      if (response.ok) {
+        setHasStoredCredentials(false);
+        setCurrentUserPiShockConnected(false);
+        setCurrentUserMaxIntensity(100);
+        setCurrentUserMaxDuration(15);
+        onConnectionChange(false);
+        addNotification('info', 'Credentials Removed', 'Your PiShock credentials have been removed');
+        
+        // Refresh statuses
+        if (window.refreshAllUserStatuses) {
+          setTimeout(() => {
+            window.refreshAllUserStatuses();
+          }, 1000);
+        }
       }
     } catch (error) {
-      console.error('Failed to reset all credentials:', error);
-      addNotification('error', 'Reset Failed', 'Failed to reset all credentials');
+      console.error('Failed to remove credentials:', error);
+      addNotification('error', 'Remove Failed', 'Failed to remove stored credentials');
     }
   };
 
@@ -614,13 +392,7 @@ export function PiShockController({
   };
 
   const getConnectionStatus = () => {
-    if (sharedCredentialsConnected) {
-      return {
-        connected: true,
-        message: 'Using Shared Bot Credentials',
-        color: 'yellow'
-      };
-    } else if (currentUserPiShockConnected) {
+    if (currentUserPiShockConnected) {
       return {
         connected: true,
         message: 'Your PiShock Account is Connected',
@@ -668,7 +440,7 @@ export function PiShockController({
         </div>
 
         {/* Connection Status */}
-        {(hasStoredCredentials || sharedCredentialsConnected) ? (
+        {hasStoredCredentials ? (
           <div className="mb-4">
             <div className={`flex items-center justify-between p-3 border rounded-lg ${
               status.color === 'green' ? 'bg-green-900/20 border-green-500/30' :
@@ -681,25 +453,14 @@ export function PiShockController({
                 'text-gray-400'
               }`}>
                 <div className="flex items-center space-x-2 text-sm">
-                  {sharedCredentialsConnected ? (
-                    <>
-                      <span>🔗</span>
-                      <Shield className="h-4 w-4" />
-                    </>
-                  ) : (
-                    <Wifi className="h-4 w-4" />
-                  )}
+                  <Wifi className="h-4 w-4" />
                   <span>{status.message}</span>
                 </div>
-                {/* Show user ID for personal accounts */}
-                {!sharedCredentialsConnected && currentUserPiShockConnected && (
+                {currentUserPiShockConnected && (
                   <div className="text-xs opacity-75">
-                    Your PiShock ID: {currentUserPiShockUserId || 'Loading...'}
-                  </div>
-                )}
-                {sharedCredentialsConnected && (
-                  <div className="text-xs opacity-75">
-                    🤖 Using shared bot credentials
+                    PiShock ID: {currentUserPiShockUserId || 'Loading...'}
+                    <br />
+                    Your limits: {currentUserMaxIntensity}%/{currentUserMaxDuration}s
                   </div>
                 )}
               </div>
@@ -720,14 +481,6 @@ export function PiShockController({
                 >
                   Remove
                 </button>
-                {(hasStoredCredentials || sharedCredentialsConnected) && (
-                  <button
-                    onClick={resetAllCredentials}
-                    className="px-3 py-1 bg-gray-600 hover:bg-gray-700 rounded text-xs transition-colors"
-                  >
-                    Reset All
-                  </button>
-                )}
               </div>
             </div>
           </div>
@@ -746,7 +499,7 @@ export function PiShockController({
           <div className="space-y-3 mb-4">
             <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg text-sm text-blue-200">
               <p className="font-semibold mb-1">Account Setup:</p>
-              <p>Configure your PiShock account to participate. You can use account access even without owning a device.</p>
+              <p>Configure your PiShock account to participate. Set your own limits for safety.</p>
               {isCompactMode && (
                 <p className="text-xs mt-2 text-blue-300">
                   💡 Tip: Switch to full view for easier configuration
@@ -754,167 +507,64 @@ export function PiShockController({
               )}
             </div>
 
-            {/* Account Type Selection */}
-            <div className="space-y-3">
-              <label className="block text-sm font-medium text-gray-300">
-                Account Type
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">
+                API Key <span className="text-red-400">*</span>
               </label>
-              
-              {/* Personal Account Option */}
-              <label className="flex items-start space-x-3 cursor-pointer p-3 rounded-lg border border-gray-600 hover:border-gray-500 transition-colors">
-                <input
-                  type="radio"
-                  name="accountType"
-                  checked={!useSharedCredentials}
-                  onChange={() => setUseSharedCredentials(false)}
-                  className={`${isCompactMode ? 'w-3 h-3' : 'w-4 h-4'} text-purple-600 bg-gray-800 border-gray-600 focus:ring-purple-500 mt-0.5`}
-                />
-                <div className="flex-1">
-                  <div className="flex items-center space-x-2">
-                    <User className="h-4 w-4 text-green-400" />
-                    <span className="text-sm font-medium text-gray-300">Personal PiShock Account</span>
-                    <span className="text-xs bg-green-600 text-white px-2 py-0.5 rounded">Recommended</span>
-                  </div>
-                  <p className="text-xs text-gray-400 mt-1">
-                    Use your own PiShock credentials for secure, personalized access
-                  </p>
-                </div>
-              </label>
-
-              {/* Shared Credentials Option */}
-              {sharedCredentialsAvailable && (
-                <label className="flex items-start space-x-3 cursor-pointer p-3 rounded-lg border border-orange-600 hover:border-orange-500 transition-colors">
-                  <input
-                    type="radio"
-                    name="accountType"
-                    checked={useSharedCredentials}
-                    onChange={() => setUseSharedCredentials(true)}
-                    className={`${isCompactMode ? 'w-3 h-3' : 'w-4 h-4'} text-orange-600 bg-gray-800 border-gray-600 focus:ring-orange-500 mt-0.5`}
-                  />
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2">
-                      <span>🤖</span>
-                      <Shield className="h-4 w-4 text-orange-400" />
-                      <span className="text-sm font-medium text-gray-300">Shared Bot Credentials</span>
-                      <span className="text-xs bg-orange-600 text-white px-2 py-0.5 rounded">Backup Option</span>
-                    </div>
-                    <p className="text-xs text-gray-400 mt-1">
-                      Use shared bot credentials when you don't have your own PiShock account
-                    </p>
-                  </div>
-                </label>
-              )}
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
+                placeholder="Enter your PiShock API key"
+              />
             </div>
-
-            {useSharedCredentials ? (
-              <>
-                {/* Consent Checkbox */}
-                <div className="space-y-3">
-                  <div className="p-3 bg-orange-900/20 border border-orange-500/30 rounded-lg text-sm text-orange-200">
-                    <p className="font-semibold mb-2">⚠️ Shared Credentials Notice:</p>
-                    <ul className="space-y-1 text-xs">
-                      <li>• These are shared bot credentials used by all users who don't have their own PiShock account</li>
-                      <li>• You can only target users who have their own devices configured</li>
-                      <li>• Your activity will still be logged publicly for safety</li>
-                      <li>• This is intended as a backup option for users without PiShock accounts</li>
-                    </ul>
-                  </div>
-                  
-                  <label className="flex items-start space-x-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={hasConsentedToShared}
-                      onChange={(e) => setHasConsentedToShared(e.target.checked)}
-                      className={`${isCompactMode ? 'w-3 h-3' : 'w-4 h-4'} text-orange-600 bg-gray-800 border-gray-600 rounded focus:ring-orange-500 mt-0.5`}
-                    />
-                    <div className="text-sm text-gray-300">
-                      <span className="font-medium">I understand and consent to using shared bot credentials</span>
-                      {!isCompactMode && <p className="text-xs text-gray-400 mt-1">
-                        I acknowledge that these are shared credentials and I will use them responsibly according to all safety guidelines.
-                      </p>}
-                    </div>
-                  </label>
-                </div>
-              </>
-            ) : (
-              <>
-                {/* Device Type Selection */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-300">
-                    Participation Type
-                  </label>
-                  <div className="flex space-x-4">
-                    <label className="flex items-center space-x-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="deviceType"
-                        checked={!hasOwnDevice}
-                        onChange={() => setHasOwnDevice(false)}
-                        className={`${isCompactMode ? 'w-3 h-3' : 'w-4 h-4'} text-purple-600 bg-gray-800 border-gray-600 focus:ring-purple-500`}
-                      />
-                      <span className={`${isCompactMode ? 'text-xs' : 'text-sm'} text-gray-300`}>Account Only (No Device)</span>
-                    </label>
-                    <label className="flex items-center space-x-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="deviceType"
-                        checked={hasOwnDevice}
-                        onChange={() => setHasOwnDevice(true)}
-                        className={`${isCompactMode ? 'w-3 h-3' : 'w-4 h-4'} text-purple-600 bg-gray-800 border-gray-600 focus:ring-purple-500`}
-                      />
-                      <span className={`${isCompactMode ? 'text-xs' : 'text-sm'} text-gray-300`}>Own Device</span>
-                    </label>
-                  </div>
-                  {!isCompactMode && <p className="text-xs text-gray-400">
-                    {hasOwnDevice 
-                      ? "You own a PiShock device and want to receive commands on it"
-                      : "You have a PiShock account but don't own a device (can still participate)"
-                    }
-                  </p>}
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
-                    API Key <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
-                    placeholder="Enter your PiShock API key"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
-                    Username <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
-                    placeholder="Your PiShock username"
-                  />
-                </div>
-                {hasOwnDevice && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1">
-                      Share Code <span className="text-red-400">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={sharecode}
-                      onChange={(e) => setSharecode(e.target.value)}
-                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
-                      placeholder="Device share code"
-                    />
-                    {!isCompactMode && <p className="text-xs text-gray-400 mt-1">
-                      Required only if you own a device and want to receive commands
-                    </p>}
-                  </div>
-                )}
-              </>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">
+                Username <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
+                placeholder="Your PiShock username"
+              />
+            </div>
+            
+            {/* User-configurable limits */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Max Intensity (%)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={maxIntensity}
+                  onChange={(e) => setMaxIntensity(Math.min(Math.max(parseInt(e.target.value) || 1, 1), 100))}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Max Duration (s)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="15"
+                  value={maxDuration}
+                  onChange={(e) => setMaxDuration(Math.min(Math.max(parseInt(e.target.value) || 1, 1), 15))}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
+                />
+              </div>
+            </div>
+            {!isCompactMode && (
+              <p className="text-xs text-gray-400">
+                Set your own safety limits. Others can only use commands within these limits when targeting you.
+              </p>
             )}
             
             <button
@@ -927,9 +577,7 @@ export function PiShockController({
               ) : (
                 <Save className="h-4 w-4" />
               )}
-              <span>
-                {useSharedCredentials ? 'Enable Shared Credentials' : 'Save & Test Connection'}
-              </span>
+              <span>Save & Test Connection</span>
             </button>
           </div>
         )}
@@ -949,7 +597,7 @@ export function PiShockController({
           <div className="text-center py-8 text-gray-400 flex-1 flex flex-col justify-center">
             <AlertTriangle className="h-12 w-12 mx-auto mb-3 opacity-50" />
             <p>Please select a participant to continue</p>
-            <p className="text-sm mt-1">Only users with PiShock accounts can be targeted</p>
+            <p className="text-sm mt-1">Only users with PiShock devices can be targeted</p>
           </div>
         ) : (
           <div className="flex-1 flex flex-col space-y-4 min-h-0">
@@ -971,7 +619,7 @@ export function PiShockController({
                   </p>
                   {!isCompactMode && (
                   <p className="text-xs text-blue-400">
-                    Commands will be sent {sharedCredentialsConnected ? 'via shared bot credentials' : 'through their PiShock account'}
+                    Commands will be sent to their PiShock device (max: {effectiveLimits.maxIntensity}%/{effectiveLimits.maxDuration}s)
                   </p>
                   )}
                 </div>
@@ -1054,7 +702,7 @@ export function PiShockController({
               }`}>
                 <button
                   onClick={() => handleShock(0)}
-                  disabled={isShocking || (!currentUserPiShockConnected && !sharedCredentialsConnected)}
+                  disabled={isShocking || !currentUserPiShockConnected}
                   className={`${
                     isCompactMode 
                       ? 'py-2 px-2 text-xs flex flex-col space-y-1' 
@@ -1067,7 +715,7 @@ export function PiShockController({
 
                 <button
                   onClick={() => handleShock(1)}
-                  disabled={isShocking || (!currentUserPiShockConnected && !sharedCredentialsConnected)}
+                  disabled={isShocking || !currentUserPiShockConnected}
                   className={`${
                     isCompactMode 
                       ? 'py-2 px-2 text-xs flex flex-col space-y-1' 
@@ -1080,7 +728,7 @@ export function PiShockController({
 
                 <button
                   onClick={() => handleShock(2)}
-                  disabled={isShocking || (!currentUserPiShockConnected && !sharedCredentialsConnected)}
+                  disabled={isShocking || !currentUserPiShockConnected}
                   className={`${
                     isCompactMode 
                       ? 'py-2 px-2 text-xs flex flex-col space-y-1' 
