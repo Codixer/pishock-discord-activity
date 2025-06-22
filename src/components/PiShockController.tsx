@@ -522,8 +522,7 @@ export function PiShockController({
     }
   };
 
-  const status = getConnectionStatus();
-  const loadDeviceSharecodes = async () => {
+  const status = getConnectionStatus();  const loadDeviceSharecodes = async () => {
     if (!currentUser || !auth) {
       return;
     }
@@ -538,13 +537,18 @@ export function PiShockController({
       
       if (response.ok) {
         const result = await response.json();
-          if (result.success) {
+        console.log('Sharecodes response:', result);
+          
+        if (result.success) {
           setAvailableSharecodes(result.sharecodes || []);
           console.log(`Loaded ${result.sharecodes?.length || 0} sharecodes`);
           
           const sharecodesCount = result.sharecodes?.length || 0;
           if (sharecodesCount > 0) {
-            addNotification('success', 'Share Codes Loaded', `Found ${sharecodesCount} share codes from your PiShock account`);
+            addNotification('success', 'Share Codes Loaded', `Found ${sharecodesCount} share codes from your PiShock account`);          } else {
+            // Show debug information if no sharecodes found
+            console.log('No sharecodes found, debug info:', result.debugInfo);
+            addNotification('info', 'No Share Codes', 'No share codes found. Check browser console for details.');
           }
           
           // Clear selected sharecode if it's not in the new list
@@ -557,17 +561,21 @@ export function PiShockController({
             }
           }
         } else {
-          console.log('No sharecodes found');
+          console.log('Sharecodes request failed:', result.error);
+          console.log('Debug info:', result.debugInfo);
           setAvailableSharecodes([]);
           setSelectedSharecode('');
+          addNotification('warning', 'Share Codes Error', `Failed to load share codes: ${result.error || 'Unknown error'}. Check console for details.`);
         }
       } else {
         console.error('Failed to load sharecodes:', response.status);
-        // Don't show error notification as this is called automatically
+        const errorText = await response.text();
+        console.error('Error response:', errorText);
+        addNotification('error', 'Load Failed', `HTTP ${response.status}: Failed to load share codes`);
       }
     } catch (error) {
       console.error('Error loading sharecodes:', error);
-      // Don't show error notification as this is called automatically
+      addNotification('error', 'Network Error', 'Failed to load share codes due to network error');
     }
   };
   // Load sharecodes when user has stored credentials

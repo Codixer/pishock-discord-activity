@@ -364,12 +364,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           });
           
           if (!authResponse.ok) {
-            throw new Error('Failed to authenticate target user');
+            throw new Error('Failed to authenticate target user for shareCode resolution');
           }
           
           const authData = await authResponse.json();
           if (!authData || !authData.UserId) {
-            throw new Error('Failed to get target user ID');
+            throw new Error('Failed to get target user ID for shareCode resolution');
           }
           
           const targetPiShockUserId = authData.UserId;
@@ -385,44 +385,40 @@ export const onRequest: PagesFunction<Env> = async (context) => {
             }
           });
           
-          if (sharecodesResponse.ok) {
-            const sharecodesData = await sharecodesResponse.json();
-            console.log('EXECUTE: Sharecodes response:', sharecodesData);
-            
-            // Extract the actual shareCode from the response
-            let actualShareCode = null;
-            if (sharecodesData && typeof sharecodesData === 'object') {
-              // Response format: {"username": [shocker objects...]}
-              Object.values(sharecodesData).forEach((shockers: any) => {
-                if (Array.isArray(shockers)) {
-                  shockers.forEach((shocker: any) => {
-                    if (shocker.shareId && shocker.shareId.toString() === targetUserData.selectedSharecode.toString()) {
-                      actualShareCode = shocker.shareCode;
-                      console.log('EXECUTE: Found actual shareCode:', actualShareCode, 'for share ID:', shocker.shareId);
-                    }
-                  });
-                }
-              });
-            }
-            
-            if (actualShareCode) {
-              codeToUse = actualShareCode;
-              codeType = 'sharecode';
-              console.log('EXECUTE: Using actual shareCode:', codeToUse);
-            } else {
-              console.warn('EXECUTE: Could not find actual shareCode, falling back to share ID');
-              codeToUse = targetUserData.selectedSharecode;
-              codeType = 'sharecode_fallback';
-            }
-          } else {
-            console.warn('EXECUTE: Failed to get detailed shocker info, using share ID as fallback');
-            codeToUse = targetUserData.selectedSharecode;
-            codeType = 'sharecode_fallback';
+          if (!sharecodesResponse.ok) {
+            throw new Error(`Failed to get shareCode details: HTTP ${sharecodesResponse.status}`);
           }
+          
+          const sharecodesData = await sharecodesResponse.json();
+          console.log('EXECUTE: Sharecodes response:', sharecodesData);
+          
+          // Extract the actual shareCode from the response
+          let actualShareCode = null;
+          if (sharecodesData && typeof sharecodesData === 'object') {
+            // Response format: {"username": [shocker objects...]}
+            Object.values(sharecodesData).forEach((shockers: any) => {
+              if (Array.isArray(shockers)) {
+                shockers.forEach((shocker: any) => {
+                  if (shocker.shareId && shocker.shareId.toString() === targetUserData.selectedSharecode.toString()) {
+                    actualShareCode = shocker.shareCode;
+                    console.log('EXECUTE: Found actual shareCode:', actualShareCode, 'for share ID:', shocker.shareId);
+                  }
+                });
+              }
+            });
+          }
+          
+          if (!actualShareCode) {
+            throw new Error(`Could not resolve share ID ${targetUserData.selectedSharecode} to actual shareCode. The share may no longer exist or be accessible.`);
+          }
+          
+          codeToUse = actualShareCode;
+          codeType = 'sharecode';
+          console.log('EXECUTE: Using actual shareCode:', codeToUse);
+          
         } catch (error) {
-          console.error('EXECUTE: Error getting detailed shocker info:', error);
-          codeToUse = targetUserData.selectedSharecode;
-          codeType = 'sharecode_fallback';
+          console.error('EXECUTE: Failed to get actual shareCode:', error);
+          throw new Error(`ShareCode resolution failed: ${error instanceof Error ? error.message : 'Unknown error'}. Cannot execute command without valid shareCode.`);
         }
       } else if (targetShocker) {
         codeToUse = targetShocker.shockerId.toString();
@@ -432,39 +428,39 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         throw new Error('No code available for execution');
       }
       
-      // Use the v3 API Operate endpoint with form data
+      // Use the v3 API Operate endpoint with JSON data
       const payload = {
         code: codeToUse,
-        duration: duration.toString(),
-        intensity: intensity.toString(),
-        op: operation.toString(),
+        duration: parseInt(duration.toString()),
+        intensity: parseInt(intensity.toString()),
+        op: operation,
         apikey: executorCreds.apiKey,
         username: executorCreds.username,
         name: 'DiscordActivity-v3',
-        random: 'false',
-        scale: 'false'
+        random: false,
+        scale: false
       };
       
       console.log('EXECUTE: Request payload:', { 
         code: codeToUse,
         codeType,
-        duration: duration.toString(),
-        intensity: intensity.toString(),
-        op: operation.toString(),
+        duration: payload.duration,
+        intensity: payload.intensity,
+        op: payload.op,
         apikey: '***HIDDEN***',
         username: executorCreds.username,
         name: 'DiscordActivity-v3',
-        random: 'false',
-        scale: 'false'
+        random: false,
+        scale: false
       });
       
       const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
         method: 'POST',
         headers: { 
-          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Type': 'application/json',
           'User-Agent': 'PiShock-Discord-Activity/2.0'
         },
-        body: new URLSearchParams(payload)
+        body: JSON.stringify(payload)
       });
 
       console.log('EXECUTE: Response status:', response.status);
