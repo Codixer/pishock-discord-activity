@@ -2,10 +2,9 @@
 	"name": "pishock-discord-activity",
 	"compatibility_date": "2024-01-15",
 	
-	// Completely disable ALL Cloudflare analytics and optimization features
+	// COMPLETELY disable ALL Cloudflare analytics and optimization features
 	"analytics_engine_datasets": [],
 	"send_metrics": false,
-	"logpush": false,
 	
 	// Static assets configuration
 	"assets": {
@@ -15,35 +14,25 @@
 	// Main worker script (compiled from Pages Functions) - only for API routes
 	"main": "./dist/_worker.js",
 	
-	// KV namespace bindings with correct type field
+	// KV namespace bindings (remove the invalid "type" field)
 	"kv_namespaces": [
 		{
 			"binding": "PISHOCK_KV",
-			"type": "KVNamespace",
 			"id": "49b935b6bcee4aa6a2dafa286e842ef4",
 			"preview_id": "f6f7930286dc4624b80efaec808dd6ae"
 		}
 	],
 	
-	// Environment variables to completely disable Cloudflare features
+	// Environment variables to AGGRESSIVELY disable Cloudflare features
 	"vars": {
 		"CF_PAGES": "1",
 		"CF_ANALYTICS_DISABLED": "true",
 		"CF_WEB_ANALYTICS_DISABLED": "true",
 		"CF_BROWSER_INSIGHTS_DISABLED": "true",
-		"DISABLE_CLOUDFLARE_ANALYTICS": "true"
-	},
-	
-	// Rules to disable features at the worker level
-	"rules": [
-		{
-			"type": "Header",
-			"src": "*",
-			"headers": {
-				"CF-Analytics": "off",
-				"CF-Web-Analytics": "off",
-				"CF-Browser-Insights": "off"
-			}
-		}
-	]
+		"CF_SPEED_BRAIN_DISABLED": "true",
+		"CF_APPS_DISABLED": "true",
+		"CF_BOT_MANAGEMENT_DISABLED": "true",
+		"DISABLE_CLOUDFLARE_ANALYTICS": "true",
+		"DISABLE_ALL_CF_FEATURES": "true"
+	}
 }

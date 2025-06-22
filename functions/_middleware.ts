@@ -1,4 +1,4 @@
-// Middleware to completely disable Cloudflare script injection
+// Middleware to COMPLETELY prevent any Cloudflare script injection
 export async function onRequest(context: any) {
   const { request } = context;
   const url = new URL(request.url);
@@ -13,43 +13,61 @@ export async function onRequest(context: any) {
     headers: new Headers(response.headers)
   });
   
-  // AGGRESSIVELY disable ALL Cloudflare features that inject scripts
-  newResponse.headers.set('CF-Analytics', 'off');
-  newResponse.headers.set('CF-Web-Analytics', 'off');
-  newResponse.headers.set('CF-Browser-Insights', 'off');
-  newResponse.headers.set('CF-Cache-Status', 'BYPASS');
-  newResponse.headers.set('CF-Polish', 'off');
-  newResponse.headers.set('CF-Mirage', 'off');
-  newResponse.headers.set('CF-Rocket-Loader', 'off');
-  newResponse.headers.set('CF-Auto-Minify', 'off');
-  newResponse.headers.set('CF-ScrapeShield', 'off');
+  // NUCLEAR OPTION: Disable EVERY possible Cloudflare feature
+  const cloudflareHeaders = {
+    'CF-Analytics': 'off',
+    'CF-Web-Analytics': 'off',
+    'CF-Browser-Insights': 'off',
+    'CF-Ray': 'off',
+    'CF-Cache-Status': 'BYPASS',
+    'CF-Polish': 'off',
+    'CF-Mirage': 'off',
+    'CF-Rocket-Loader': 'off',
+    'CF-Auto-Minify': 'off',
+    'CF-ScrapeShield': 'off',
+    'CF-APO-Bypass': '1',
+    'CF-Speed-Brain': 'off',
+    'CF-Apps': 'off',
+    'CF-Cron-Trigger': 'off',
+    'CF-Early-Hints': 'off',
+    'CF-Bot-Management': 'off',
+    'CF-Zone-Id': 'bypass',
+    'CF-Worker': 'bypass'
+  };
   
-  // Set CSP that completely blocks external script sources
-  const strictCSP = [
+  // Apply all Cloudflare disabling headers
+  Object.entries(cloudflareHeaders).forEach(([key, value]) => {
+    newResponse.headers.set(key, value);
+  });
+  
+  // ULTRA-STRICT CSP that explicitly blocks cloudflareinsights.com
+  const ultraStrictCSP = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-eval' blob:", // Only allow self, unsafe-eval for Vite, and blob for workers
-    "style-src 'self' 'unsafe-inline'", // Allow inline styles for Tailwind
-    "img-src 'self' data: https://cdn.discordapp.com", // Only Discord CDN for avatars
-    "connect-src 'self' https://discord.com https://do.pishock.com https://auth.pishock.com https://ps.pishock.com", // API endpoints
+    "script-src 'self' 'unsafe-eval' blob:", // ONLY our app scripts
+    "script-src-elem 'self' 'unsafe-eval' blob:", // Explicitly set script-src-elem
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: https://cdn.discordapp.com",
+    "connect-src 'self' https://discord.com https://do.pishock.com https://auth.pishock.com https://ps.pishock.com",
     "font-src 'self'",
-    "frame-src 'none'", // Block all frames
-    "object-src 'none'", // Block all objects
+    "frame-src 'none'",
+    "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
-    "upgrade-insecure-requests"
+    "upgrade-insecure-requests",
+    "block-all-mixed-content"
   ].join('; ');
   
-  newResponse.headers.set('Content-Security-Policy', strictCSP);
+  newResponse.headers.set('Content-Security-Policy', ultraStrictCSP);
   
-  // Additional security headers
+  // Additional security to prevent any external resource loading
   newResponse.headers.set('X-Content-Type-Options', 'nosniff');
   newResponse.headers.set('X-Frame-Options', 'DENY');
   newResponse.headers.set('X-XSS-Protection', '1; mode=block');
   newResponse.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   
-  // Prevent caching of HTML to avoid CSP issues
+  // Force no caching to ensure headers are always applied
   if (url.pathname === '/' || url.pathname.endsWith('.html')) {
-    newResponse.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    newResponse.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
     newResponse.headers.set('Pragma', 'no-cache');
     newResponse.headers.set('Expires', '0');
   }
