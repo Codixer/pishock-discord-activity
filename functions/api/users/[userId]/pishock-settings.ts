@@ -360,9 +360,9 @@ async function getUserDevices(apiKey: string, username: string): Promise<{ hasDe
   }
 }
 
-async function getUserSharecodes(apiKey: string, username: string): Promise<{ success: boolean; sharecodes?: any[]; error?: string; debugInfo?: any }> {
+async function getDeviceSharecodes(apiKey: string, username: string, deviceId?: string): Promise<{ success: boolean; sharecodes?: any[]; error?: string; debugInfo?: any }> {
   try {
-    console.log('Getting user sharecodes...');
+    console.log('Getting device sharecodes...', deviceId ? `for device ${deviceId}` : 'for all devices');
     
     // First get the user ID
     const authUrl = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
@@ -394,10 +394,10 @@ async function getUserSharecodes(apiKey: string, username: string): Promise<{ su
     const userId = authData.UserId;
     console.log('Getting sharecodes for user ID:', userId);
     
-    // Get user sharecodes using the API
-    const url = `https://ps.pishock.com/PiShock/GetUserSharecodes?userId=${userId}&token=${encodeURIComponent(apiKey)}&api=true`;
-    console.log('Making sharecodes request to:', url);
-    
+    // Use the correct endpoint for getting sharecodes by owner
+    // If deviceId is provided, filter for that specific device, otherwise get all
+    const url = `https://ps.pishock.com/PiShock/GetShareCodesByOwner?userId=${userId}&token=${encodeURIComponent(apiKey)}&api=true`;
+    console.log('Making sharecodes request to:', url);    
     const response = await fetch(url, {
       method: 'GET',
       headers: {
@@ -430,31 +430,64 @@ async function getUserSharecodes(apiKey: string, username: string): Promise<{ su
         success: false, 
         error: 'Invalid sharecodes response format',
         debugInfo: { parseError: parseError instanceof Error ? parseError.message : 'Unknown parse error' }
-      };
-    }
+      };    }
+
+    console.log('Parsed sharecodes data:', sharecodesData);
     
-    if (!Array.isArray(sharecodesData)) {
-      console.log('Sharecodes response is not an array:', sharecodesData);
+    // Handle the API response format - it returns an object with arrays as values
+    let allSharecodes: any[] = [];
+    if (typeof sharecodesData === 'object' && sharecodesData !== null) {
+      // Extract arrays from the object values
+      Object.values(sharecodesData).forEach((value: any) => {
+        if (Array.isArray(value)) {
+          allSharecodes = allSharecodes.concat(value);
+        }
+      });
+    } else if (Array.isArray(sharecodesData)) {
+      // Fallback to direct array format
+      allSharecodes = sharecodesData;
+    }
+
+    if (allSharecodes.length === 0) {
+      console.log('No sharecodes found in response');
       return { 
-        success: false, 
-        error: 'No sharecodes data available',
-        debugInfo: { responseType: typeof sharecodesData, responseData: sharecodesData }
+        success: true, 
+        sharecodes: [],
+        debugInfo: { 
+          sharecodesCount: 0,
+          userId,
+          deviceId,
+          responseFormat: typeof sharecodesData 
+        }
       };
     }
     
-    console.log('✓ Found', sharecodesData.length, 'sharecodes');
+    // Filter by device ID if provided
+    let filteredSharecodes = allSharecodes;
+    if (deviceId) {
+      filteredSharecodes = allSharecodes.filter(sharecode => {
+        // Check various possible property names for device ID
+        const shockerId = sharecode.shockerId || sharecode.ShockerId || sharecode.deviceId || sharecode.DeviceId;
+        return shockerId && shockerId.toString() === deviceId.toString();
+      });
+      console.log(`Filtered sharecodes for device ${deviceId}:`, filteredSharecodes.length, 'found');
+    }
+    
+    console.log('✓ Found', filteredSharecodes.length, 'sharecodes', deviceId ? `for device ${deviceId}` : 'total');
     
     return {
       success: true,
-      sharecodes: sharecodesData,
+      sharecodes: filteredSharecodes,
       debugInfo: { 
-        sharecodesCount: sharecodesData.length,
-        userId 
+        sharecodesCount: filteredSharecodes.length,
+        totalSharecodes: allSharecodes.length,
+        userId,
+        deviceId,
+        responseFormat: typeof sharecodesData
       }
     };
-    
-  } catch (error) {
-    console.error('Failed to get user sharecodes:', error);
+      } catch (error) {
+    console.error('Failed to get device sharecodes:', error);
     return { 
       success: false, 
       error: `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -539,7 +572,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const availableShockers = deviceCheck.availableShockers || [];
 
       // Step 3: Get available sharecodes
-      const sharecodesCheck = await getUserSharecodes(apiKey, username);
+      const sharecodesCheck = await getDeviceSharecodes(apiKey, username);
       console.log('Sharecodes check result:', sharecodesCheck);
       
       const availableSharecodes = sharecodesCheck.success ? sharecodesCheck.sharecodes || [] : [];

@@ -525,6 +525,60 @@ export function PiShockController({
 
   const status = getConnectionStatus();
 
+  const loadDeviceSharecodes = async (deviceId: string) => {
+    if (!currentUser || !auth || !deviceId) {
+      return;
+    }
+    
+    try {
+      console.log('Loading sharecodes for device:', deviceId);
+      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/device-sharecodes?deviceId=${encodeURIComponent(deviceId)}`, {
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        
+        if (result.success) {
+          setAvailableSharecodes(result.sharecodes || []);
+          console.log(`Loaded ${result.sharecodes?.length || 0} sharecodes for device ${deviceId}`);
+            // Clear selected sharecode if it's not in the new list
+          if (selectedSharecode && result.sharecodes) {
+            const isStillAvailable = result.sharecodes.some((sc: any) => 
+              (sc.code || sc.shareCode) === selectedSharecode
+            );
+            if (!isStillAvailable) {
+              setSelectedSharecode('');
+            }
+          }
+        } else {
+          console.log('No sharecodes found for device:', deviceId);
+          setAvailableSharecodes([]);
+          setSelectedSharecode('');
+        }
+      } else {
+        console.error('Failed to load device sharecodes:', response.status);
+        // Don't show error notification as this is called automatically
+      }
+    } catch (error) {
+      console.error('Error loading device sharecodes:', error);
+      // Don't show error notification as this is called automatically
+    }
+  };
+
+  // Load device-specific sharecodes when a device is selected
+  useEffect(() => {
+    if (selectedShockerId && hasStoredCredentials) {
+      loadDeviceSharecodes(selectedShockerId);
+    } else {
+      // Clear sharecodes if no device is selected
+      setAvailableSharecodes([]);
+      setSelectedSharecode('');
+    }
+  }, [selectedShockerId, hasStoredCredentials]);
+
   return (
     <div className="h-full flex flex-col space-y-4 overflow-y-auto">
       {/* Settings Panel */}
@@ -690,13 +744,16 @@ export function PiShockController({
                   This shocker will be used when others send commands to you
                 </p>
               </div>
-            )}
-
-            {/* Sharecode Selection */}
+            )}            {/* Sharecode Selection */}
             {availableSharecodes.length > 0 && (
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
                   Select Your Sharecode (Optional)
+                  {selectedShockerId && (
+                    <span className="text-xs text-blue-400 ml-2">
+                      • for selected device
+                    </span>
+                  )}
                 </label>
                 <select
                   value={selectedSharecode}
@@ -711,10 +768,13 @@ export function PiShockController({
                   ))}
                 </select>
                 <p className="text-xs text-gray-400 mt-1">
-                  If selected, sharecode will be used instead of device selection for commands
+                  {selectedShockerId 
+                    ? `Showing sharecodes for ${availableShockers.find(s => s.shockerId.toString() === selectedShockerId)?.displayName || 'selected device'}. If selected, sharecode will be used instead of device selection for commands.`
+                    : 'If selected, sharecode will be used instead of device selection for commands'
+                  }
                 </p>
               </div>
-            )}            {/* Message when data hasn't been loaded */}
+            )}{/* Message when data hasn't been loaded */}
             {apiKey && username && availableShockers.length === 0 && !loadingShockers && (
               <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg">
                 <div className="flex items-center space-x-2 text-blue-300 text-sm">
