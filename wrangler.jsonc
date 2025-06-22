@@ -2,18 +2,28 @@
 	"name": "pishock-discord-activity",
 	"compatibility_date": "2024-01-15",
 	
-	// Disable Cloudflare Analytics to prevent CSP conflicts with Discord
+	// Completely disable ALL Cloudflare features that might inject scripts
 	"analytics_engine_datasets": [],
 	"send_metrics": false,
+	"logpush": false,
+	"tail_consumers": [],
 	
-	// Main worker script (compiled from Pages Functions)
-	"main": "./dist/_worker.js",
+	// Disable automatic optimizations
+	"rules": [
+		{
+			"type": "*",
+			"globs": ["**/*"],
+			"script": "./dist/_worker.js"
+		}
+	],
 	
 	// Static assets configuration
 	"assets": {
-		"directory": "./dist",
-		"binding": "ASSETS"
+		"directory": "./dist"
 	},
+	
+	// Main worker script (compiled from Pages Functions) - only for API routes
+	"main": "./dist/_worker.js",
 	
 	// KV namespace bindings
 	"kv_namespaces": [
@@ -24,8 +34,11 @@
 		}
 	],
 	
-	// Environment variables
+	// Environment variables to disable features
 	"vars": {
-		"CF_PAGES": "1"
+		"CF_PAGES": "1",
+		"CF_ANALYTICS_DISABLED": "true",
+		"CF_WEB_ANALYTICS_DISABLED": "true",
+		"CF_BROWSER_INSIGHTS_DISABLED": "true"
 	}
 }

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 3000",
-    "build": "vite build && npx wrangler pages functions build --outdir=./dist/_worker.js/ && node scripts/post-build.js",
+    "build": "vite build && npx wrangler pages functions build --outdir=./dist/_worker.js/ --bindings='{\"kv_namespaces\":[{\"binding\":\"PISHOCK_KV\"}]}' && node scripts/post-build.js",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
     "lint:fix": "eslint . --ext .ts,.tsx,.js,.jsx --fix",
     "preview": "vite preview",
