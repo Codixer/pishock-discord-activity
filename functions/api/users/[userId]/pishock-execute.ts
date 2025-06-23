@@ -104,25 +104,32 @@ async function executePiShockCommand(
     console.log('EXECUTE: ShareCode:', shareCode);
     console.log('EXECUTE: Intensity:', intensity, 'Duration:', duration);
 
-    // Use form-encoded data for PiShock API (this is what actually works!)
-    const formData = new URLSearchParams();
-    formData.append('code', shareCode);
-    formData.append('duration', duration.toString());
-    formData.append('intensity', intensity.toString());
-    formData.append('op', operation.toString());
-    formData.append('apikey', apiKey);
-    formData.append('username', username);
-    formData.append('name', 'DiscordActivity-v4');
+    // Use JSON format as specified in PiShock API documentation
+    const payload = {
+      code: shareCode,
+      duration: duration,
+      intensity: intensity,
+      op: operation,
+      apikey: apiKey,
+      username: username,
+      name: 'DiscordActivity-v4',
+      random: false,
+      scale: false
+    };
 
     console.log('EXECUTE: Sending command to PiShock API');
+    console.log('EXECUTE: Request payload:', { 
+      ...payload,
+      apikey: '***HIDDEN***'
+    });
     
     const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
       method: 'POST',
       headers: { 
-        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Type': 'application/json',
         'User-Agent': 'PiShock-Discord-Activity/4.0'
       },
-      body: formData.toString()
+      body: JSON.stringify(payload)
     });
 
     const responseText = await response.text();
