@@ -26,6 +26,11 @@ async function setCachedResponse(request: Request, response: Response, cacheKey:
   } catch (error) {
     console.warn('Cache write error:', error);
   }
+}
+
+// Environment interface for TypeScript
+interface Env {
+  PISHOCK_KV: KVNamespace;
   DISCORD_BOT_TOKEN?: string;
 }
 
@@ -95,7 +100,7 @@ async function cleanupInstanceData(kv: KVNamespace, instanceId: string): Promise
 }
 
 export async function onRequest(context: any) {
-  const { request, env } = context;
+  const { request, env }: { request: Request; env: Env } = context;
   const url = new URL(request.url);
   
   // Check for instance-specific API endpoints and verify Discord instance
