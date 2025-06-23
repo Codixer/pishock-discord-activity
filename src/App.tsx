@@ -824,6 +824,7 @@ function MainApp() {
                 discordSdk={discordSdk}
                 isEmbedded={isEmbedded}
                 layoutMode={layoutMode}
+                participants={participants}
               />
             </div>
 

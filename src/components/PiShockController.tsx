@@ -491,25 +491,8 @@ export function PiShockController({
   };
   // Get participants excluding current user for ban management
   const getOtherParticipants = () => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const isEmbedded = urlParams.has('frame_id');
-    
-    if (!isEmbedded) {
-      // Development mode - return mock participants
-      return [
-        {
-          id: 'test_user_456',
-          username: 'TestUser',
-          discriminator: '0002',
-          avatar: null,
-          global_name: 'Test User'
-        }
-      ];
-    }
-    
-    // Production mode - need to get participants from somewhere
-    // Since we don't have direct access to participants here, we'll use a global reference
-    const allParticipants = (window as any).discordParticipants || [];
+    // Use participants passed as prop, fallback to global reference for compatibility
+    const allParticipants = participants.length > 0 ? participants : (window as any).discordParticipants || [];
     return allParticipants.filter((p: any) => p.id !== currentUser?.id);
   };
 

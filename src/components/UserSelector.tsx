@@ -216,6 +216,13 @@ export function UserSelector({
                                 )}
                                 </div>
                                 {/* Show setup instructions for users without PiShock */}
+                              {/* Show if user is banned by current user */}
+                              {isBannedByCurrentUser && (
+                                <div className="text-xs text-red-400 flex items-center space-x-1">
+                                  <span>🚫</span>
+                                  <span>You blocked this user</span>
+                                </div>
+                              )}
                                 {!isConnected && !hasCredentials && (
                                   <div className="text-xs text-red-300 mt-1">
                                     <span className="hidden sm:inline">Needs to configure PiShock credentials</span>
