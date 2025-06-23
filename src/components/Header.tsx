@@ -1,5 +1,5 @@
 import React from 'react';
-import { Zap, Users, Activity } from 'lucide-react';
+import { Zap, Users, Activity } from '../icons';
 
 interface HeaderProps {
   user: any;

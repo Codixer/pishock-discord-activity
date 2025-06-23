@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertTriangle, Shield, CheckCircle } from 'lucide-react';
+import { AlertTriangle, Shield, CheckCircle } from '../icons';
 
 interface SafetyWarningProps {
   onAccept: () => void;

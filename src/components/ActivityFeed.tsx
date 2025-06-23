@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Activity, Clock, Zap, Play, Volume2, RefreshCw } from 'lucide-react';
+import { Activity, Clock, Zap, Play, Volume2, RefreshCw } from '../icons';
 
 interface ActivityFeedProps {
   accessToken: string;

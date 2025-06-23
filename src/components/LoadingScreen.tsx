@@ -1,5 +1,5 @@
 import React from 'react';
-import { Zap, Loader } from 'lucide-react';
+import { Zap, Loader } from '../icons';
 
 export function LoadingScreen() {
   return (

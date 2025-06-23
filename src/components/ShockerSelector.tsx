@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Zap, User, Wifi, WifiOff, Clock, Target, RefreshCw } from 'lucide-react';
+import { Zap, User, Wifi, WifiOff, Clock, Target, RefreshCw } from '../icons';
 
 interface AvailableShocker {
   shockerId: string;

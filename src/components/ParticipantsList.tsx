@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Crown, Radio } from 'lucide-react';
+import { Users, Crown, Radio } from '../icons';
 
 interface ParticipantsListProps {
   participants: any[];

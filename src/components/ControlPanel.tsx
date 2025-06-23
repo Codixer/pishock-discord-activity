@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Zap, Play, Volume2, AlertTriangle, Target, Loader } from 'lucide-react';
+import { Zap, Play, Volume2, AlertTriangle, Target, Loader } from '../icons';
 import type { UserSettings } from '../types/pishock';
 
 interface ControlPanelProps {

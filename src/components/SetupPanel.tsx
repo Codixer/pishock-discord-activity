@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, Save, Loader, Zap, Shield, AlertTriangle } from 'lucide-react';
+import { Settings, Save, Loader, Zap, Shield, AlertTriangle } from '../icons';
 
 interface SetupPanelProps {
   userId: string;

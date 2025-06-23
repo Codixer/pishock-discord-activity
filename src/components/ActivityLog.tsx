@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Clock, Zap, Play, Square, Users, Eye, EyeOff, RefreshCw } from 'lucide-react';
+import { Clock, Zap, Play, Square, Users, Eye, EyeOff, RefreshCw } from '../icons';
 
 interface ActivityLogEntry {
   id: string;

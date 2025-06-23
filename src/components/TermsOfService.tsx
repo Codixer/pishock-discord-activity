@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { FileText, ArrowLeft, AlertTriangle, Shield, Zap, Users, Scale, Clock } from 'lucide-react';
+import { FileText, ArrowLeft, AlertTriangle, Shield, Zap, Users, Scale, Clock } from '../icons';
 
 interface TermsOfServiceProps {
   onBack: () => void;

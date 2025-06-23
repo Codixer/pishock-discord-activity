@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, User, Crown, Zap, ZapOff, Smartphone, Lock } from 'lucide-react';
+import { Users, User, Crown, Zap, ZapOff, Smartphone, Lock } from '../icons';
 import { InstanceData } from '../hooks/useInstanceData';
 
 interface UserSelectorProps {

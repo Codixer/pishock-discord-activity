@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Zap, Settings, Play, Square, AlertTriangle, Wifi, Save, Loader, User, Lock } from 'lucide-react';
+import { Zap, Settings, Play, Square, AlertTriangle, Wifi, Save, Loader, User, Lock } from '../icons';
 
 interface PiShockControllerProps {
   selectedUser: any;

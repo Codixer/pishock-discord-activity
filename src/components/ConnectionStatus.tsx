@@ -1,5 +1,5 @@
 import React from 'react';
-import { Wifi, WifiOff, Zap } from 'lucide-react';
+import { Wifi, WifiOff, Zap } from '../icons';
 
 interface ConnectionStatusProps {
   discordConnected: boolean;

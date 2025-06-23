@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Shield, ArrowLeft, Eye, Database, Lock, Globe, Clock, AlertTriangle } from 'lucide-react';
+import { Shield, ArrowLeft, Eye, Database, Lock, Globe, Clock, AlertTriangle } from '../icons';
 
 interface PrivacyPolicyProps {
   onBack: () => void;

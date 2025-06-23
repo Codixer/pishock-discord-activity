@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, Clock, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, Clock, RefreshCw, X } from '../icons';
 
 interface VersionWarningProps {
   timeRemaining: number;
