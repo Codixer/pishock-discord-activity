@@ -245,7 +245,8 @@ function MainApp() {
                 piShockUserId: status.piShockUserId,
                 isRelay: status.isRelay || false, // Track if using relay account
                 maxIntensity: status.maxIntensity || 100,
-                maxDuration: status.maxDuration || 15
+                maxDuration: status.maxDuration || 15,
+                bannedExecutors: []
               }
             };
           } else {
@@ -264,7 +265,8 @@ function MainApp() {
             piShockUserId: null,
             isRelay: false,
             maxIntensity: 100,
-            maxDuration: 15
+            maxDuration: 15,
+            bannedExecutors: []
           }
         };
       });
@@ -299,8 +301,44 @@ function MainApp() {
     }
   };
 
+  // Load ban lists for current user (who can be banned from shocking them)
+  const loadCurrentUserBanList = async () => {
+    if (!auth?.user?.id) return;
+
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/users/${auth.user.id}/pishock-settings`, {
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.bannedExecutors) {
+          // Update the current user's banned executors in the status map
+          setUserPiShockStatus(prevStatus => ({
+            ...prevStatus,
+            [auth.user.id]: {
+              ...prevStatus[auth.user.id],
+              bannedExecutors: result.bannedExecutors
+            }
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load ban list:', error);
+    }
+  };
+
   // Make the refresh function available globally
   window.refreshAllUserStatuses = checkAllUserPiShockStatus;
+  
+  // Load ban list when auth changes
+  useEffect(() => {
+    if (auth?.user?.id) {
+      loadCurrentUserBanList();
+    }
+  }, [auth?.user?.id]);
   
   // Make user status available globally for PiShockController
   (window as any).userPiShockStatus = userPiShockStatus;
@@ -395,12 +433,17 @@ function MainApp() {
             Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE,
             (data: any) => {
               updateParticipants(data.participants);
+              // Update global participants for ban management
+              (window as any).discordParticipants = data.participants;
             }
           );
 
           // Get initial participants
           const initialParticipants = await discordSdk.commands.getInstanceConnectedParticipants();
           updateParticipants(initialParticipants.participants);
+
+          // Make participants available globally for ban management
+          (window as any).discordParticipants = initialParticipants.participants;
 
           addNotification('success', 'Connected', 'Successfully connected to Discord');
         } else {
@@ -438,6 +481,10 @@ function MainApp() {
 
           setAuth(mockAuth);
           updateParticipants(mockParticipants);
+          
+          // Make participants available globally for ban management
+          (window as any).discordParticipants = mockParticipants;
+          
           addNotification('info', 'Development Mode', 'Running in development mode with mock data');
         }
 

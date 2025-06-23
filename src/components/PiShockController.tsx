@@ -58,6 +58,7 @@ export function PiShockController({
   const [currentUserPiShockConnected, setCurrentUserPiShockConnected] = useState(false);
   const [currentUserPiShockUserId, setCurrentUserPiShockUserId] = useState<string>('');
   const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
+  const [bannedExecutors, setBannedExecutors] = useState<string[]>([]);
 
   // Check if we're in PIP mode
   const isPipMode = layoutMode === Common.LayoutModeTypeObject.PIP;
@@ -208,6 +209,7 @@ export function PiShockController({
           setHasOwnDevice(true); // Always true now
           setUserMaxIntensity(settings.maxIntensity || 100);
           setUserMaxDuration(settings.maxDuration || 15);
+          setBannedExecutors(settings.bannedExecutors || []);
           
           console.log('SETTINGS: ✓ Successfully loaded existing settings:', {
             username: settings.username,
@@ -215,6 +217,7 @@ export function PiShockController({
             hasOwnDevice: true,
             maxIntensity: settings.maxIntensity,
             maxDuration: settings.maxDuration,
+            bannedExecutors: settings.bannedExecutors?.length || 0,
             lastUpdated: settings.lastUpdated
           });
         } else {
@@ -282,6 +285,7 @@ export function PiShockController({
           hasOwnDevice: true, // Always true now
           maxIntensity: userMaxIntensity,
           maxDuration: userMaxDuration,
+          bannedExecutors,
         }),
       });
 
@@ -485,6 +489,40 @@ export function PiShockController({
       addNotification('info', 'Opening PiShock Account', 'Opening your PiShock account page in a new tab');
     }
   };
+  // Get participants excluding current user for ban management
+  const getOtherParticipants = () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const isEmbedded = urlParams.has('frame_id');
+    
+    if (!isEmbedded) {
+      // Development mode - return mock participants
+      return [
+        {
+          id: 'test_user_456',
+          username: 'TestUser',
+          discriminator: '0002',
+          avatar: null,
+          global_name: 'Test User'
+        }
+      ];
+    }
+    
+    // Production mode - need to get participants from somewhere
+    // Since we don't have direct access to participants here, we'll use a global reference
+    const allParticipants = (window as any).discordParticipants || [];
+    return allParticipants.filter((p: any) => p.id !== currentUser?.id);
+  };
+
+  const toggleBanUser = (userId: string) => {
+    setBannedExecutors(prev => {
+      if (prev.includes(userId)) {
+        return prev.filter(id => id !== userId);
+      } else {
+        return [...prev, userId];
+      }
+    });
+  };
+
   const getDisplayName = (user: any) => {
     return user?.guildDisplayName || user?.displayName || user?.global_name || user?.username || 'Unknown User';
   };
@@ -723,6 +761,58 @@ export function PiShockController({
                   <span>15s</span>
                 </div>
               </div>
+            </div>
+            
+            {/* Ban Management Section */}
+            <div className="space-y-3 p-3 bg-red-900/20 border border-red-500/30 rounded-lg">
+              <h4 className="text-sm font-medium text-red-300">Manage Who Can Shock You</h4>
+              <p className="text-xs text-red-200">Block specific users from sending commands to your device</p>
+              
+              {getOtherParticipants().length > 0 ? (
+                <div className="space-y-2 max-h-32 overflow-y-auto">
+                  {getOtherParticipants().map((participant) => {
+                    const isBanned = bannedExecutors.includes(participant.id);
+                    const displayName = getDisplayName(participant);
+                    
+                    return (
+                      <div key={participant.id} className="flex items-center justify-between p-2 bg-black/20 rounded border border-gray-600">
+                        <div className="flex items-center space-x-2 flex-1 min-w-0">
+                          <img
+                            src={participant.avatarUrl || `https://cdn.discordapp.com/embed/avatars/0.png`}
+                            alt={`${displayName}'s avatar`}
+                            className="w-6 h-6 rounded-full flex-shrink-0"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.src = `https://cdn.discordapp.com/embed/avatars/0.png`;
+                            }}
+                          />
+                          <span className="text-sm text-gray-300 truncate">{displayName}</span>
+                          {isBanned && <span className="text-xs text-red-400">BANNED</span>}
+                        </div>
+                        <button
+                          onClick={() => toggleBanUser(participant.id)}
+                          disabled={settingsLoadingData}
+                          className={`px-2 py-1 rounded text-xs transition-colors ${
+                            isBanned
+                              ? 'bg-green-600 hover:bg-green-700 text-white'
+                              : 'bg-red-600 hover:bg-red-700 text-white'
+                          }`}
+                        >
+                          {isBanned ? 'Unban' : 'Ban'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400">No other participants available to manage</p>
+              )}
+              
+              {bannedExecutors.length > 0 && (
+                <div className="text-xs text-red-300">
+                  Currently blocking {bannedExecutors.length} user{bannedExecutors.length !== 1 ? 's' : ''}
+                </div>
+              )}
             </div>
             
             <button

@@ -151,6 +151,48 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }, 400);
     }
 
+    // Check if the executor is banned by the target user
+    console.log('EXECUTE: Checking ban status for executor:', executorUserId, 'targeting:', targetUserId);
+    
+    try {
+      const targetUserDataStr = await env.PISHOCK_KV.get(`user:${targetUserId}:data`);
+      if (targetUserDataStr) {
+        const targetUserData = JSON.parse(targetUserDataStr);
+        const bannedExecutors = targetUserData.bannedExecutors || [];
+        
+        console.log('EXECUTE: Target user banned executors:', bannedExecutors);
+        
+        if (bannedExecutors.includes(executorUserId)) {
+          console.log('EXECUTE: ❌ Executor is banned by target user');
+          
+          // Get executor username for the error message
+          const executorUserData = await env.PISHOCK_KV.get(`discord_user:${executorUserId}`);
+          const executorUser = executorUserData ? JSON.parse(executorUserData) : null;
+          const executorName = executorUser?.global_name || executorUser?.username || 'Unknown User';
+          
+          // Get target username for the error message  
+          const targetUserData2 = await env.PISHOCK_KV.get(`discord_user:${targetUserId}`);
+          const targetUser = targetUserData2 ? JSON.parse(targetUserData2) : null;
+          const targetName = targetUser?.global_name || targetUser?.username || 'Unknown User';
+          
+          return jsonResponse({ 
+            success: false, 
+            error: `${targetName} has blocked ${executorName} from sending commands to their device.`,
+            banned: true,
+            executorUserId,
+            targetUserId
+          }, 403);
+        } else {
+          console.log('EXECUTE: ✓ Executor is not banned by target user');
+        }
+      } else {
+        console.log('EXECUTE: No target user data found, proceeding without ban check');
+      }
+    } catch (banCheckError) {
+      console.error('EXECUTE: Failed to check ban status (non-critical):', banCheckError);
+      // Continue with command execution if ban check fails
+    }
+
     // First, let's check what data exists for this user
     console.log('EXECUTE: Checking all possible data locations for user:', targetUserId);
     

@@ -355,7 +355,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         console.log('SETTINGS API: No credentials found in user data');
         return jsonResponse({ 
           hasSettings: false,
-          settings: null
+          settings: null,
+          bannedExecutors: []
         });
       }
 
@@ -373,7 +374,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           maxIntensity: creds.maxIntensity || 100,
           maxDuration: creds.maxDuration || 15,
           lastUpdated: userData.lastUpdated,
-          piShockUserId: creds.piShockUserId
+          piShockUserId: creds.piShockUserId,
+          bannedExecutors: userData.bannedExecutors || []
         };
         
         console.log('SETTINGS API: ✓ Successfully loaded settings for user:', userId, {
@@ -385,19 +387,29 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         
         return jsonResponse({ 
           hasSettings: true,
-          settings
+          settings,
+          bannedExecutors: userData.bannedExecutors || []
         });
       } catch (error) {
         console.error('Failed to decrypt user settings:', error);
         return jsonResponse({ 
           hasSettings: false,
-          settings: null
+          settings: null,
+          bannedExecutors: []
         });
       }
     }
 
     if (method === 'PUT') {
-      const { apiKey, username, sharecode, hasOwnDevice, maxIntensity = 100, maxDuration = 15 } = await request.json();
+      const { 
+        apiKey, 
+        username, 
+        sharecode, 
+        hasOwnDevice, 
+        maxIntensity = 100, 
+        maxDuration = 15,
+        bannedExecutors = []
+      } = await request.json();
 
       // Get existing user data to check if this is an update
       const existingUserDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
@@ -547,7 +559,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         hasOwnDevice: actuallyHasDevice,
         piShockUserId,
         deviceCount: deviceCheck.devices?.length || 0,
-        lastUpdated: new Date().toISOString()
+        lastUpdated: new Date().toISOString(),
+        bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : []
       };
       
       await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
