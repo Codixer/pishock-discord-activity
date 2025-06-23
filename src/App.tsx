@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { DiscordSDK, Events, type Types } from '@discord/embedded-app-sdk';
-import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText } from 'lucide-react';
+import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText, Layout } from 'lucide-react';
 import { PiShockController } from './components/PiShockController';
 import { SafetyWarning } from './components/SafetyWarning';
 import { UserSelector } from './components/UserSelector';
@@ -89,6 +89,8 @@ function MainApp() {
   const [instanceId, setInstanceId] = useState<string>('');
   const [showActivityLog, setShowActivityLog] = useState(true);
   const [userPiShockStatus, setUserPiShockStatus] = useState<Record<string, any>>({});
+  const [isInstanceValid, setIsInstanceValid] = useState(true);
+  const [layoutMode, setLayoutMode] = useState<Types.LayoutMode | null>(null);
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
   
@@ -142,6 +144,12 @@ function MainApp() {
       window.location.href = window.location.href; // Hard refresh
     }, 500);
   }, [isEmbedded, updateParticipants]);
+
+  // Handle layout mode updates for PIP mode
+  const handleLayoutModeUpdate = useCallback((update: { layout_mode: Types.LayoutMode }) => {
+    console.log('Layout mode updated:', update.layout_mode);
+    setLayoutMode(update.layout_mode);
+  }, []);
 
   // Function to check PiShock status for all participants
   const checkAllUserPiShockStatus = async () => {
@@ -244,7 +252,28 @@ function MainApp() {
           // Get instance ID immediately after SDK construction
           const currentInstanceId = discordSdk.instanceId;
           setInstanceId(currentInstanceId);
+
+          // Verify instance with Discord's API before proceeding
+          console.log('Verifying Discord instance:', currentInstanceId);
+          const verifyResponse = await fetch(`${getApiBaseUrl()}/verify-instance?application_id=${import.meta.env.VITE_DISCORD_CLIENT_ID}&instance_id=${currentInstanceId}`);
           
+          if (!verifyResponse.ok) {
+            console.error('Instance verification failed:', verifyResponse.status);
+            setIsInstanceValid(false);
+            setLoading(false);
+            addNotification('error', 'Invalid Session', 'This Discord Activity session is not valid or has expired.');
+            return;
+          }
+
+          const verifyData = await verifyResponse.json();
+          if (!verifyData.valid) {
+            console.error('Instance not valid:', verifyData.error);
+            setIsInstanceValid(false);
+            setLoading(false);
+            addNotification('error', 'Invalid Session', verifyData.error || 'This Discord Activity session is not valid.');
+            return;
+          }
+
           // Authenticate with Discord
           const { code } = await discordSdk.commands.authorize({
             client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
@@ -291,6 +320,17 @@ function MainApp() {
           const initialParticipants = await discordSdk.commands.getInstanceConnectedParticipants();
           updateParticipants(initialParticipants.participants);
 
+          // Subscribe to layout mode updates
+          discordSdk.subscribeToLayoutModeUpdatesCompat(handleLayoutModeUpdate);
+
+          // Get initial layout mode
+          try {
+            const initialLayoutMode = await discordSdk.commands.getLayoutMode();
+            setLayoutMode(initialLayoutMode.layout_mode);
+          } catch (error) {
+            console.warn('Failed to get initial layout mode:', error);
+          }
+
           addNotification('success', 'Connected', 'Successfully connected to Discord');
         } else {
           // Mock data for development environment
@@ -326,6 +366,7 @@ function MainApp() {
 
           setAuth(mockAuth);
           updateParticipants(mockParticipants);
+          setLayoutMode(Types.LayoutMode.FOCUSED);
           addNotification('info', 'Development Mode', 'Running in development mode with mock data');
         }
 
@@ -348,6 +389,7 @@ function MainApp() {
     // Cleanup subscriptions on unmount
     return () => {
       if (isEmbedded && discordSdk) {
+        discordSdk.unsubscribeFromLayoutModeUpdatesCompat(handleLayoutModeUpdate);
         discordSdk.unsubscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
       }
     };
@@ -466,6 +508,67 @@ function MainApp() {
     return <SafetyWarning onAccept={() => setSafetyAccepted(true)} />;
   }
 
+  // Show invalid session message
+  if (!isInstanceValid) {
+    return (
+      <div className="h-screen w-screen bg-gradient-to-br from-red-900 via-red-800 to-orange-900 text-white overflow-hidden flex items-center justify-center">
+        <div className="text-center max-w-md p-8">
+          <div className="w-16 h-16 mx-auto mb-6 bg-red-500/20 rounded-full flex items-center justify-center">
+            <AlertTriangle className="h-8 w-8 text-red-400" />
+          </div>
+          <h1 className="text-3xl font-bold mb-4">Invalid Session</h1>
+          <p className="text-red-200 mb-6">
+            This Discord Activity session is not valid or has expired. Please start a new session from Discord.
+          </p>
+          <p className="text-sm text-red-300">
+            Make sure you're accessing this application through Discord's Activity feature.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Picture-in-Picture mode - simplified layout with only activity log
+  if (layoutMode === Types.LayoutMode.PIP) {
+    return (
+      <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white overflow-hidden flex flex-col">
+        <NotificationSystem 
+          notifications={notifications} 
+          onDismiss={dismissNotification} 
+        />
+        
+        {/* Minimal PIP Header */}
+        <div className="bg-black/30 backdrop-blur-sm border-b border-white/10 flex-shrink-0 p-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Layout className="h-4 w-4 text-purple-400" />
+              <span className="text-sm font-medium">PiShock Activity Log</span>
+            </div>
+            <div className="text-xs text-gray-400">
+              {participants.length} participant{participants.length !== 1 ? 's' : ''}
+            </div>
+          </div>
+        </div>
+
+        {/* Activity Log Only */}
+        <div className="flex-1 overflow-hidden p-2">
+          <ActivityLog
+            instanceId={instanceId}
+            auth={auth}
+            addNotification={addNotification}
+          />
+        </div>
+
+        {/* Version Indicator - Bottom Right */}
+        <div className="fixed bottom-2 right-2 z-40 bg-black/40 backdrop-blur-sm border border-white/10 rounded px-2 py-1 text-xs">
+          <span className="text-gray-300">
+            {import.meta.env.DEV ? 'dev' : `v${currentVersion.slice(-8)}`} • PIP
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white overflow-hidden flex flex-col">
       <NotificationSystem 
@@ -493,6 +596,15 @@ function MainApp() {
               </div>
             </div>
             <div className="flex items-center space-x-4">
+              {layoutMode !== null && (
+                <div className="flex items-center space-x-1 text-xs text-gray-400">
+                  <Layout className="h-3 w-3" />
+                  <span>
+                    {layoutMode === Types.LayoutMode.FOCUSED ? 'Focused' : 
+                     layoutMode === Types.LayoutMode.PIP ? 'PIP' : 'Grid'}
+                  </span>
+                </div>
+              )}
               {instanceId && (
                 <div className="text-xs text-gray-400">
                   Instance: {instanceId.slice(-8)}

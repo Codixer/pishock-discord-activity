@@ -42,7 +42,7 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
   const [entries, setEntries] = useState<ActivityLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [isVisible, setIsVisible] = useState(true);
-  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const intervalRef = useRef<NodeJS.Timeout>();
   const logContainerRef = useRef<HTMLDivElement>(null);
@@ -54,7 +54,7 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
     }
   }, [auth]);
 
-  // Set up auto-refresh with longer interval
+  // Set up auto-refresh when enabled
   useEffect(() => {
     if (autoRefresh && auth) {
       intervalRef.current = setInterval(() => {
@@ -208,7 +208,7 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
             <span className="text-sm text-gray-400">({entries.length} entries)</span>
           </div>
         </div>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-2 mt-3 sm:mt-0">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-2 mt-3">
           <button
             onClick={() => setAutoRefresh(!autoRefresh)}
             className={`flex items-center space-x-1 px-2 py-1 rounded text-xs transition-colors ${
@@ -218,7 +218,7 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
             }`}
           >
             <RefreshCw className={`h-3 w-3 ${autoRefresh ? 'animate-spin' : ''}`} />
-            <span>Auto</span>
+            <span>{autoRefresh ? 'Auto On' : 'Auto Off'}</span>
           </button>
           <button
             onClick={() => loadActivityLog()}
@@ -240,7 +240,7 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
       {/* Last Refresh Info */}
       <div className="text-xs text-gray-400 px-4 pb-3 flex-shrink-0">
         Last updated: {lastRefresh.toLocaleTimeString()}
-        {autoRefresh && <span className="ml-2">(Auto-refresh every 60s)</span>}
+        {autoRefresh && <span className="ml-2 text-green-400">(Auto-refresh enabled)</span>}
       </div>
 
       {/* Activity Log Content */}
