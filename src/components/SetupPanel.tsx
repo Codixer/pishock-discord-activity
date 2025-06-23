@@ -1,6 +1,18 @@
 import React, { useState } from 'react';
 import { Settings, Save, Loader, Zap, Shield, AlertTriangle } from '../icons';
 
+// Helper function to get the correct API base URL
+function getApiBaseUrl(): string {
+  const urlParams = new URLSearchParams(window.location.search);
+  const isEmbedded = urlParams.has('frame_id');
+  
+  if (isEmbedded) {
+    return '/.proxy/api';
+  } else {
+    return '/api';
+  }
+}
+
 interface SetupPanelProps {
   userId: string;
   accessToken: string;
@@ -21,7 +33,7 @@ export function SetupPanel({ userId, accessToken, onSetupComplete }: SetupPanelP
     setError('');
 
     try {
-      const response = await fetch(`/api/users/${userId}/pishock/setup`, {
+      const response = await fetch(`${getApiBaseUrl()}/users/${userId}/pishock/setup`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

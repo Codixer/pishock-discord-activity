@@ -10,6 +10,18 @@ import { useNotifications } from '../hooks/useNotifications';
 import { useParticipants } from '../hooks/useParticipants';
 import type { UserSettings } from '../types/pishock';
 
+// Helper function to get the correct API base URL
+function getApiBaseUrl(): string {
+  const urlParams = new URLSearchParams(window.location.search);
+  const isEmbedded = urlParams.has('frame_id');
+  
+  if (isEmbedded) {
+    return '/.proxy/api';
+  } else {
+    return '/api';
+  }
+}
+
 interface MainAppProps {
   discordSdk: DiscordSDK;
   auth: any;
@@ -55,7 +67,7 @@ export function MainApp({ discordSdk, auth, instanceId }: MainAppProps) {
 
   const loadUserSettings = async () => {
     try {
-      const response = await fetch(`/api/users/${auth.user.id}/pishock/setup`, {
+      const response = await fetch(`${getApiBaseUrl()}/users/${auth.user.id}/pishock/setup`, {
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
         },

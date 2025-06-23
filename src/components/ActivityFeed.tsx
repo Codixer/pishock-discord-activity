@@ -5,6 +5,18 @@ interface ActivityFeedProps {
   accessToken: string;
 }
 
+// Helper function to get the correct API base URL
+function getApiBaseUrl(): string {
+  const urlParams = new URLSearchParams(window.location.search);
+  const isEmbedded = urlParams.has('frame_id');
+  
+  if (isEmbedded) {
+    return '/.proxy/api';
+  } else {
+    return '/api';
+  }
+}
+
 export function ActivityFeed({ accessToken }: ActivityFeedProps) {
   const [entries, setEntries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -17,7 +29,7 @@ export function ActivityFeed({ accessToken }: ActivityFeedProps) {
 
   const loadActivityLog = async () => {
     try {
-      const response = await fetch('/api/activity-log?limit=20', {
+      const response = await fetch(`${getApiBaseUrl()}/activity-log?limit=20`, {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
         },

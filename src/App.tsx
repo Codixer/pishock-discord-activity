@@ -8,6 +8,18 @@ import { ErrorScreen } from './components/ErrorScreen';
 // Initialize Discord SDK
 const discordSdk = new DiscordSDK(import.meta.env.VITE_DISCORD_CLIENT_ID);
 
+// Helper function to get the correct API base URL
+function getApiBaseUrl(): string {
+  const urlParams = new URLSearchParams(window.location.search);
+  const isEmbedded = urlParams.has('frame_id');
+  
+  if (isEmbedded) {
+    return '/.proxy/api';
+  } else {
+    return '/api';
+  }
+}
+
 export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +49,7 @@ export default function App() {
       });
 
       // Exchange code for token via our backend
-      const response = await fetch('/api/auth/discord', {
+      const response = await fetch(`${getApiBaseUrl()}/auth/discord`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

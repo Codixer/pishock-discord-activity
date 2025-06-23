@@ -2,6 +2,18 @@ import React, { useState } from 'react';
 import { Zap, Play, Volume2, AlertTriangle, Target, Loader } from '../icons';
 import type { UserSettings } from '../types/pishock';
 
+// Helper function to get the correct API base URL
+function getApiBaseUrl(): string {
+  const urlParams = new URLSearchParams(window.location.search);
+  const isEmbedded = urlParams.has('frame_id');
+  
+  if (isEmbedded) {
+    return '/.proxy/api';
+  } else {
+    return '/api';
+  }
+}
+
 interface ControlPanelProps {
   userSettings: UserSettings;
   selectedTarget: any;
@@ -53,7 +65,7 @@ export function ControlPanel({
     setError('');
 
     try {
-      const response = await fetch(`/api/users/${selectedTarget.id}/pishock/operate`, {
+      const response = await fetch(`${getApiBaseUrl()}/users/${selectedTarget.id}/pishock/operate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
