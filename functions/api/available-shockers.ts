@@ -65,7 +65,7 @@ async function getUserDevices(apiKey: string, username: string): Promise<{ hasDe
     const authResponse = await fetch(authUrl, {
       method: 'GET',
       headers: {
-        'User-Agent': 'PiShock-Discord-Activity/2.0',
+        'User-Agent': 'PiShock-Discord-Activity/4.0',
         'Accept': 'application/json'
       },
       signal: AbortSignal.timeout(10000)
@@ -87,7 +87,7 @@ async function getUserDevices(apiKey: string, username: string): Promise<{ hasDe
     const response = await fetch(url, {
       method: 'GET',
       headers: {
-        'User-Agent': 'PiShock-Discord-Activity/2.0',
+        'User-Agent': 'PiShock-Discord-Activity/4.0',
         'Accept': 'application/json'
       },
       signal: AbortSignal.timeout(10000)
