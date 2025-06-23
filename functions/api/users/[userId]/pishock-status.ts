@@ -79,7 +79,7 @@ async function setCachedUserStatus(kv: KVNamespace, userId: string, status: any)
     };
     // Cache for 5 minutes with TTL
     await kv.put(cacheKey, JSON.stringify(cacheData), { expirationTtl: 300 });
-    console.log('STATUS: Cached status for user:', userId, status);
+    console.log('STATUS: Cached status for user:', userId);
   } catch (error) {
     console.warn('STATUS: Cache write error:', error);
   }
@@ -87,16 +87,16 @@ async function setCachedUserStatus(kv: KVNamespace, userId: string, status: any)
 
 async function validatePiShockCredentials(apiKey: string, username: string): Promise<{ valid: boolean; userId?: string }> {
   try {
-    console.log('STATUS: Validating PiShock credentials using v3 API');
+    console.log('STATUS: Validating PiShock credentials');
     console.log('STATUS: Username:', username);
     
-    // First, authenticate and get the actual user ID
+    // Authenticate and get the actual user ID
     const authUrl = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
     
     const authResponse = await fetch(authUrl, {
       method: 'GET',
       headers: {
-        'User-Agent': 'PiShock-Discord-Activity/2.0',
+        'User-Agent': 'PiShock-Discord-Activity/4.0',
         'Accept': 'application/json'
       }
     });
@@ -115,13 +115,13 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
     const piShockUserId = authData.UserId;
     console.log('STATUS: Got user ID:', piShockUserId);
     
-    // Use the v3 API to validate credentials
+    // Test API access by getting user devices
     const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=${piShockUserId}&token=${encodeURIComponent(apiKey)}&api=true`;
     
     const response = await fetch(url, {
       method: 'GET',
       headers: {
-        'User-Agent': 'PiShock-Discord-Activity/2.0',
+        'User-Agent': 'PiShock-Discord-Activity/4.0',
         'Accept': 'application/json'
       }
     });
@@ -152,12 +152,6 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       return { valid: false };
     }
     
-    // Extract userId from the first device if available
-    let extractedUserId = null;
-    if (devicesData.length > 0 && devicesData[0].userId) {
-      extractedUserId = devicesData[0].userId.toString();
-    }
-    
     console.log('STATUS: Found valid credentials with', devicesData.length, 'devices');
     return { valid: true, userId: piShockUserId.toString() };
   } catch (error) {
@@ -168,15 +162,15 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
 
 async function checkUserDevices(apiKey: string, username: string): Promise<{ hasDevices: boolean; devices?: any[] }> {
   try {
-    console.log('STATUS: Checking user devices using v3 API');
+    console.log('STATUS: Checking user devices');
     console.log('STATUS: Username:', username);
     
-    // First get the user ID
+    // Get the user ID first
     const authUrl = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
     const authResponse = await fetch(authUrl, {
       method: 'GET',
       headers: {
-        'User-Agent': 'PiShock-Discord-Activity/2.0',
+        'User-Agent': 'PiShock-Discord-Activity/4.0',
         'Accept': 'application/json'
       }
     });
@@ -194,13 +188,13 @@ async function checkUserDevices(apiKey: string, username: string): Promise<{ has
     
     const piShockUserId = authData.UserId;
     
-    // Use the v3 API to get user devices
+    // Get user devices
     const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=${piShockUserId}&token=${encodeURIComponent(apiKey)}&api=true`;
     
     const response = await fetch(url, {
       method: 'GET',
       headers: {
-        'User-Agent': 'PiShock-Discord-Activity/2.0',
+        'User-Agent': 'PiShock-Discord-Activity/4.0',
         'Accept': 'application/json'
       }
     });
@@ -300,14 +294,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         const creds = await decrypt(encrypted);
         console.log('STATUS: Testing stored credentials for user:', userId);
         
-        // Validate credentials using v3 API
+        // Validate credentials
         const credentialValidation = await validatePiShockCredentials(creds.apiKey, creds.username);
         isConnected = credentialValidation.valid;
         
         if (isConnected && credentialValidation.userId) {
           piShockUserId = credentialValidation.userId;
           
-          // Check for devices using v3 API
+          // Check for devices
           const deviceCheck = await checkUserDevices(creds.apiKey, creds.username);
           hasDevice = deviceCheck.hasDevices;
           deviceCount = deviceCheck.devices?.length || 0;
@@ -346,7 +340,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       availableShockers: userData?.availableShockers || [],
       selectedSharecode: userData?.selectedSharecode || null,
       availableSharecodes: userData?.availableSharecodes || [],
-      isRelay: false // No more relay accounts
+      isRelay: false // No relay accounts in v4
     };
     
     console.log('STATUS: Final result for user', userId, ':', result);

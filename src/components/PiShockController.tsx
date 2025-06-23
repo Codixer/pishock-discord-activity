@@ -19,10 +19,8 @@ function getApiBaseUrl(): string {
   const isEmbedded = urlParams.has('frame_id');
   
   if (isEmbedded) {
-    // Use Discord's proxy for embedded environment
     return '/.proxy/api';
   } else {
-    // Use direct API calls for development
     return '/api';
   }
 }
@@ -54,18 +52,17 @@ export function PiShockController({
   const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
   const [lastShockTime, setLastShockTime] = useState<number>(0);
   const [currentUserMaxIntensity, setCurrentUserMaxIntensity] = useState(100);
-  const [currentUserMaxDuration, setCurrentUserMaxDuration] = useState(15);  const [availableShockers, setAvailableShockers] = useState<any[]>([]);
+  const [currentUserMaxDuration, setCurrentUserMaxDuration] = useState(15);
+  const [availableShockers, setAvailableShockers] = useState<any[]>([]);
   const [selectedShockerId, setSelectedShockerId] = useState<string>('');
   const [availableSharecodes, setAvailableSharecodes] = useState<any[]>([]);
   const [selectedSharecode, setSelectedSharecode] = useState<string>('');
-  const [loadingShockers, setLoadingShockers] = useState(false);
-  const [detailedShockerInfo, setDetailedShockerInfo] = useState<any>(null);
+  const [loadingData, setLoadingData] = useState(false);
 
   // Get the effective limits based on selected user
   const getEffectiveLimits = () => {
     if (!selectedUser) return { maxIntensity: 100, maxDuration: 15 };
     
-    // Get the user's PiShock status which includes their user-configured limits
     const userStatus = (window as any).userPiShockStatus?.[selectedUser.id];
     if (userStatus && userStatus.maxIntensity && userStatus.maxDuration) {
       return {
@@ -84,7 +81,6 @@ export function PiShockController({
     const limits = getEffectiveLimits();
     setSelectedUserLimits(limits);
     
-    // Clamp current values to new limits
     if (intensity > limits.maxIntensity) {
       setIntensity(limits.maxIntensity);
     }
@@ -92,6 +88,7 @@ export function PiShockController({
       setDuration(limits.maxDuration);
     }
   }, [selectedUser, intensity, duration]);
+
   // Load current user's PiShock connection status when component mounts
   useEffect(() => {
     if (currentUser && auth) {
@@ -106,7 +103,7 @@ export function PiShockController({
       const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-status`, {
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
-          'Cache-Control': 'no-cache', // Force fresh data
+          'Cache-Control': 'no-cache',
         },
       });
 
@@ -117,7 +114,7 @@ export function PiShockController({
         setCurrentUserMaxIntensity(status.maxIntensity || 100);
         setCurrentUserMaxDuration(status.maxDuration || 15);
         onConnectionChange(status.isConnected);
-          // Load available shockers and selected shocker from status
+        
         if (status.availableShockers && Array.isArray(status.availableShockers)) {
           setAvailableShockers(status.availableShockers);
         }
@@ -125,7 +122,6 @@ export function PiShockController({
           setSelectedShockerId(status.selectedShockerId.toString());
         }
         
-        // Load available sharecodes and selected sharecode from status
         if (status.availableSharecodes && Array.isArray(status.availableSharecodes)) {
           setAvailableSharecodes(status.availableSharecodes);
         }
@@ -133,7 +129,6 @@ export function PiShockController({
           setSelectedSharecode(status.selectedSharecode);
         }
         
-        // Store user's PiShock ID for display
         if (status.piShockUserId) {
           setCurrentUserPiShockUserId(status.piShockUserId);
         }
@@ -151,120 +146,17 @@ export function PiShockController({
     }
   };
 
-  const savePiShockSettings = async () => {
-    if (!currentUser || !auth) return;
-    
-    if (!apiKey || !username) {
-      addNotification('warning', 'Missing Information', 'Please fill in API Key and Username');
-      return;
-    }    // If we have available shockers but no selection, warn the user
-    if (availableShockers.length > 0 && !selectedShockerId) {
-      addNotification('warning', 'Select Shocker', 'Please select which shocker to use for incoming commands');
-      return;
-    }
-
-    // If we have available sharecodes but no selection, warn the user
-    if (availableSharecodes.length > 0 && !selectedSharecode) {
-      addNotification('warning', 'Select Sharecode', 'Please select a sharecode - this is required for sending commands');
-      return;
-    }
-
-    // Validate user limits
-    const finalMaxIntensity = Math.min(Math.max(maxIntensity, 1), 100);
-    const finalMaxDuration = Math.min(Math.max(maxDuration, 1), 15);
-
-    setSettingsSaving(true);
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${auth.access_token}`,
-        },        body: JSON.stringify({
-          apiKey,
-          username,
-          maxIntensity: finalMaxIntensity,
-          maxDuration: finalMaxDuration,
-          selectedShockerId: selectedShockerId || null, // Include selected shocker
-          selectedSharecode: selectedSharecode || null, // Include selected sharecode
-        }),
-      });
-
-      const result = await response.json();
-      
-      if (response.ok && result.success) {
-        setHasStoredCredentials(true);
-        setCurrentUserPiShockConnected(true);
-        setCurrentUserMaxIntensity(finalMaxIntensity);
-        setCurrentUserMaxDuration(finalMaxDuration);
-        onConnectionChange(true);
-          // Update available shockers and selected shocker from response
-        if (result.availableShockers) {
-          setAvailableShockers(result.availableShockers);
-        }
-        if (result.selectedShockerId) {
-          setSelectedShockerId(result.selectedShockerId);
-        }
-        
-        // Update available sharecodes and selected sharecode from response
-        if (result.availableSharecodes) {
-          setAvailableSharecodes(result.availableSharecodes);
-        }
-        if (result.selectedSharecode) {
-          setSelectedSharecode(result.selectedSharecode);
-        }
-        
-        const shockerMessage = selectedShockerId ? ` Selected shocker: ${availableShockers.find(s => s.shockerId.toString() === selectedShockerId)?.displayName || selectedShockerId}` : '';
-        addNotification('success', 'Settings Saved', `PiShock account connected successfully with limits: ${finalMaxIntensity}%/${finalMaxDuration}s.${shockerMessage}`);
-        
-        // Clear the form fields for security
-        setApiKey('');
-        setUsername('');
-        setShowSettings(false);
-        
-        // Update the stored PiShock user ID from save result
-        if (result.piShockUserId) {
-          setCurrentUserPiShockUserId(result.piShockUserId);
-        }
-        
-        // Trigger a status refresh for all participants
-        if (window.refreshAllUserStatuses) {
-          window.refreshAllUserStatuses();
-        }
-      } else {
-        // Show user-friendly error message
-        let errorMessage = result.error || 'Failed to save PiShock settings';
-        
-        // Log detailed debug info but show simpler message to user
-        console.error('PiShock settings save error:', result);
-        
-        // Provide specific guidance based on error type
-        if (errorMessage.includes('Invalid response format') || errorMessage.includes('empty response')) {
-          errorMessage = 'Unable to validate PiShock credentials. Please check:\n\n• Your API key is correct\n• Your username is correct\n• PiShock.com is accessible\n• Try again in a few moments';
-        } else if (errorMessage.includes('Network error')) {
-          errorMessage = 'Network connection failed. Please check your internet connection and try again.';
-        } else if (errorMessage.includes('No UserID found')) {
-          errorMessage = 'Invalid PiShock credentials. Please double-check your API key and username.';
-        }
-        
-        throw new Error(errorMessage);
-      }
-    } catch (error) {
-      console.error('Failed to save PiShock settings:', error);
-      addNotification('error', 'Save Failed', error instanceof Error ? error.message : 'Failed to save PiShock settings');
-    } finally {
-      setSettingsSaving(false);
-    }
-  };  const loadAvailableShockers = async () => {
+  const loadMyData = async () => {
     if (!currentUser || !auth || !apiKey || !username) {
-      addNotification('warning', 'Missing Data', 'Please ensure you have entered your API key and username before loading shockers');
+      addNotification('warning', 'Missing Data', 'Please enter your API key and username first');
       return;
     }
     
-    setLoadingShockers(true);
+    setLoadingData(true);
     try {
-      // Save credentials first using PUT, then load data
-      const saveResponse = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+      console.log('FRONTEND: Loading user data...');
+      
+      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -280,44 +172,149 @@ export function PiShockController({
         }),
       });
       
-      if (saveResponse.ok) {
-        const result = await saveResponse.json();
+      if (response.ok) {
+        const result = await response.json();
+        console.log('FRONTEND: Load data result:', result);
         
         if (result.success) {
           // Update shockers
           if (result.availableShockers) {
             setAvailableShockers(result.availableShockers);
+            console.log('FRONTEND: Loaded', result.availableShockers.length, 'shockers');
             
             // Auto-select first shocker if none selected
             if (!selectedShockerId && result.availableShockers.length > 0) {
               setSelectedShockerId(result.availableShockers[0].shockerId.toString());
             }
           }
-            // Load sharecodes separately
-          loadDeviceSharecodes();
+          
+          // Update sharecodes
+          if (result.availableSharecodes) {
+            setAvailableSharecodes(result.availableSharecodes);
+            console.log('FRONTEND: Loaded', result.availableSharecodes.length, 'sharecodes');
+            
+            // Auto-select first sharecode if none selected
+            if (!selectedSharecode && result.availableSharecodes.length > 0) {
+              setSelectedSharecode(result.availableSharecodes[0].code || result.availableSharecodes[0].shareCode);
+            }
+          }
           
           const shockerCount = result.availableShockers?.length || 0;
-          addNotification('success', 'Shockers Loaded', `Found ${shockerCount} shockers, loading share codes...`);
+          const sharecodeCount = result.availableSharecodes?.length || 0;
+          addNotification('success', 'Data Loaded', 
+            `Found ${shockerCount} shockers and ${sharecodeCount} share codes`);
         } else {
-          addNotification('warning', 'No Data Found', 'No shockers found in your PiShock account');
-          setAvailableShockers([]);
-          setAvailableSharecodes([]);
+          addNotification('error', 'Load Failed', result.error || 'Failed to load data');
         }
       } else {
-        let errorMessage = 'Failed to get available data';
-        try {
-          const result = await saveResponse.json();
-          errorMessage = result.error || errorMessage;
-        } catch (parseError) {
-          errorMessage = `HTTP ${saveResponse.status}: ${saveResponse.statusText}`;
-        }
-        addNotification('error', 'Failed to Load Data', errorMessage);
+        const errorData = await response.json();
+        addNotification('error', 'Load Failed', errorData.error || 'Failed to load data');
       }
     } catch (error) {
-      console.error('Failed to load shockers:', error);
-      addNotification('error', 'Load Failed', 'Failed to load available data');
+      console.error('FRONTEND: Failed to load data:', error);
+      addNotification('error', 'Load Failed', 'Network error while loading data');
     } finally {
-      setLoadingShockers(false);
+      setLoadingData(false);
+    }
+  };
+
+  const savePiShockSettings = async () => {
+    if (!currentUser || !auth) return;
+    
+    if (!apiKey || !username) {
+      addNotification('warning', 'Missing Information', 'Please fill in API Key and Username');
+      return;
+    }
+
+    // Require sharecode selection for saving
+    if (availableSharecodes.length > 0 && !selectedSharecode) {
+      addNotification('warning', 'Select Sharecode', 'Please select a sharecode - this is required for sending commands');
+      return;
+    }
+
+    const finalMaxIntensity = Math.min(Math.max(maxIntensity, 1), 100);
+    const finalMaxDuration = Math.min(Math.max(maxDuration, 1), 15);
+
+    setSettingsSaving(true);
+    try {
+      console.log('FRONTEND: Saving PiShock settings...');
+      
+      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({
+          apiKey,
+          username,
+          maxIntensity: finalMaxIntensity,
+          maxDuration: finalMaxDuration,
+          selectedShockerId: selectedShockerId || null,
+          selectedSharecode: selectedSharecode || null,
+        }),
+      });
+
+      const result = await response.json();
+      console.log('FRONTEND: Save result:', result);
+      
+      if (response.ok && result.success) {
+        setHasStoredCredentials(true);
+        setCurrentUserPiShockConnected(true);
+        setCurrentUserMaxIntensity(finalMaxIntensity);
+        setCurrentUserMaxDuration(finalMaxDuration);
+        onConnectionChange(true);
+        
+        if (result.availableShockers) {
+          setAvailableShockers(result.availableShockers);
+        }
+        if (result.selectedShockerId) {
+          setSelectedShockerId(result.selectedShockerId);
+        }
+        
+        if (result.availableSharecodes) {
+          setAvailableSharecodes(result.availableSharecodes);
+        }
+        if (result.selectedSharecode) {
+          setSelectedSharecode(result.selectedSharecode);
+        }
+        
+        const shockerMessage = selectedShockerId ? ` Selected shocker: ${availableShockers.find(s => s.shockerId.toString() === selectedShockerId)?.displayName || selectedShockerId}` : '';
+        const sharecodeMessage = selectedSharecode ? ` Selected sharecode: ${selectedSharecode}` : '';
+        
+        addNotification('success', 'Settings Saved', 
+          `PiShock account connected successfully with limits: ${finalMaxIntensity}%/${finalMaxDuration}s.${shockerMessage}${sharecodeMessage}`);
+        
+        setApiKey('');
+        setUsername('');
+        setShowSettings(false);
+        
+        if (result.piShockUserId) {
+          setCurrentUserPiShockUserId(result.piShockUserId);
+        }
+        
+        if (window.refreshAllUserStatuses) {
+          window.refreshAllUserStatuses();
+        }
+      } else {
+        let errorMessage = result.error || 'Failed to save PiShock settings';
+        console.error('FRONTEND: Save error:', result);
+        
+        if (errorMessage.includes('Invalid response format') || errorMessage.includes('empty response')) {
+          errorMessage = 'Unable to validate PiShock credentials. Please check your API key and username.';
+        } else if (errorMessage.includes('Network error')) {
+          errorMessage = 'Network connection failed. Please check your internet connection.';
+        } else if (errorMessage.includes('Authentication failed')) {
+          errorMessage = 'Invalid PiShock credentials. Please double-check your API key and username.';
+        }
+        
+        throw new Error(errorMessage);
+      }
+    } catch (error) {
+      console.error('FRONTEND: Failed to save settings:', error);
+      addNotification('error', 'Save Failed', error instanceof Error ? error.message : 'Failed to save PiShock settings');
+    } finally {
+      setSettingsSaving(false);
     }
   };
 
@@ -340,14 +337,13 @@ export function PiShockController({
           setCurrentUserMaxIntensity(result.maxIntensity || 100);
           setCurrentUserMaxDuration(result.maxDuration || 15);
           onConnectionChange(true);
-          addNotification('success', 'Connection Test', `Your PiShock account is responding correctly. Limits: ${result.maxIntensity || 100}%/${result.maxDuration || 15}s`);
+          addNotification('success', 'Connection Test', 
+            `Your PiShock account is responding correctly. Limits: ${result.maxIntensity || 100}%/${result.maxDuration || 15}s`);
           
-          // Update the stored PiShock user ID from test result
           if (result.piShockUserId) {
             setCurrentUserPiShockUserId(result.piShockUserId);
           }
           
-          // Trigger a status refresh for all participants
           if (window.refreshAllUserStatuses) {
             window.refreshAllUserStatuses();
           }
@@ -356,23 +352,21 @@ export function PiShockController({
           onConnectionChange(false);
           
           let errorMessage = result.error || 'Connection test failed';
-          
-          // Provide specific guidance for common issues
           if (errorMessage.includes('Invalid response format') || errorMessage.includes('empty response')) {
-            errorMessage = 'Connection test failed. Please verify:\n\n• Your API key is correct\n• Your username is correct\n• PiShock services are online\n• Try again in a moment';
+            errorMessage = 'Connection test failed. Please verify your credentials.';
           } else if (errorMessage.includes('Network error')) {
-            errorMessage = 'Network connection failed during test. Please check your internet connection.';
+            errorMessage = 'Network connection failed during test.';
           }
           
           throw new Error(errorMessage);
         }
       } else {
         const errorText = await response.text();
-        console.error('Test connection HTTP error:', response.status, errorText);
+        console.error('FRONTEND: Test connection HTTP error:', response.status, errorText);
         throw new Error('Connection test failed');
       }
     } catch (error) {
-      console.error('Connection test error:', error);
+      console.error('FRONTEND: Connection test error:', error);
       addNotification('error', 'Connection Failed', error instanceof Error ? error.message : 'Failed to test PiShock connection');
       setCurrentUserPiShockConnected(false);
       onConnectionChange(false);
@@ -392,7 +386,7 @@ export function PiShockController({
       return;
     }
 
-    // Prevent rapid-fire commands (minimum 3 second cooldown)
+    // Prevent rapid-fire commands
     const now = Date.now();
     if (now - lastShockTime < 3000) {
       addNotification('warning', 'Please Wait', 'Please wait a moment before sending another command');
@@ -403,9 +397,12 @@ export function PiShockController({
     setLastShockTime(now);
 
     try {
-      const endpoint = `${getApiBaseUrl()}/users/${selectedUser.id}/pishock-execute`;
+      console.log('FRONTEND: Executing shock command');
+      console.log('FRONTEND: Target user:', selectedUser.id);
+      console.log('FRONTEND: Executor user:', currentUser.id);
+      console.log('FRONTEND: Operation:', operation, 'Intensity:', intensity, 'Duration:', duration);
 
-      const response = await fetch(endpoint, {
+      const response = await fetch(`${getApiBaseUrl()}/users/${selectedUser.id}/pishock-execute`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -416,16 +413,19 @@ export function PiShockController({
           targetUserId: selectedUser.id,
           intensity,
           duration,
-          operation, // 0 = shock, 1 = vibrate, 2 = beep
+          operation,
         }),
       });
 
       if (response.ok) {
         const result = await response.json();
+        console.log('FRONTEND: Shock command result:', result);
+        
         if (result.success) {
           const actionName = operation === 0 ? 'Shock' : operation === 1 ? 'Vibration' : 'Beep';
-          addNotification('success', 'Command Sent', `${actionName} sent to ${selectedUser.displayName || selectedUser.username} - Intensity: ${intensity}%, Duration: ${duration}s`);
-            // Refresh user statuses after successful command
+          addNotification('success', 'Command Sent', 
+            `${actionName} sent to ${selectedUser.displayName || selectedUser.username} - Intensity: ${intensity}%, Duration: ${duration}s`);
+          
           if ((window as any).refreshAllUserStatuses) {
             setTimeout(() => {
               (window as any).refreshAllUserStatuses();
@@ -435,25 +435,20 @@ export function PiShockController({
           throw new Error(result.error || 'Command failed');
         }
       } else {
-        throw new Error('Shock command failed');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Shock command failed');
       }
     } catch (error) {
-      console.error('Shock error:', error);
+      console.error('FRONTEND: Shock error:', error);
       
-      // Enhanced error reporting
       let errorMessage = 'Failed to send command. Please try again.';
       
       if (error instanceof Error) {
-        if (error.message.includes('no PiShock device configured')) {
+        if (error.message.includes('no PiShock device configured') || error.message.includes('no PiShock configuration')) {
           const displayName = selectedUser?.guildDisplayName || selectedUser?.displayName || selectedUser?.global_name || selectedUser?.username || 'Unknown';
-          errorMessage = `❌ ${displayName} hasn't set up their PiShock device yet.\n\nThey need to:\n• Click the gear icon (⚙️) to open settings\n• Add their PiShock API key & username\n• Configure their device limits\n• Test the connection\n\nOnly users with configured devices can receive commands.`;
-        } else if (error.message.includes('Invalid parameters')) {
-          errorMessage = 'Invalid shock parameters. Please check intensity and duration settings.';
-        } else if (error.message.includes('Target user') && error.message.includes('no PiShock device configured')) {
-          const displayName = selectedUser?.guildDisplayName || selectedUser?.displayName || selectedUser?.global_name || selectedUser?.username || 'Unknown';
-          errorMessage = `❌ Cannot send command to ${displayName}.\n\nThey haven't configured their PiShock device in this app yet. Ask them to:\n• Open the app\n• Click the settings gear (⚙️)\n• Enter their PiShock credentials\n• Set their limits\n• Test the connection`;
+          errorMessage = `❌ ${displayName} hasn't set up their PiShock device yet.\n\nThey need to:\n• Click the gear icon (⚙️) to open settings\n• Add their PiShock API key & username\n• Configure their device limits\n• Test the connection`;
         } else if (error.message.includes('exceeds') && error.message.includes('limit')) {
-          errorMessage = `❌ ${error.message}\n\nThe user has set lower limits for their safety. Please reduce the intensity or duration and try again.`;
+          errorMessage = `❌ ${error.message}\n\nThe user has set lower limits for their safety. Please reduce the intensity or duration.`;
         } else {
           errorMessage = `Command failed: ${error.message}`;
         }
@@ -481,9 +476,13 @@ export function PiShockController({
         setCurrentUserPiShockConnected(false);
         setCurrentUserMaxIntensity(100);
         setCurrentUserMaxDuration(15);
+        setAvailableShockers([]);
+        setAvailableSharecodes([]);
+        setSelectedShockerId('');
+        setSelectedSharecode('');
         onConnectionChange(false);
         addNotification('info', 'Credentials Removed', 'Your PiShock credentials have been removed');
-          // Refresh statuses
+        
         if ((window as any).refreshAllUserStatuses) {
           setTimeout(() => {
             (window as any).refreshAllUserStatuses();
@@ -491,8 +490,32 @@ export function PiShockController({
         }
       }
     } catch (error) {
-      console.error('Failed to remove credentials:', error);
+      console.error('FRONTEND: Failed to remove credentials:', error);
       addNotification('error', 'Remove Failed', 'Failed to remove stored credentials');
+    }
+  };
+
+  const loadExistingCredentials = async () => {
+    if (!currentUser || !auth) return;
+    
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.credentials) {
+          setApiKey(result.credentials.apiKey || '');
+          setUsername(result.credentials.username || '');
+          console.log('FRONTEND: Loaded existing credentials for user:', result.credentials.username);
+        }
+      }
+    } catch (error) {
+      console.error('FRONTEND: Failed to load existing credentials:', error);
     }
   };
 
@@ -522,144 +545,7 @@ export function PiShockController({
     }
   };
 
-  const status = getConnectionStatus();  const loadDeviceSharecodes = async () => {
-    if (!currentUser || !auth) {
-      return;
-    }
-    
-    try {
-      console.log('Loading all sharecodes...');
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/device-sharecodes`, {
-        headers: {
-          'Authorization': `Bearer ${auth.access_token}`,
-        },
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        console.log('Sharecodes response:', result);
-          
-        if (result.success) {
-          setAvailableSharecodes(result.sharecodes || []);
-          console.log(`Loaded ${result.sharecodes?.length || 0} sharecodes`);
-          
-          const sharecodesCount = result.sharecodes?.length || 0;
-          if (sharecodesCount > 0) {
-            addNotification('success', 'Share Codes Loaded', `Found ${sharecodesCount} share codes from your PiShock account`);          } else {
-            // Show debug information if no sharecodes found
-            console.log('No sharecodes found, debug info:', result.debugInfo);
-            addNotification('info', 'No Share Codes', 'No share codes found. Check browser console for details.');
-          }
-          
-          // Clear selected sharecode if it's not in the new list
-          if (selectedSharecode && result.sharecodes) {
-            const isStillAvailable = result.sharecodes.some((sc: any) => 
-              (sc.code || sc.shareCode) === selectedSharecode
-            );
-            if (!isStillAvailable) {
-              setSelectedSharecode('');
-            }
-          }
-        } else {
-          console.log('Sharecodes request failed:', result.error);
-          console.log('Debug info:', result.debugInfo);
-          setAvailableSharecodes([]);
-          setSelectedSharecode('');
-          addNotification('warning', 'Share Codes Error', `Failed to load share codes: ${result.error || 'Unknown error'}. Check console for details.`);
-        }
-      } else {
-        console.error('Failed to load sharecodes:', response.status);
-        const errorText = await response.text();
-        console.error('Error response:', errorText);
-        addNotification('error', 'Load Failed', `HTTP ${response.status}: Failed to load share codes`);
-      }
-    } catch (error) {
-      console.error('Error loading sharecodes:', error);
-      addNotification('error', 'Network Error', 'Failed to load share codes due to network error');
-    }
-  };
-  // Load sharecodes when user has stored credentials
-  useEffect(() => {
-    if (hasStoredCredentials) {
-      loadDeviceSharecodes();
-    } else {
-      // Clear sharecodes if no credentials
-      setAvailableSharecodes([]);
-      setSelectedSharecode('');
-    }
-  }, [hasStoredCredentials]);
-
-  const loadDetailedShockerInfo = async (shareCode: string) => {
-    if (!currentUser || !auth || !shareCode) {
-      return;
-    }
-    
-    try {
-      console.log('Loading detailed shocker info for sharecode:', shareCode);
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/shockers-by-shareids?shareIds=${encodeURIComponent(shareCode)}`, {
-        headers: {
-          'Authorization': `Bearer ${auth.access_token}`,
-        },
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        
-        if (result.success) {
-          setDetailedShockerInfo(result.shockers);
-          console.log('Loaded detailed shocker info:', result.shockers);
-        } else {
-          console.log('No detailed shocker info found for sharecode:', shareCode);
-          setDetailedShockerInfo(null);
-        }
-      } else {
-        console.error('Failed to load detailed shocker info:', response.status);
-        setDetailedShockerInfo(null);
-      }
-    } catch (error) {
-      console.error('Error loading detailed shocker info:', error);
-      setDetailedShockerInfo(null);
-    }
-  };
-
-  // Load detailed shocker info when a sharecode is selected
-  useEffect(() => {
-    if (selectedSharecode && hasStoredCredentials) {
-      loadDetailedShockerInfo(selectedSharecode);
-    } else {
-      setDetailedShockerInfo(null);
-    }
-  }, [selectedSharecode, hasStoredCredentials]);
-
-  // Load existing credentials on component mount
-  useEffect(() => {
-    loadExistingCredentials();
-  }, []);
-
-  const loadExistingCredentials = async () => {
-    if (!currentUser || !auth) return;
-    
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${auth.access_token}`,
-        },
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success && result.credentials) {
-          // Load the existing credentials into the form
-          setApiKey(result.credentials.apiKey || '');
-          setUsername(result.credentials.username || '');
-          console.log('Loaded existing credentials for user:', result.credentials.username);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load existing credentials:', error);
-    }
-  };
+  const status = getConnectionStatus();
 
   return (
     <div className="h-full flex flex-col space-y-4 overflow-y-auto">
@@ -713,6 +599,12 @@ export function PiShockController({
                         Selected shocker: {availableShockers.find(s => s.shockerId.toString() === selectedShockerId)?.displayName || selectedShockerId}
                       </>
                     )}
+                    {selectedSharecode && (
+                      <>
+                        <br />
+                        Selected sharecode: {selectedSharecode}
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -762,7 +654,8 @@ export function PiShockController({
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">
                 API Key <span className="text-red-400">*</span>
-              </label>              <input
+              </label>
+              <input
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
@@ -773,6 +666,7 @@ export function PiShockController({
                 Get your API key from <a href="https://ps.pishock.com/#/account" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">your PiShock account page</a>
               </p>
             </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">
                 Username <span className="text-red-400">*</span>
@@ -786,29 +680,32 @@ export function PiShockController({
               />
             </div>
 
-            {/* Load Shockers Button */}
+            {/* Load Data Button */}
             {apiKey && username && (
               <div>
                 <button
-                  onClick={loadAvailableShockers}
-                  disabled={loadingShockers}
+                  onClick={loadMyData}
+                  disabled={loadingData}
                   className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium flex items-center justify-center space-x-2 transition-all text-sm"
                 >
-                  {loadingShockers ? (
+                  {loadingData ? (
                     <Loader className="h-4 w-4 animate-spin" />
                   ) : (
                     <Zap className="h-4 w-4" />
-                  )}                  <span>{loadingShockers ? 'Loading...' : 'Load My Data'}</span>
+                  )}
+                  <span>{loadingData ? 'Loading...' : 'Load My Data'}</span>
                 </button>
                 <p className="text-xs text-gray-400 mt-1">
                   Click to load available shockers and sharecodes from your PiShock account
                 </p>
               </div>
-            )}            {/* Shocker Selection */}
+            )}
+
+            {/* Shocker Selection */}
             {availableShockers.length > 0 && (
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Select Your Shocker <span className="text-red-400">*</span>
+                  Select Your Shocker
                 </label>
                 <select
                   value={selectedShockerId}
@@ -826,7 +723,9 @@ export function PiShockController({
                   This shocker will be used when others send commands to you
                 </p>
               </div>
-            )}            {/* Sharecode Selection */}
+            )}
+
+            {/* Sharecode Selection */}
             {availableSharecodes.length > 0 && (
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -845,20 +744,13 @@ export function PiShockController({
                   ))}
                 </select>
                 <p className="text-xs text-gray-400 mt-1">
-                  Sharecode is required for sending commands to your device
+                  <span className="text-red-400">Required:</span> Sharecode is mandatory for sending commands to your device
                 </p>
               </div>
-            )}{/* Message when data hasn't been loaded */}
-            {apiKey && username && availableShockers.length === 0 && !loadingShockers && (
-              <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg">
-                <div className="flex items-center space-x-2 text-blue-300 text-sm">
-                  <Zap className="h-4 w-4" />
-                  <span>Click "Load My Data" to see your available devices and sharecodes</span>
-                </div>
-              </div>
             )}
-              {/* Message when no sharecodes are available */}
-            {hasStoredCredentials && availableSharecodes.length === 0 && !loadingShockers && (
+
+            {/* Message when no sharecodes are available */}
+            {apiKey && username && availableSharecodes.length === 0 && !loadingData && hasStoredCredentials && (
               <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
                 <div className="flex items-center space-x-2 text-yellow-300 text-sm">
                   <AlertTriangle className="h-4 w-4" />
@@ -1033,10 +925,10 @@ export function PiShockController({
               {/* Action Buttons */}
               <div className={`grid gap-2 sm:gap-3 flex-shrink-0 ${
                 isCompactMode 
-                  ? 'grid-cols-3' // Always 3 columns in compact mode
+                  ? 'grid-cols-3'
                   : orientation === 'PORTRAIT' 
-                    ? 'grid-cols-1' // Single column in portrait 
-                    : 'grid-cols-1 sm:grid-cols-3' // Responsive for landscape
+                    ? 'grid-cols-1'
+                    : 'grid-cols-1 sm:grid-cols-3'
               }`}>
                 <button
                   onClick={() => handleShock(0)}
