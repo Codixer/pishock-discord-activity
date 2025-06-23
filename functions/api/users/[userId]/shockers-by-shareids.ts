@@ -49,7 +49,7 @@ async function getShockersByShareIds(apiKey: string, username: string, shareIds:
     const authResponse = await fetch(authUrl, {
       method: 'GET',
       headers: {
-        'User-Agent': 'PiShock-Discord-Activity/2.0',
+        'User-Agent': 'PiShock-Discord-Activity/4.0',
         'Accept': 'application/json'
       }
     });
@@ -84,7 +84,7 @@ async function getShockersByShareIds(apiKey: string, username: string, shareIds:
     const response = await fetch(url, {
       method: 'GET',
       headers: {
-        'User-Agent': 'PiShock-Discord-Activity/2.0',
+        'User-Agent': 'PiShock-Discord-Activity/4.0',
         'Accept': 'application/json'
       }
     });

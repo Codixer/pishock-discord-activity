@@ -69,7 +69,7 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       authResponse = await fetch(authUrl, {
         method: 'GET',
         headers: {
-          'User-Agent': 'PiShock-Discord-Activity/2.0',
+          'User-Agent': 'PiShock-Discord-Activity/4.0',
           'Accept': 'application/json'
         }
       });
@@ -126,7 +126,7 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       response = await fetch(url, {
         method: 'GET',
         headers: {
-          'User-Agent': 'PiShock-Discord-Activity/2.0',
+          'User-Agent': 'PiShock-Discord-Activity/4.0',
           'Accept': 'application/json'
         }
       });
@@ -243,7 +243,7 @@ async function checkUserDevices(apiKey: string, username: string): Promise<{ has
     const authResponse = await fetch(authUrl, {
       method: 'GET',
       headers: {
-        'User-Agent': 'PiShock-Discord-Activity/2.0',
+        'User-Agent': 'PiShock-Discord-Activity/4.0',
         'Accept': 'application/json'
       }
     });
@@ -268,7 +268,7 @@ async function checkUserDevices(apiKey: string, username: string): Promise<{ has
     const response = await fetch(url, {
       method: 'GET',
       headers: {
-        'User-Agent': 'PiShock-Discord-Activity/2.0',
+        'User-Agent': 'PiShock-Discord-Activity/4.0',
         'Accept': 'application/json'
       }
     });
