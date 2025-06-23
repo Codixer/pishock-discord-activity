@@ -227,20 +227,24 @@ async function checkUserDevices(userId: string, apiKey: string): Promise<{ hasDe
 
 async function validateShareCode(username: string, apiKey: string, sharecode: string): Promise<{ valid: boolean; error?: string; debugInfo?: any }> {
   try {
-    console.log('=== Validating share code (Legacy API) ===');
+    console.log('=== Validating share code (V3 API) ===');
     console.log('Share code:', sharecode);
     
-    // Use exact endpoint from Legacy API documentation
-    const response = await fetch('https://do.pishock.com/api/GetShockerInfo', {
+    // Use V3 API Operate endpoint with minimal test command (1% beep for 1 second)
+    const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
         'User-Agent': 'PiShock-Discord-Activity/1.0'
       },
       body: JSON.stringify({
-        Username: username,
-        Apikey: apiKey,
-        Code: sharecode,
+        username: username,
+        apikey: apiKey,
+        code: sharecode,
+        intensity: 1,
+        duration: 1,
+        op: 2, // 2 = beep (least intrusive test)
+        name: 'DiscordActivityShareCodeValidation',
       }),
     });
     
@@ -258,12 +262,12 @@ async function validateShareCode(username: string, apiKey: string, sharecode: st
     }
     
     // Check for success responses as per documentation
-    if (responseText.includes('Operation Succeeded') || response.status === 200) {
+    if (responseText.includes('Operation Succeeded')) {
       console.log('✓ Share code validation successful');
       return { valid: true, debugInfo: { response: responseText } };
     }
     
-    // Check for specific error messages from documentation
+    // Check for specific error messages from V3 API documentation
     if (responseText.includes("This code doesn't exist")) {
       return { valid: false, error: 'Share code not found. Please check your share code.', debugInfo: { response: responseText } };
     }
@@ -396,7 +400,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       console.log('Share code provided:', !!sharecode);
       console.log('Max limits:', { maxIntensity, maxDuration });
 
-      // Step 1: Validate credentials and get UserID using Legacy API
+      // Step 1: Validate credentials and get UserID using V3 API (auth endpoint unchanged)
       const credentialValidation = await validatePiShockCredentials(apiKey, username);
       
       if (!credentialValidation.valid) {
@@ -415,11 +419,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const piShockUserId = credentialValidation.userId!;
       console.log('✓ Credential validation successful, PiShock User ID:', piShockUserId);
       
-      // Step 2: Check if user has devices using Legacy API
+      // Step 2: Check if user has devices using V3 API (endpoint unchanged)
       const deviceCheck = await checkUserDevices(piShockUserId, apiKey);
       console.log('Device check result:', deviceCheck);
       
-      // Step 3: Validate the sharecode using Legacy API (always required now)
+      // Step 3: Validate the sharecode using V3 API (always required now)
       let shareCodeValid = true;
       let shareCodeError = null;
       let shareCodeDebug = null;

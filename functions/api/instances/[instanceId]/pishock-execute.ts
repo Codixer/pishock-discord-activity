@@ -145,17 +145,17 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const creds = await decrypt(encrypted);
       
       // Execute PiShock command
-      const response = await fetch('https://do.pishock.com/api/apioperate/', {
+      const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          Username: creds.username,
-          Apikey: creds.apiKey,
-          Code: creds.sharecode,
-          Intensity: intensity,
-          Duration: duration,
-          Op: operation,
-          Name: 'DiscordActivity',
+          username: creds.username,
+          apikey: creds.apiKey,
+          code: creds.sharecode,
+          intensity: intensity,
+          duration: duration,
+          op: operation,
+          name: 'DiscordActivity',
         }),
       });
 

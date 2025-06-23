@@ -47,17 +47,28 @@ async function decrypt(encryptedData: string): Promise<any> {
 
 async function testPiShockConnection(apiKey: string, username: string, sharecode: string): Promise<boolean> {
   try {
-    const response = await fetch('https://do.pishock.com/api/GetShockerInfo', {
+    // Use V3 API Operate endpoint with minimal test command (1% beep for 1 second)
+    const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        Username: username,
-        Apikey: apiKey,
-        Code: sharecode,
+        username: username,
+        apikey: apiKey,
+        code: sharecode,
+        intensity: 1,
+        duration: 1,
+        op: 2, // 2 = beep (least intrusive test)
+        name: 'DiscordActivityStatusTest',
       }),
     });
     
-    return response.ok;
+    if (!response.ok) {
+      return false;
+    }
+    
+    const responseText = await response.text();
+    // Check for success response from V3 API
+    return responseText.includes('Operation Succeeded') || response.status === 200;
   } catch (error) {
     return false;
   }

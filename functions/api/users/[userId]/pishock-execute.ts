@@ -286,20 +286,20 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       
       console.log('EXECUTE: Sending', operationName, 'command via Legacy API');
       
-      // Use exact endpoint and format from Legacy API documentation
+      // Use exact endpoint and format from V3 API documentation
       const payload = {
-        Username: creds.username,
-        Apikey: creds.apiKey,
-        Code: creds.sharecode,
-        Intensity: intensity,
-        Duration: duration,
-        Op: operation,
-        Name: 'DiscordActivity',
+        username: creds.username,
+        apikey: creds.apiKey,
+        code: creds.sharecode,
+        intensity: intensity,
+        duration: duration,
+        op: operation,
+        name: 'DiscordActivity',
       };
       
-      console.log('EXECUTE: Request payload:', { ...payload, Apikey: '***' });
+      console.log('EXECUTE: Request payload:', { ...payload, apikey: '***' });
       
-      const response = await fetch('https://do.pishock.com/api/apioperate/', {
+      const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -321,7 +321,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       if (responseText.includes('Operation Succeeded')) {
         console.log('EXECUTE: ✓ Command executed successfully');
       } else {
-        // Log specific error messages from documentation
+        // Log specific error messages from V3 API documentation
         if (responseText.includes("This code doesn't exist")) {
           throw new Error('Share code not found. Please check device configuration.');
         } else if (responseText.includes('Not Authorized')) {
