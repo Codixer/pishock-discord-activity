@@ -264,10 +264,17 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     let hasOwnDevice = userData?.hasOwnDevice || false;
     let encrypted = userData?.credentials;
     
+    let maxIntensity = 100;
+    let maxDuration = 15;
+    
     if (encrypted) {
       try {
         const creds = await decrypt(encrypted);
         console.log('STATUS: Testing stored credentials for user:', userId);
+        
+        // Extract max limits from credentials
+        maxIntensity = creds.maxIntensity || 100;
+        maxDuration = creds.maxDuration || 15;
         
         // Validate credentials using Legacy API
         const credentialValidation = await validatePiShockCredentials(creds.apiKey, creds.username);
@@ -311,7 +318,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       hasOwnDevice,
       piShockUserId,
       lastTested,
-      isRelay: false // Personal accounts are never relay
+      isRelay: false, // Personal accounts are never relay
+      maxIntensity,
+      maxDuration
     };
     
     console.log('STATUS: Final result for user', userId, ':', result);

@@ -38,7 +38,8 @@ export function PiShockController({
   const [username, setUsername] = useState('');
   const [sharecode, setSharecode] = useState('');
   const [hasOwnDevice, setHasOwnDevice] = useState(false);
-  const [useRelayAccount, setUseRelayAccount] = useState(false);
+  const [userMaxIntensity, setUserMaxIntensity] = useState(100);
+  const [userMaxDuration, setUserMaxDuration] = useState(15);
   const [intensity, setIntensity] = useState(1);
   const [duration, setDuration] = useState(1);
   const [isShocking, setIsShocking] = useState(false);
@@ -47,7 +48,6 @@ export function PiShockController({
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [hasStoredCredentials, setHasStoredCredentials] = useState(false);
   const [currentUserPiShockConnected, setCurrentUserPiShockConnected] = useState(false);
-  const [relayAccountAvailable, setRelayAccountAvailable] = useState(false);
   const [currentUserPiShockUserId, setCurrentUserPiShockUserId] = useState<string>('');
   const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
 
@@ -103,7 +103,6 @@ export function PiShockController({
   useEffect(() => {
     if (currentUser && auth) {
       checkCurrentUserCredentials();
-      checkRelayAccountAvailability();
     }
   }, [currentUser, auth]);
 
@@ -120,11 +119,17 @@ export function PiShockController({
         const status = await response.json();
         setHasStoredCredentials(status.hasCredentials);
         setCurrentUserPiShockConnected(status.isConnected);
-        onConnectionChange(status.isConnected || useRelayAccount);
+        onConnectionChange(status.isConnected);
         
         // Store user's PiShock ID for display
         if (status.piShockUserId) {
           setCurrentUserPiShockUserId(status.piShockUserId);
+        }
+        
+        // Load user's max limits
+        if (status.maxIntensity !== undefined && status.maxDuration !== undefined) {
+          setUserMaxIntensity(status.maxIntensity);
+          setUserMaxDuration(status.maxDuration);
         }
         
         if (status.hasCredentials && !status.isConnected) {
@@ -140,41 +145,10 @@ export function PiShockController({
     }
   };
 
-  const checkRelayAccountAvailability = async () => {
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/relay-account/status`, {
-        headers: {
-          'Authorization': `Bearer ${auth.access_token}`,
-        },
-      });
-
-      if (response.ok) {
-        const status = await response.json();
-        setRelayAccountAvailable(status.available);
-      }
-    } catch (error) {
-      console.error('Failed to check relay account availability:', error);
-      setRelayAccountAvailable(false);
-    }
-  };
 
   const savePiShockSettings = async () => {
     if (!currentUser || !auth) return;
     
-    if (useRelayAccount) {
-      // Using relay account - no credentials needed
-      setHasStoredCredentials(true);
-      setCurrentUserPiShockConnected(true);
-      onConnectionChange(true);
-      addNotification('success', 'Relay Account Enabled', 'You can now send commands using the relay account (Not Recommended)');
-      setShowSettings(false);
-      
-      // Trigger a status refresh for all participants
-      if (window.refreshAllUserStatuses) {
-        window.refreshAllUserStatuses();
-      }
-      return;
-    }
 
     if (!apiKey || !username) {
       addNotification('warning', 'Missing Information', 'Please fill in API Key and Username at minimum');
@@ -197,6 +171,8 @@ export function PiShockController({
           username,
           sharecode: finalSharecode,
           hasOwnDevice,
+          maxIntensity: userMaxIntensity,
+          maxDuration: userMaxDuration,
         }),
       });
 
@@ -243,31 +219,6 @@ export function PiShockController({
   const testConnection = async () => {
     if (!currentUser || !auth) return;
 
-    if (useRelayAccount) {
-      try {
-        const response = await fetch(`${getApiBaseUrl()}/relay-account/test`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${auth.access_token}`,
-          },
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          if (result.success) {
-            addNotification('success', 'Relay Account Test', 'Relay account is working correctly');
-          } else {
-            throw new Error(result.error || 'Relay account test failed');
-          }
-        } else {
-          throw new Error('Relay account test failed');
-        }
-      } catch (error) {
-        console.error('Relay account test error:', error);
-        addNotification('error', 'Relay Test Failed', error instanceof Error ? error.message : 'Failed to test relay account');
-      }
-      return;
-    }
 
     setSettingsLoading(true);
     try {
@@ -331,17 +282,11 @@ export function PiShockController({
       );
       return;
     }
-    if (!currentUserPiShockConnected && !useRelayAccount) {
-      addNotification('warning', 'Not Connected', 'Please connect your PiShock account first');
-      return;
-    }
 
     setIsShocking(true);
 
     try {
-      const endpoint = useRelayAccount 
-        ? `${getApiBaseUrl()}/relay-account/execute`
-        : `${getApiBaseUrl()}/users/${selectedUser.id}/pishock-execute`;
+      const endpoint = `${getApiBaseUrl()}/users/${selectedUser.id}/pishock-execute`;
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -355,7 +300,6 @@ export function PiShockController({
           intensity,
           duration,
           operation, // 0 = shock, 1 = vibrate, 2 = beep
-          useRelay: useRelayAccount,
         }),
       });
 
@@ -363,8 +307,7 @@ export function PiShockController({
         const result = await response.json();
         if (result.success) {
           const actionName = operation === 0 ? 'Shock' : operation === 1 ? 'Vibration' : 'Beep';
-          const method = useRelayAccount ? 'via relay account' : 'to their device';
-          addNotification('success', 'Command Sent', `${actionName} sent to ${selectedUser.displayName || selectedUser.username} ${method} - Intensity: ${intensity}%, Duration: ${duration}s`);
+          addNotification('success', 'Command Sent', `${actionName} sent to ${selectedUser.displayName || selectedUser.username} - Intensity: ${intensity}%, Duration: ${duration}s`);
         } else {
           throw new Error(result.error || 'Command failed');
         }
@@ -378,11 +321,10 @@ export function PiShockController({
       let errorMessage = 'Failed to send shock command. Please try again.';
       
       if (error instanceof Error) {
-        if (error.message.includes('no PiShock device configured')) {
-          const displayName = selectedUser?.guildDisplayName || selectedUser?.displayName || selectedUser?.global_name || selectedUser?.username || 'Unknown';
-          errorMessage = `${displayName} hasn't configured their PiShock device yet. They need to:\n\n1. Open the app settings (gear icon)\n2. Configure their PiShock credentials\n3. Test the connection\n\nOnly users with configured devices can receive commands.`;
-        } else if (error.message.includes('Invalid parameters')) {
+        if (error.message.includes('Invalid parameters')) {
           errorMessage = 'Invalid shock parameters. Please check intensity and duration settings.';
+        } else if (error.message.includes('exceeds target user\'s maximum')) {
+          errorMessage = error.message; // Show the specific limit error
         } else {
           errorMessage = `Command failed: ${error.message}`;
         }
@@ -397,14 +339,6 @@ export function PiShockController({
   const removeStoredCredentials = async () => {
     if (!currentUser || !auth) return;
 
-    if (useRelayAccount) {
-      setUseRelayAccount(false);
-      setHasStoredCredentials(false);
-      setCurrentUserPiShockConnected(false);
-      onConnectionChange(false);
-      addNotification('info', 'Relay Account Disabled', 'Relay account access has been disabled');
-      return;
-    }
 
     try {
       const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
@@ -431,13 +365,7 @@ export function PiShockController({
   };
 
   const getConnectionStatus = () => {
-    if (useRelayAccount) {
-      return {
-        connected: true,
-        message: 'Using Relay Account (Not Recommended)',
-        color: 'yellow'
-      };
-    } else if (currentUserPiShockConnected) {
+    if (currentUserPiShockConnected) {
       return {
         connected: true,
         message: 'Your PiShock Account is Connected',
@@ -479,7 +407,7 @@ export function PiShockController({
         </div>
 
         {/* Connection Status */}
-        {(hasStoredCredentials || useRelayAccount) ? (
+        {hasStoredCredentials ? (
           <div className="mb-4">
             <div className={`flex items-center justify-between p-3 border rounded-lg ${
               status.color === 'green' ? 'bg-green-900/20 border-green-500/30' :
@@ -492,25 +420,13 @@ export function PiShockController({
                 'text-gray-400'
               }`}>
                 <div className="flex items-center space-x-2 text-sm">
-                  {useRelayAccount ? (
-                    <>
-                      <span>🔗</span>
-                      <Shield className="h-4 w-4" />
-                    </>
-                  ) : (
-                    <Wifi className="h-4 w-4" />
-                  )}
+                  <Wifi className="h-4 w-4" />
                   <span>{status.message}</span>
                 </div>
                 {/* Show user ID for personal accounts */}
-                {!useRelayAccount && currentUserPiShockConnected && (
+                {currentUserPiShockConnected && (
                   <div className="text-xs opacity-75">
                     Your PiShock ID: {currentUserPiShockUserId || 'Loading...'}
-                  </div>
-                )}
-                {useRelayAccount && (
-                  <div className="text-xs opacity-75">
-                    🤖 Using relay account - can target any user's device
                   </div>
                 )}
               </div>
@@ -552,138 +468,126 @@ export function PiShockController({
               <p>Configure your PiShock account to participate. You can use account access even without owning a device.</p>
             </div>
 
-            {/* Account Type Selection */}
-            <div className="space-y-3">
+            {/* Device Type Selection */}
+            <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-300">
-                Account Type
+                Participation Type
               </label>
-              
-              {/* Personal Account Option */}
-              <label className="flex items-start space-x-3 cursor-pointer p-3 rounded-lg border border-gray-600 hover:border-gray-500 transition-colors">
-                <input
-                  type="radio"
-                  name="accountType"
-                  checked={!useRelayAccount}
-                  onChange={() => setUseRelayAccount(false)}
-                  className="w-4 h-4 text-purple-600 bg-gray-800 border-gray-600 focus:ring-purple-500 mt-0.5"
-                />
-                <div className="flex-1">
-                  <div className="flex items-center space-x-2">
-                    <User className="h-4 w-4 text-green-400" />
-                    <span className="text-sm font-medium text-gray-300">Personal PiShock Account</span>
-                    <span className="text-xs bg-green-600 text-white px-2 py-0.5 rounded">Recommended</span>
-                  </div>
-                  <p className="text-xs text-gray-400 mt-1">
-                    Use your own PiShock credentials for secure, personalized access
-                  </p>
-                </div>
-              </label>
-
-              {/* Relay Account Option */}
-              {relayAccountAvailable && (
-                <label className="flex items-start space-x-3 cursor-pointer p-3 rounded-lg border border-blue-600 hover:border-blue-500 transition-colors">
+              <div className="flex space-x-4">
+                <label className="flex items-center space-x-2 cursor-pointer">
                   <input
                     type="radio"
-                    name="accountType"
-                    checked={useRelayAccount}
-                    onChange={() => setUseRelayAccount(true)}
-                    className="w-4 h-4 text-blue-600 bg-gray-800 border-gray-600 focus:ring-blue-500 mt-0.5"
+                    name="deviceType"
+                    checked={!hasOwnDevice}
+                    onChange={() => setHasOwnDevice(false)}
+                    className="w-4 h-4 text-purple-600 bg-gray-800 border-gray-600 focus:ring-purple-500"
                   />
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2">
-                      <span>🔗</span>
-                      <Shield className="h-4 w-4 text-blue-400" />
-                      <span className="text-sm font-medium text-gray-300">Relay Account</span>
-                      <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded">Shared Access</span>
-                    </div>
-                    <p className="text-xs text-gray-400 mt-1">
-                      Use shared relay account to send commands to any user's device
-                    </p>
-                  </div>
+                  <span className="text-sm text-gray-300">Account Only (No Device)</span>
                 </label>
-              )}
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="deviceType"
+                    checked={hasOwnDevice}
+                    onChange={() => setHasOwnDevice(true)}
+                    className="w-4 h-4 text-purple-600 bg-gray-800 border-gray-600 focus:ring-purple-500"
+                  />
+                  <span className="text-sm text-gray-300">Own Device</span>
+                </label>
+              </div>
+              <p className="text-xs text-gray-400">
+                {hasOwnDevice 
+                  ? "You own a PiShock device and want to receive commands on it"
+                  : "You have a PiShock account but don't own a device (can still participate)"
+                }
+              </p>
             </div>
-
-            {!useRelayAccount && (
-              <>
-                {/* Device Type Selection */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-300">
-                    Participation Type
-                  </label>
-                  <div className="flex space-x-4">
-                    <label className="flex items-center space-x-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="deviceType"
-                        checked={!hasOwnDevice}
-                        onChange={() => setHasOwnDevice(false)}
-                        className="w-4 h-4 text-purple-600 bg-gray-800 border-gray-600 focus:ring-purple-500"
-                      />
-                      <span className="text-sm text-gray-300">Account Only (No Device)</span>
-                    </label>
-                    <label className="flex items-center space-x-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="deviceType"
-                        checked={hasOwnDevice}
-                        onChange={() => setHasOwnDevice(true)}
-                        className="w-4 h-4 text-purple-600 bg-gray-800 border-gray-600 focus:ring-purple-500"
-                      />
-                      <span className="text-sm text-gray-300">Own Device</span>
-                    </label>
-                  </div>
-                  <p className="text-xs text-gray-400">
-                    {hasOwnDevice 
-                      ? "You own a PiShock device and want to receive commands on it"
-                      : "You have a PiShock account but don't own a device (can still participate)"
-                    }
-                  </p>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
-                    API Key <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
-                    placeholder="Enter your PiShock API key"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
-                    Username <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
-                    placeholder="Your PiShock username"
-                  />
-                </div>
-                {hasOwnDevice && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1">
-                      Share Code <span className="text-red-400">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={sharecode}
-                      onChange={(e) => setSharecode(e.target.value)}
-                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
-                      placeholder="Device share code"
-                    />
-                    <p className="text-xs text-gray-400 mt-1">
-                      Required only if you own a device and want to receive commands
-                    </p>
-                  </div>
-                )}
-              </>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">
+                API Key <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
+                placeholder="Enter your PiShock API key"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">
+                Username <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
+                placeholder="Your PiShock username"
+              />
+            </div>
+            {hasOwnDevice && (
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Share Code <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={sharecode}
+                  onChange={(e) => setSharecode(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
+                  placeholder="Device share code"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  Required only if you own a device and want to receive commands
+                </p>
+              </div>
             )}
+            
+            {/* Max Limits Settings */}
+            <div className="space-y-3 p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
+              <h4 className="text-sm font-medium text-yellow-300">Safety Limits</h4>
+              <p className="text-xs text-yellow-200">Set your maximum limits for receiving commands</p>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Maximum Intensity: {userMaxIntensity}%
+                </label>
+                <input
+                  type="range"
+                  min="1"
+                  max="100"
+                  value={userMaxIntensity}
+                  onChange={(e) => setUserMaxIntensity(parseInt(e.target.value))}
+                  className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+                />
+                <div className="flex justify-between text-xs text-gray-400 mt-1">
+                  <span>1%</span>
+                  <span>50%</span>
+                  <span>100%</span>
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Maximum Duration: {userMaxDuration}s
+                </label>
+                <input
+                  type="range"
+                  min="1"
+                  max="15"
+                  value={userMaxDuration}
+                  onChange={(e) => setUserMaxDuration(parseInt(e.target.value))}
+                  className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+                />
+                <div className="flex justify-between text-xs text-gray-400 mt-1">
+                  <span>1s</span>
+                  <span>8s</span>
+                  <span>15s</span>
+                </div>
+              </div>
+            </div>
             
             <button
               onClick={savePiShockSettings}
@@ -696,7 +600,7 @@ export function PiShockController({
                 <Save className="h-4 w-4" />
               )}
               <span>
-                {useRelayAccount ? 'Enable Relay Account' : 'Save & Test Connection'}
+                Save & Test Connection
               </span>
             </button>
           </div>
@@ -733,7 +637,7 @@ export function PiShockController({
                   </p>
                   <p className="text-xs text-blue-400">
                     {(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected 
-                      ? `Commands will be sent ${useRelayAccount ? 'via relay account' : 'through their PiShock account'}`
+                      ? 'Commands will be sent through their PiShock account'
                       : 'User needs to configure PiShock first'
                     }
                   </p>
@@ -819,7 +723,7 @@ export function PiShockController({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 flex-shrink-0">
                 <button
                   onClick={() => handleShock(0)}
-                  disabled={isShocking || (!currentUserPiShockConnected && !useRelayAccount)}
+                  disabled={isShocking}
                   className="py-2 sm:py-3 px-3 sm:px-4 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex flex-row sm:flex-col items-center justify-center space-x-2 sm:space-x-0 sm:space-y-1 transition-all text-xs sm:text-sm"
                 >
                   <Zap className="h-4 w-4 sm:h-5 sm:w-5" />
@@ -828,7 +732,7 @@ export function PiShockController({
 
                 <button
                   onClick={() => handleShock(1)}
-                  disabled={isShocking || (!currentUserPiShockConnected && !useRelayAccount)}
+                  disabled={isShocking}
                   className="py-2 sm:py-3 px-3 sm:px-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex flex-row sm:flex-col items-center justify-center space-x-2 sm:space-x-0 sm:space-y-1 transition-all text-xs sm:text-sm"
                 >
                   <Play className="h-4 w-4 sm:h-5 sm:w-5" />
@@ -837,7 +741,7 @@ export function PiShockController({
 
                 <button
                   onClick={() => handleShock(2)}
-                  disabled={isShocking || (!currentUserPiShockConnected && !useRelayAccount)}
+                  disabled={isShocking}
                   className="py-2 sm:py-3 px-3 sm:px-4 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex flex-row sm:flex-col items-center justify-center space-x-2 sm:space-x-0 sm:space-y-1 transition-all text-xs sm:text-sm"
                 >
                   <Square className="h-4 w-4 sm:h-5 sm:w-5" />

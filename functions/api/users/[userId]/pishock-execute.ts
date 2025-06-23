@@ -257,6 +257,29 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       console.log('EXECUTE: Username:', creds.username);
       console.log('EXECUTE: Share code:', creds.sharecode);
       
+      // Get target user's max limits
+      const targetMaxIntensity = creds.maxIntensity || 100;
+      const targetMaxDuration = creds.maxDuration || 15;
+      
+      console.log('EXECUTE: Target user limits:', { maxIntensity: targetMaxIntensity, maxDuration: targetMaxDuration });
+      
+      // Validate against target user's limits
+      if (intensity > targetMaxIntensity) {
+        console.error('EXECUTE: Intensity exceeds target user limit:', intensity, '>', targetMaxIntensity);
+        return jsonResponse({ 
+          success: false, 
+          error: `Intensity ${intensity}% exceeds target user's maximum of ${targetMaxIntensity}%` 
+        });
+      }
+      
+      if (duration > targetMaxDuration) {
+        console.error('EXECUTE: Duration exceeds target user limit:', duration, '>', targetMaxDuration);
+        return jsonResponse({ 
+          success: false, 
+          error: `Duration ${duration}s exceeds target user's maximum of ${targetMaxDuration}s` 
+        });
+      }
+      
       // Execute PiShock command using Legacy API
       const operationNames = ['shock', 'vibrate', 'beep'];
       const operationName = operationNames[operation];

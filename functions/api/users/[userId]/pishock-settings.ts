@@ -327,7 +327,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   try {
     if (method === 'PUT') {
-      const { apiKey, username, sharecode, hasOwnDevice } = await request.json();
+      const { apiKey, username, sharecode, hasOwnDevice, maxIntensity = 100, maxDuration = 15 } = await request.json();
 
       if (!apiKey || !username) {
         return jsonResponse({ 
@@ -336,10 +336,25 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         }, 400);
       }
 
+      // Validate max limits
+      if (maxIntensity < 1 || maxIntensity > 100) {
+        return jsonResponse({ 
+          success: false, 
+          error: 'Max intensity must be between 1 and 100' 
+        }, 400);
+      }
+
+      if (maxDuration < 1 || maxDuration > 15) {
+        return jsonResponse({ 
+          success: false, 
+          error: 'Max duration must be between 1 and 15 seconds' 
+        }, 400);
+      }
       console.log('=== Starting PiShock Legacy API validation ===');
       console.log('Username:', username);
       console.log('Has own device:', hasOwnDevice);
       console.log('Share code provided:', !!sharecode);
+      console.log('Max limits:', { maxIntensity, maxDuration });
 
       // Step 1: Validate credentials and get UserID using Legacy API
       const credentialValidation = await validatePiShockCredentials(apiKey, username);
@@ -408,7 +423,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         hasOwnDevice: actuallyHasDevice,
         piShockUserId,
         deviceCount: deviceCheck.devices?.length || 0,
-        lastValidated: new Date().toISOString()
+        lastValidated: new Date().toISOString(),
+        maxIntensity,
+        maxDuration
       };
       
       const encrypted = await encrypt(credentialsToStore);

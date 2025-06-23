@@ -298,6 +298,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       console.log('TEST: API key length:', creds.apiKey?.length || 0);
       console.log('TEST: Share code:', creds.sharecode);
       console.log('TEST: Has own device:', creds.hasOwnDevice);
+      console.log('TEST: Max limits:', { maxIntensity: creds.maxIntensity || 100, maxDuration: creds.maxDuration || 15 });
       
       // Validate credentials using Legacy API
       console.log('TEST: Starting credential validation...');
