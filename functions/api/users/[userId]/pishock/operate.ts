@@ -1,4 +1,4 @@
-import { PiShockAPI } from '../../../../src/services/pishock';
+import { PiShockAPI } from '../../../shared/pishock';
 import { v4 as uuidv4 } from 'uuid';
 
 interface Env {

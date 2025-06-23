@@ -1,4 +1,4 @@
-import { PiShockAPI } from '../../../../src/services/pishock';
+import { PiShockAPI } from '../../../shared/pishock';
 
 interface Env {
   PISHOCK_KV: KVNamespace;
