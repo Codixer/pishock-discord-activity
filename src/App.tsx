@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
-import { DiscordSDK, Events, Types } from '@discord/embedded-app-sdk';
+import { DiscordSDK, Events } from '@discord/embedded-app-sdk';
 import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText, Layout } from 'lucide-react';
 import { PiShockController } from './components/PiShockController';
 import { SafetyWarning } from './components/SafetyWarning';
@@ -90,7 +90,7 @@ function MainApp() {
   const [showActivityLog, setShowActivityLog] = useState(true);
   const [userPiShockStatus, setUserPiShockStatus] = useState<Record<string, any>>({});
   const [isInstanceValid, setIsInstanceValid] = useState(true);
-  const [layoutMode, setLayoutMode] = useState<Types.LayoutMode | null>(null);
+  const [layoutMode, setLayoutMode] = useState<DiscordSDK.Types.LayoutMode | null>(null);
   const [layoutModeUnsubscribe, setLayoutModeUnsubscribe] = useState<(() => void) | null>(null);
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
@@ -147,7 +147,7 @@ function MainApp() {
   }, [isEmbedded, updateParticipants]);
 
   // Handle layout mode updates for PIP mode
-  const handleLayoutModeUpdate = useCallback((update: { layout_mode: Types.LayoutMode }) => {
+  const handleLayoutModeUpdate = useCallback((update: { layout_mode: DiscordSDK.Types.LayoutMode }) => {
     console.log('Layout mode updated:', update.layout_mode);
     setLayoutMode(update.layout_mode);
   }, []);
@@ -312,7 +312,7 @@ function MainApp() {
           // Subscribe to participant updates
           discordSdk.subscribe(
             Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE,
-            (data: Types.GetActivityInstanceConnectedParticipantsResponse) => {
+            (data: DiscordSDK.Types.GetActivityInstanceConnectedParticipantsResponse) => {
               updateParticipants(data.participants);
             }
           );
@@ -368,7 +368,7 @@ function MainApp() {
 
           setAuth(mockAuth);
           updateParticipants(mockParticipants);
-          setLayoutMode(Types.LayoutMode.FOCUSED);
+          setLayoutMode(DiscordSDK.Types.LayoutMode.FOCUSED);
           addNotification('info', 'Development Mode', 'Running in development mode with mock data');
         }
 
@@ -533,7 +533,7 @@ function MainApp() {
   }
 
   // Picture-in-Picture mode - simplified layout with only activity log
-  if (layoutMode === Types.LayoutMode.PIP) {
+  if (layoutMode === DiscordSDK.Types.LayoutMode.PIP) {
     return (
       <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white overflow-hidden flex flex-col">
         <NotificationSystem 
@@ -604,8 +604,8 @@ function MainApp() {
                 <div className="flex items-center space-x-1 text-xs text-gray-400">
                   <Layout className="h-3 w-3" />
                   <span>
-                    {layoutMode === Types.LayoutMode.FOCUSED ? 'Focused' : 
-                     layoutMode === Types.LayoutMode.PIP ? 'PIP' : 'Grid'}
+                    {layoutMode === DiscordSDK.Types.LayoutMode.FOCUSED ? 'Focused' : 
+                     layoutMode === DiscordSDK.Types.LayoutMode.PIP ? 'PIP' : 'Grid'}
                   </span>
                 </div>
               )}
