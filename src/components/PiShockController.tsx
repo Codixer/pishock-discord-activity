@@ -39,9 +39,9 @@ export function PiShockController({
   const [sharecode, setSharecode] = useState('');
   const [hasOwnDevice, setHasOwnDevice] = useState(true); // Always true now since everyone needs a device
   const [userMaxIntensity, setUserMaxIntensity] = useState(100);
-  const [userMaxDuration, setUserMaxDuration] = useState(15);
+  const [userMaxDuration, setUserMaxDuration] = useState(15.0);
   const [intensity, setIntensity] = useState(1);
-  const [duration, setDuration] = useState(1);
+  const [duration, setDuration] = useState(0.1);
   const [isShocking, setIsShocking] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsLoading, setSettingsLoading] = useState(false);
@@ -54,7 +54,7 @@ export function PiShockController({
 
   // Get the effective limits based on selected user
   const getEffectiveLimits = () => {
-    if (!selectedUser) return { maxIntensity: 100, maxDuration: 15 };
+    if (!selectedUser) return { maxIntensity: 100, maxDuration: 15.0 };
     
     // Get the user's PiShock status which includes their sharecode limits
     const userStatus = (window as any).userPiShockStatus?.[selectedUser.id];
@@ -65,7 +65,7 @@ export function PiShockController({
       };
     }
     
-    return { maxIntensity: 100, maxDuration: 15 };
+    return { maxIntensity: 100, maxDuration: 15.0 };
   };
 
   const effectiveLimits = getEffectiveLimits();
@@ -148,7 +148,7 @@ export function PiShockController({
         // Load user's max limits
         if (status.maxIntensity !== undefined && status.maxDuration !== undefined) {
           setUserMaxIntensity(status.maxIntensity);
-          setUserMaxDuration(status.maxDuration);
+          setUserMaxDuration(parseFloat(status.maxDuration.toString()));
         }
         
         console.log('STATUS: ✓ Status check completed - hasCredentials:', status.hasCredentials);
@@ -197,7 +197,7 @@ export function PiShockController({
           setSharecode(settings.sharecode || '');
           setHasOwnDevice(true); // Always true now
           setUserMaxIntensity(settings.maxIntensity || 100);
-          setUserMaxDuration(settings.maxDuration || 15);
+          setUserMaxDuration(parseFloat((settings.maxDuration || 15).toString()));
           
           console.log('SETTINGS: ✓ Successfully loaded existing settings:', {
             username: settings.username,
@@ -405,7 +405,7 @@ export function PiShockController({
         const result = await response.json();
         if (result.success) {
           const actionName = operation === 0 ? 'Shock' : operation === 1 ? 'Vibration' : 'Beep';
-          addNotification('success', 'Command Sent', `${actionName} sent to ${selectedUser.displayName || selectedUser.username} - Intensity: ${intensity}%, Duration: ${duration}s`);
+          addNotification('success', 'Command Sent', `${actionName} sent to ${selectedUser.displayName || selectedUser.username} - Intensity: ${intensity}%, Duration: ${duration.toFixed(1)}s`);
         } else {
           throw new Error(result.error || 'Command failed');
         }
@@ -660,21 +660,22 @@ export function PiShockController({
               
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Maximum Duration: {userMaxDuration}s
+                  Maximum Duration: {userMaxDuration.toFixed(1)}s
                 </label>
                 <input
                   type="range"
-                  min="1"
-                  max="15"
+                  min="0.1"
+                  max="15.0"
+                  step="0.1"
                   value={userMaxDuration}
-                  onChange={(e) => setUserMaxDuration(parseInt(e.target.value))}
+                  onChange={(e) => setUserMaxDuration(parseFloat(e.target.value))}
                   disabled={settingsLoadingData}
                   className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
                 />
                 <div className="flex justify-between text-xs text-gray-400 mt-1">
-                  <span>1s</span>
-                  <span>8s</span>
-                  <span>15s</span>
+                  <span>0.1s</span>
+                  <span>7.5s</span>
+                  <span>15.0s</span>
                 </div>
               </div>
             </div>
@@ -794,30 +795,31 @@ export function PiShockController({
               <div>
                 <label className="block text-xs sm:text-sm font-medium text-gray-300 mb-2">
                   <div className="flex items-center justify-between">
-                    <span>Duration: {duration}s</span>
+                    <span>Duration: {duration.toFixed(1)}s</span>
                     {effectiveLimits.maxDuration < 15 && (
                       <div className="flex items-center space-x-1 text-xs text-yellow-400">
                         <Lock className="h-3 w-3" />
-                        <span>Max: {effectiveLimits.maxDuration}s</span>
+                        <span>Max: {effectiveLimits.maxDuration.toFixed(1)}s</span>
                       </div>
                     )}
                   </div>
                 </label>
                 <input
                   type="range"
-                  min="1"
+                  min="0.1"
+                  step="0.1"
                   max={effectiveLimits.maxDuration}
                   value={duration}
-                  onChange={(e) => setDuration(parseInt(e.target.value))}
+                  onChange={(e) => setDuration(parseFloat(e.target.value))}
                   className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider ${
                     effectiveLimits.maxDuration < 15 ? 'limited-slider' : ''
                   }`}
                 />
                 <div className="flex justify-between text-xs text-gray-400 mt-1">
-                  <span>1s</span>
-                  <span>{Math.floor(effectiveLimits.maxDuration / 2)}s</span>
+                  <span>0.1s</span>
+                  <span>{(effectiveLimits.maxDuration / 2).toFixed(1)}s</span>
                   <span className={effectiveLimits.maxDuration < 15 ? 'text-yellow-400' : ''}>
-                    {effectiveLimits.maxDuration}s{effectiveLimits.maxDuration < 15 ? ' (Max)' : ''}
+                    {effectiveLimits.maxDuration.toFixed(1)}s{effectiveLimits.maxDuration < 15 ? ' (Max)' : ''}
                   </span>
                 </div>
               </div>
