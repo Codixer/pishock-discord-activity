@@ -114,17 +114,6 @@ export function PiShockController({
     }
   }, [showSettings, currentUser, auth]);
 
-  // Also load settings when hasStoredCredentials becomes true (in case it was false when panel opened)
-  useEffect(() => {
-    if (showSettings && currentUser && auth && hasStoredCredentials && !settingsLoadingData && !settingsSaving) {
-      // Only reload if we haven't already loaded or aren't currently loading
-      if (!username && !sharecode) {
-        console.log('SETTINGS: Credentials detected, loading settings...');
-        loadExistingSettings();
-      }
-    }
-  }, [hasStoredCredentials, showSettings, currentUser, auth, settingsLoadingData, settingsSaving, username, sharecode]);
-
   const checkCurrentUserCredentials = async () => {
     console.log('STATUS: Checking current user credentials for:', currentUser?.id);
     
@@ -224,18 +213,14 @@ export function PiShockController({
           console.log('SETTINGS: Response hasSettings:', result.hasSettings);
           
           // Clear form fields if no settings exist
-          setUsername('');
-          setSharecode('');
-          setUserMaxIntensity(100);
-          setUserMaxDuration(15);
+          console.log('SETTINGS: No settings found, but this may be normal for new users');
           
-          // If status check said user has credentials but settings load failed, try refreshing status
-          if (hasStoredCredentials) {
-            console.log('SETTINGS: Inconsistency detected - refreshing status check...');
-            // Retry the status check to see if there's a cache issue
-            setTimeout(() => {
-              checkCurrentUserCredentials();
-            }, 1000);
+          // Reset form to defaults
+          if (!settingsLoadingData) {
+            setUsername('');
+            setSharecode('');
+            setUserMaxIntensity(100);
+            setUserMaxDuration(15);
           }
         }
       } else {
@@ -580,10 +565,12 @@ export function PiShockController({
             )}
             
             <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg text-sm text-blue-200">
-              <p className="font-semibold mb-1">Account Setup:</p>
+              <p className="font-semibold mb-1">
+                {hasStoredCredentials ? 'Update Settings:' : 'Account Setup:'}
+              </p>
               <p>
                 {hasStoredCredentials 
-                  ? "Your saved settings have been loaded below. Update any fields as needed."
+                  ? "Configure your PiShock device settings. Fields will auto-populate if you have saved settings."
                   : "Configure your PiShock device to participate. You'll need your API key, username, and device share code."
                 }
               </p>
@@ -603,7 +590,7 @@ export function PiShockController({
               />
               {hasStoredCredentials && (
                 <p className="text-xs text-gray-400 mt-1">
-                  Leave blank to keep your current API key (not shown for security)
+                  {settingsLoadingData ? 'Loading...' : 'Leave blank to keep your current API key (not shown for security)'}
                 </p>
               )}
             </div>
@@ -619,11 +606,6 @@ export function PiShockController({
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
                 placeholder="Your PiShock username"
               />
-              {hasStoredCredentials && username && (
-                <p className="text-xs text-green-400 mt-1">
-                  ✓ Loaded from your saved settings
-                </p>
-              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -640,11 +622,6 @@ export function PiShockController({
               <p className="text-xs text-gray-400 mt-1">
                 Your PiShock device share code is required to receive commands from other users
               </p>
-              {hasStoredCredentials && sharecode && (
-                <p className="text-xs text-green-400 mt-1">
-                  ✓ Loaded from your saved settings
-                </p>
-              )}
             </div>
             
             {/* Max Limits Settings */}
@@ -670,11 +647,6 @@ export function PiShockController({
                   <span>50%</span>
                   <span>100%</span>
                 </div>
-                {hasStoredCredentials && userMaxIntensity !== 100 && (
-                  <p className="text-xs text-green-400 mt-1">
-                    ✓ Loaded your saved limit: {userMaxIntensity}%
-                  </p>
-                )}
               </div>
               
               <div>
@@ -695,11 +667,6 @@ export function PiShockController({
                   <span>8s</span>
                   <span>15s</span>
                 </div>
-                {hasStoredCredentials && userMaxDuration !== 15 && (
-                  <p className="text-xs text-green-400 mt-1">
-                    ✓ Loaded your saved limit: {userMaxDuration}s
-                  </p>
-                )}
               </div>
             </div>
             
@@ -718,12 +685,16 @@ export function PiShockController({
               </span>
             </button>
             
-            {hasStoredCredentials && !settingsLoadingData && (
+            {settingsLoadingData && (
               <div className="text-xs text-gray-400 text-center">
-                Your settings are automatically loaded when you open this panel.
-                {(!username && !sharecode) && (
-                  <span className="text-yellow-400"> If fields are empty, try closing and reopening settings.</span>
-                )}
+                Loading your saved settings...
+              </div>
+            )}
+            
+            {hasStoredCredentials && !settingsLoadingData && !username && !sharecode && (
+              <div className="text-xs text-yellow-400 text-center">
+                <p>Settings status shows you have credentials, but form fields are empty.</p>
+                <p>This may be due to a cache inconsistency. Try closing and reopening settings, or just enter your credentials again.</p>
               </div>
             )}
           </div>

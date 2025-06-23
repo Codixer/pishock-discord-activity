@@ -261,6 +261,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     const userData = userDataStr ? JSON.parse(userDataStr) : null;
     
     console.log('STATUS API: User data found:', !!userData, 'Has credentials:', !!userData?.credentials);
+    if (userData) {
+      console.log('STATUS API: User data structure:', {
+        hasCredentials: !!userData.credentials,
+        credentialsType: typeof userData.credentials,
+        credentialsLength: userData.credentials?.length || 0,
+        otherKeys: Object.keys(userData).filter(k => k !== 'credentials')
+      });
+    }
     
     let isConnected = false;
     let hasDevice = false;

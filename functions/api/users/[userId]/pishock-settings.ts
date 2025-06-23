@@ -342,7 +342,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const userDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
       const userData = userDataStr ? JSON.parse(userDataStr) : null;
       
-      console.log('SETTINGS API: User data found:', !!userData, 'Has credentials:', !!userData?.credentials);
+      console.log('SETTINGS API: User data found:', !!userData);
+      if (userData) {
+        console.log('SETTINGS API: User data keys:', Object.keys(userData));
+        console.log('SETTINGS API: Has credentials:', !!userData?.credentials);
+        if (userData.credentials) {
+          console.log('SETTINGS API: Credentials length:', userData.credentials.length);
+        }
+      }
       
       if (!userData?.credentials) {
         console.log('SETTINGS API: No credentials found in user data');
@@ -356,6 +363,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         console.log('SETTINGS API: Decrypting credentials...');
         const creds = await decrypt(userData.credentials);
         
+        console.log('SETTINGS API: Decrypted credential fields:', Object.keys(creds));
+        
         // Return settings without sensitive data (API key)
         const settings = {
           username: creds.username || '',
@@ -367,7 +376,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           piShockUserId: creds.piShockUserId
         };
         
-        console.log('SETTINGS API: ✓ Successfully loaded settings for user:', userId);
+        console.log('SETTINGS API: ✓ Successfully loaded settings for user:', userId, {
+          username: !!settings.username,
+          sharecode: !!settings.sharecode,
+          maxIntensity: settings.maxIntensity,
+          maxDuration: settings.maxDuration
+        });
         
         return jsonResponse({ 
           hasSettings: true,
@@ -377,8 +391,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         console.error('Failed to decrypt user settings:', error);
         return jsonResponse({ 
           hasSettings: false,
-          settings: null,
-          error: 'Failed to load settings'
+          settings: null
         });
       }
     }
