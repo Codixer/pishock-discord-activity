@@ -137,7 +137,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     const { targetUserId, intensity, duration, operation } = await request.json();
 
     // Validate parameters
-    if (!targetUserId || intensity < 1 || intensity > 100 || duration < 0.1 || duration > 15 || ![0, 1, 2].includes(operation)) {
+    if (!targetUserId || intensity < 1 || intensity > 100 || duration < 1 || duration > 15 || ![0, 1, 2].includes(operation)) {
       return jsonResponse({ 
         success: false, 
         error: 'Invalid parameters' 
@@ -165,7 +165,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           code: creds.sharecode,
           intensity: intensity,
           duration: duration,
-          duration: Math.round(duration * 10) / 10, // Round to 1 decimal place for PiShock API
           op: operation,
           name: 'DiscordActivity',
         }),
