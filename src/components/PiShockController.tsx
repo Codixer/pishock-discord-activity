@@ -140,9 +140,15 @@ export function PiShockController({
         }
         
         if (status.hasCredentials && !status.isConnected) {
-          addNotification('warning', 'Connection Issue', 'Your PiShock credentials found but connection failed. Please check your settings.');
+          // Only show connection warning in production, not in development with mock data
+          if (!isDevelopmentMode()) {
+            addNotification('warning', 'Connection Issue', 'Your PiShock credentials found but connection failed. Please check your settings.');
+          }
         } else if (status.isConnected) {
-          addNotification('success', 'Connected', 'Your PiShock account is connected and ready');
+          // Only show connected notification in production
+          if (!isDevelopmentMode()) {
+            addNotification('success', 'Connected', 'Your PiShock account is connected and ready');
+          }
         }
       }
     } catch (error) {

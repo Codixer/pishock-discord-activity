@@ -11,26 +11,29 @@ export function useNotifications() {
     duration: number = 5000
   ) => {
     const id = Math.random().toString(36).substr(2, 9);
-    const notification: Notification = { id, type, title, message };
     
-    // Prevent duplicate notifications by checking recent notifications
-    const isDuplicate = notifications.some(n => 
-      n.type === type && n.title === title && n.message === message
-    );
+    // Prevent duplicate notifications by checking recent notifications (more robust check)
+    setNotifications(prev => {
+      const isDuplicate = prev.some(n => 
+        n.type === type && n.title === title && n.message === message
+      );
+      
+      if (isDuplicate) {
+        return prev; // Don't add duplicate
+      }
+      
+      const notification: Notification = { id, type, title, message };
+      
+      // Auto-dismiss after duration
+      if (duration > 0) {
+        setTimeout(() => {
+          setNotifications(current => current.filter(n => n.id !== id));
+        }, duration);
+      }
+      
+      return [...prev, notification];
+    });
     
-    if (isDuplicate) {
-      return id;
-    }
-    
-    setNotifications(prev => [...prev, notification]);
-
-    // Auto-dismiss after duration
-    if (duration > 0) {
-      setTimeout(() => {
-        setNotifications(prev => prev.filter(n => n.id !== id));
-      }, duration);
-    }
-
     return id;
   }, []);
 

@@ -227,7 +227,7 @@ export const mockFetch = async (url: string, options?: RequestInit): Promise<Res
 // Override global fetch in development mode
 export const setupMockFetch = () => {
   if (isDevelopmentMode()) {
-    console.log('🔒 DEV MODE: All API requests will be blocked and return mock data');
+    console.log('🔒 DEV MODE: Mock data system initialized');
     
     // Store original fetch
     const originalFetch = window.fetch;

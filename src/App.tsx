@@ -411,7 +411,6 @@ function MainApp() {
           setAuth(mockAuth);
           setParticipantCount(mockParticipants.length);
           updateParticipants(mockParticipants);
-          addNotification('info', 'Development Mode', 'Running in development mode with mock data');
         }
 
         setLoading(false);
