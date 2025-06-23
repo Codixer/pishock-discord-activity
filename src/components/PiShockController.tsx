@@ -60,6 +60,7 @@ export function PiShockController({
   const [currentUserPiShockUserId, setCurrentUserPiShockUserId] = useState<string>('');
   const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
   const [bannedExecutors, setBannedExecutors] = useState<string[]>([]);
+  const [settingsExpanded, setSettingsExpanded] = useState(false);
 
   // Check if we're in PIP mode
   const isPipMode = layoutMode === Common.LayoutModeTypeObject.PIP;
@@ -579,45 +580,53 @@ export function PiShockController({
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-3">
             <Settings className="h-5 w-5 text-purple-400" />
-            <h3 className="text-base sm:text-lg font-semibold">Your PiShock Settings</h3>
+            <h3 className="text-sm sm:text-base font-semibold">PiShock Settings</h3>
             {(settingsLoading || settingsLoadingData) && <Loader className="h-4 w-4 animate-spin text-gray-400" />}
           </div>
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            className="px-2 sm:px-3 py-1 rounded-md bg-gray-700 hover:bg-gray-600 text-xs sm:text-sm transition-colors"
-          >
-            {showSettings ? 'Hide' : 'Configure'}
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setSettingsExpanded(!settingsExpanded)}
+              className="px-2 py-1 rounded-md bg-gray-600 hover:bg-gray-500 text-xs transition-colors"
+            >
+              {settingsExpanded ? '−' : '+'}
+            </button>
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className="px-2 sm:px-3 py-1 rounded-md bg-gray-700 hover:bg-gray-600 text-xs sm:text-sm transition-colors"
+            >
+              {showSettings ? 'Close' : 'Configure'}
+            </button>
+          </div>
         </div>
 
-        {/* Connection Status */}
-        {hasStoredCredentials ? (
-          <div className="mb-4">
+        {/* Compact Connection Status */}
+        <div className={`transition-all duration-200 ${settingsExpanded ? 'mb-4' : 'mb-2'}`}>
+          {hasStoredCredentials ? (
             <div className={`flex items-center justify-between p-3 border rounded-lg ${
               status.color === 'green' ? 'bg-green-900/20 border-green-500/30' :
               status.color === 'yellow' ? 'bg-yellow-900/20 border-yellow-500/30' :
               'bg-gray-900/20 border-gray-500/30'
             }`}>
-              <div className={`flex flex-col space-y-1 flex-1 ${
+              <div className={`flex ${settingsExpanded ? 'flex-col space-y-1' : 'flex-row items-center space-x-2'} flex-1 ${
                 status.color === 'green' ? 'text-green-400' :
                 status.color === 'yellow' ? 'text-yellow-400' :
                 'text-gray-400'
               }`}>
-                <div className="flex items-center space-x-2 text-sm">
+                <div className={`flex items-center space-x-2 ${settingsExpanded ? 'text-sm' : 'text-xs'}`}>
                   <Wifi className="h-4 w-4" />
-                  <span>{status.message}</span>
+                  <span>{settingsExpanded ? status.message : (status.connected ? 'Connected' : 'Not Connected')}</span>
                 </div>
                 {/* Show user ID for personal accounts */}
-                {currentUserPiShockConnected && (
-                  <div className="text-xs opacity-75">
+                {currentUserPiShockConnected && settingsExpanded && (
+                  <div className="text-xs opacity-75 mt-1">
                     Your PiShock ID: {currentUserPiShockUserId || 'Loading...'}
                   </div>
                 )}
               </div>
-              <div className="flex space-x-2">
+              <div className={`flex space-x-2 ${settingsExpanded ? '' : 'ml-auto'}`}>
                 <button
                   onClick={testConnection}
-                  className={`px-3 py-1 rounded text-xs transition-colors ${
+                  className={`px-2 py-1 rounded text-xs transition-colors ${
                     status.color === 'green' ? 'bg-green-600 hover:bg-green-700' :
                     status.color === 'yellow' ? 'bg-yellow-600 hover:bg-yellow-700' :
                     'bg-gray-600 hover:bg-gray-700'
@@ -625,25 +634,25 @@ export function PiShockController({
                 >
                   Test
                 </button>
-                <button
-                  onClick={removeStoredCredentials}
-                  className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-xs transition-colors"
-                >
-                  Remove
-                </button>
+                {settingsExpanded && (
+                  <button
+                    onClick={removeStoredCredentials}
+                    className="px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-xs transition-colors"
+                  >
+                    Remove
+                  </button>
+                )}
               </div>
             </div>
-          </div>
-        ) : (
-          !showSettings && (
-            <div className="p-3 bg-gray-900/20 border border-gray-500/30 rounded-lg mb-4">
-              <div className="flex items-center space-x-2 text-gray-400 text-sm">
+          ) : (
+            <div className={`p-2 bg-gray-900/20 border border-gray-500/30 rounded-lg ${settingsExpanded ? 'mb-4' : 'mb-2'}`}>
+              <div className={`flex items-center space-x-2 text-gray-400 ${settingsExpanded ? 'text-sm' : 'text-xs'}`}>
                 <AlertTriangle className="h-4 w-4" />
-                <span>No PiShock account configured</span>
+                <span>{settingsExpanded ? 'No PiShock account configured' : 'Not configured'}</span>
               </div>
             </div>
-          )
-        )}
+          )}
+        </div>
 
         {showSettings && (
           <div className="space-y-3 mb-4">
@@ -868,35 +877,35 @@ export function PiShockController({
       )}
 
       {/* Control Panel */}
-      <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex-1 flex flex-col min-h-0 ${isPipMode ? 'p-2' : ''}`}>
-        {!isPipMode && <h3 className="text-base sm:text-lg font-semibold mb-4 flex-shrink-0">Control Panel</h3>}
+      <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6 flex-1 flex flex-col min-h-0 ${isPipMode ? 'p-2' : ''}`}>
+        {!isPipMode && <h3 className="text-lg sm:text-xl font-semibold mb-6 flex-shrink-0">Control Panel</h3>}
 
         {!selectedUser ? (
-          <div className="text-center py-8 text-gray-400 flex-1 flex flex-col justify-center">
-            <AlertTriangle className="h-12 w-12 mx-auto mb-3 opacity-50" />
-            <p>Please select a participant to continue</p>
-            <p className="text-sm mt-1">Only users with PiShock accounts can be targeted</p>
+          <div className="text-center py-12 text-gray-400 flex-1 flex flex-col justify-center">
+            <AlertTriangle className="h-16 w-16 mx-auto mb-4 opacity-50" />
+            <p className="text-lg mb-2">Please select a participant to continue</p>
+            <p className="text-sm opacity-75">Only users with PiShock accounts can be targeted</p>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col space-y-4 min-h-0">
+          <div className="flex-1 flex flex-col space-y-6 min-h-0">
             {/* Target User */}
-            <div className={`p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg flex-shrink-0 ${isPipMode ? 'p-2' : ''}`}>
+            <div className={`p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg flex-shrink-0 ${isPipMode ? 'p-2' : ''}`}>
               <div className="flex items-center space-x-3">
                 <img
                   src={selectedUser.guildAvatarUrl || selectedUser.avatarUrl || `https://cdn.discordapp.com/embed/avatars/0.png`}
                   alt={`${getDisplayName(selectedUser)}'s avatar`}
-                  className={`rounded-full flex-shrink-0 ${isPipMode ? 'w-6 h-6' : 'w-8 h-8'}`}
+                  className={`rounded-full flex-shrink-0 ${isPipMode ? 'w-6 h-6' : 'w-10 h-10'}`}
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
                     target.src = `https://cdn.discordapp.com/embed/avatars/0.png`;
                   }}
                 />
                 <div className="min-w-0 flex-1">
-                  <p className={`text-blue-300 ${isPipMode ? 'text-xs' : 'text-sm'}`}>
+                  <p className={`text-blue-300 font-medium ${isPipMode ? 'text-xs' : 'text-base'}`}>
                     <span className="font-semibold">Target:</span> {getDisplayName(selectedUser)}
                   </p>
                   {!isPipMode && (
-                    <p className="text-xs text-blue-400">
+                    <p className="text-sm text-blue-400 mt-1">
                     {(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected 
                       ? 'Commands will be sent through their PiShock account'
                       : 'User needs to configure PiShock first'
@@ -907,9 +916,9 @@ export function PiShockController({
                 {/* Status indicator */}
                 <div className="flex-shrink-0">
                   {(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected ? (
-                    <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                    <div className="w-3 h-3 bg-green-400 rounded-full"></div>
                   ) : (
-                    <div className="w-2 h-2 bg-red-400 rounded-full"></div>
+                    <div className="w-3 h-3 bg-red-400 rounded-full"></div>
                   )}
                 </div>
               </div>
@@ -917,20 +926,20 @@ export function PiShockController({
 
             {/* Ban Management for Selected User */}
             {!isPipMode && selectedUser && (
-              <div className="p-3 bg-red-900/20 border border-red-500/30 rounded-lg flex-shrink-0">
+              <div className="p-4 bg-red-900/20 border border-red-500/30 rounded-lg flex-shrink-0">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3 flex-1 min-w-0">
                     <div className="flex items-center space-x-2">
-                      <Shield className="h-4 w-4 text-red-400" />
-                      <span className="text-sm font-medium text-red-300">Protection</span>
+                      <Shield className="h-5 w-5 text-red-400" />
+                      <span className="text-base font-medium text-red-300">Protection</span>
                     </div>
                     <div className="min-w-0 flex-1">
                       {bannedExecutors.includes(selectedUser.id) ? (
-                        <p className="text-xs text-red-200">
+                        <p className="text-sm text-red-200">
                           <span className="font-semibold text-red-300">{getDisplayName(selectedUser)}</span> is blocked from shocking you
                         </p>
                       ) : (
-                        <p className="text-xs text-gray-300">
+                        <p className="text-sm text-gray-300">
                           <span className="font-semibold text-white">{getDisplayName(selectedUser)}</span> can shock you if you have PiShock configured
                         </p>
                       )}
@@ -938,7 +947,7 @@ export function PiShockController({
                   </div>
                   <button
                     onClick={() => toggleBanUser(selectedUser.id)}
-                    className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                    className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
                       bannedExecutors.includes(selectedUser.id)
                         ? 'bg-green-600 hover:bg-green-700 text-white'
                         : 'bg-red-600 hover:bg-red-700 text-white'
@@ -947,7 +956,7 @@ export function PiShockController({
                     {bannedExecutors.includes(selectedUser.id) ? 'Unblock' : 'Block'}
                   </button>
                 </div>
-                <div className="mt-2 text-xs text-red-200">
+                <div className="mt-3 text-sm text-red-200">
                   {bannedExecutors.includes(selectedUser.id) 
                     ? "This user cannot send commands to your PiShock device"
                     : "Block this user to prevent them from sending commands to your PiShock device"
@@ -956,14 +965,14 @@ export function PiShockController({
               </div>
             )}
             {/* Controls Container */}
-            <div className="flex-1 flex flex-col space-y-4 min-h-0">
+            <div className="flex-1 flex flex-col space-y-6 min-h-0">
               {/* Intensity Control */}
               <div>
-                <label className={`block font-medium text-gray-300 mb-2 ${isPipMode ? 'text-xs' : 'text-xs sm:text-sm'}`}>
+                <label className={`block font-medium text-gray-300 mb-3 ${isPipMode ? 'text-xs' : 'text-sm sm:text-base'}`}>
                   <div className="flex items-center justify-between">
                     <span>Intensity: {intensity}%</span>
                     {effectiveLimits.maxIntensity < 100 && !isPipMode && (
-                      <div className="flex items-center space-x-1 text-xs text-yellow-400">
+                      <div className="flex items-center space-x-1 text-sm text-yellow-400">
                         <Lock className="h-3 w-3" />
                         <span>Max: {effectiveLimits.maxIntensity}%</span>
                       </div>
@@ -978,10 +987,10 @@ export function PiShockController({
                   onChange={(e) => setIntensity(parseInt(e.target.value))}
                   className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider ${
                     effectiveLimits.maxIntensity < 100 ? 'limited-slider' : ''
-                  }`}
+                  } slider-large`}
                 />
                 {!isPipMode && (
-                  <div className="flex justify-between text-xs text-gray-400 mt-1">
+                  <div className="flex justify-between text-sm text-gray-400 mt-2">
                   <span>1%</span>
                   <span>{Math.floor(effectiveLimits.maxIntensity / 2)}%</span>
                   <span className={effectiveLimits.maxIntensity < 100 ? 'text-yellow-400' : ''}>
@@ -993,11 +1002,11 @@ export function PiShockController({
 
               {/* Duration Control */}
               <div>
-                <label className={`block font-medium text-gray-300 mb-2 ${isPipMode ? 'text-xs' : 'text-xs sm:text-sm'}`}>
+                <label className={`block font-medium text-gray-300 mb-3 ${isPipMode ? 'text-xs' : 'text-sm sm:text-base'}`}>
                   <div className="flex items-center justify-between">
                     <span>Duration: {duration}s</span>
                     {effectiveLimits.maxDuration < 15 && !isPipMode && (
-                      <div className="flex items-center space-x-1 text-xs text-yellow-400">
+                      <div className="flex items-center space-x-1 text-sm text-yellow-400">
                         <Lock className="h-3 w-3" />
                         <span>Max: {effectiveLimits.maxDuration}s</span>
                       </div>
@@ -1012,10 +1021,10 @@ export function PiShockController({
                   onChange={(e) => setDuration(parseInt(e.target.value))}
                   className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider ${
                     effectiveLimits.maxDuration < 15 ? 'limited-slider' : ''
-                  }`}
+                  } slider-large`}
                 />
                 {!isPipMode && (
-                  <div className="flex justify-between text-xs text-gray-400 mt-1">
+                  <div className="flex justify-between text-sm text-gray-400 mt-2">
                   <span>1s</span>
                   <span>{Math.floor(effectiveLimits.maxDuration / 2)}s</span>
                   <span className={effectiveLimits.maxDuration < 15 ? 'text-yellow-400' : ''}>
@@ -1026,17 +1035,17 @@ export function PiShockController({
               </div>
 
               {/* Action Buttons */}
-              <div className={`grid gap-2 flex-shrink-0 ${isPipMode ? 'grid-cols-3' : 'grid-cols-1 sm:grid-cols-3 sm:gap-3'}`}>
+              <div className={`grid gap-4 flex-shrink-0 ${isPipMode ? 'grid-cols-3 gap-2' : 'grid-cols-1 sm:grid-cols-3 sm:gap-4'}`}>
                 <button
                   onClick={() => handleShock(0)}
                   disabled={isShocking}
                   className={`bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
                     isPipMode 
                       ? 'py-2 px-2 text-xs flex-col space-y-1' 
-                      : 'py-2 sm:py-3 px-3 sm:px-4 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-1 text-xs sm:text-sm'
+                      : 'py-4 sm:py-5 px-4 sm:px-6 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-2 text-sm sm:text-base'
                   }`}
                 >
-                  <Zap className={isPipMode ? 'h-3 w-3' : 'h-4 w-4 sm:h-5 sm:w-5'} />
+                  <Zap className={isPipMode ? 'h-3 w-3' : 'h-5 w-5 sm:h-6 sm:w-6'} />
                   <span>Shock</span>
                 </button>
 
@@ -1046,10 +1055,10 @@ export function PiShockController({
                   className={`bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
                     isPipMode 
                       ? 'py-2 px-2 text-xs flex-col space-y-1' 
-                      : 'py-2 sm:py-3 px-3 sm:px-4 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-1 text-xs sm:text-sm'
+                      : 'py-4 sm:py-5 px-4 sm:px-6 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-2 text-sm sm:text-base'
                   }`}
                 >
-                  <Play className={isPipMode ? 'h-3 w-3' : 'h-4 w-4 sm:h-5 sm:w-5'} />
+                  <Play className={isPipMode ? 'h-3 w-3' : 'h-5 w-5 sm:h-6 sm:w-6'} />
                   <span>Vibrate</span>
                 </button>
 
@@ -1059,26 +1068,26 @@ export function PiShockController({
                   className={`bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
                     isPipMode 
                       ? 'py-2 px-2 text-xs flex-col space-y-1' 
-                      : 'py-2 sm:py-3 px-3 sm:px-4 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-1 text-xs sm:text-sm'
+                      : 'py-4 sm:py-5 px-4 sm:px-6 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-2 text-sm sm:text-base'
                   }`}
                 >
-                  <Square className={isPipMode ? 'h-3 w-3' : 'h-4 w-4 sm:h-5 sm:w-5'} />
+                  <Square className={isPipMode ? 'h-3 w-3' : 'h-5 w-5 sm:h-6 sm:w-6'} />
                   <span>Beep</span>
                 </button>
               </div>
 
               {/* No PiShock Device Warning & Ban Option */}
               {!isPipMode && selectedUser && !(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected && (
-                <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex-shrink-0">
+                <div className="p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex-shrink-0">
                   <div className="flex items-start space-x-3">
-                    <AlertTriangle className="h-4 w-4 text-yellow-400 flex-shrink-0 mt-0.5" />
+                    <AlertTriangle className="h-5 w-5 text-yellow-400 flex-shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-yellow-300 mb-1">No PiShock Device</p>
-                      <p className="text-xs text-yellow-200 mb-2">
+                      <p className="text-base font-medium text-yellow-300 mb-2">No PiShock Device</p>
+                      <p className="text-sm text-yellow-200 mb-3">
                         {getDisplayName(selectedUser)} hasn't configured their PiShock device yet. 
                         Commands cannot be sent until they set up their credentials.
                       </p>
-                      <p className="text-xs text-yellow-200">
+                      <p className="text-sm text-yellow-200">
                         However, you can still {bannedExecutors.includes(selectedUser.id) ? 'unblock' : 'block'} them 
                         to manage who can shock you when they do set up their device.
                       </p>
@@ -1087,9 +1096,9 @@ export function PiShockController({
                 </div>
               )}
               {isShocking && (
-                <div className={`text-center flex-shrink-0 ${isPipMode ? 'mt-2' : ''}`}>
-                  <div className={`inline-flex items-center space-x-2 text-yellow-400 ${isPipMode ? 'text-xs' : 'text-sm'}`}>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400"></div>
+                <div className={`text-center flex-shrink-0 ${isPipMode ? 'mt-2' : 'mt-4'}`}>
+                  <div className={`inline-flex items-center space-x-3 text-yellow-400 ${isPipMode ? 'text-xs' : 'text-base'}`}>
+                    <div className={`animate-spin rounded-full border-b-2 border-yellow-400 ${isPipMode ? 'h-4 w-4' : 'h-6 w-6'}`}></div>
                     <span>Executing command...</span>
                   </div>
                 </div>

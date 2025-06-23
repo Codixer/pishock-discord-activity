@@ -73,6 +73,20 @@ html, body {
   background: linear-gradient(to right, #374151 0%, #f59e0b 100%);
 }
 .slider::-moz-range-thumb {
+/* Larger slider styling for control panel */
+.slider-large::-webkit-slider-thumb {
+  height: 24px;
+  width: 24px;
+}
+
+.slider-large::-moz-range-thumb {
+  height: 24px;
+  width: 24px;
+}
+
+.slider-large {
+  height: 8px;
+}
   height: 20px;
   width: 20px;
   border-radius: 50%;
