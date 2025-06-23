@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**⚡ Made with [Bolt.new](https://bolt.new/?rid=u8s05i) ⚡**
+**⚡ Made with [Bolt.new](https://bolt.new/?rid=u8s05i) ⚡** (AI)
 
 *Get 200K extra credits by using this link! Upgrade to Pro for 5M extra tokens.*
 
