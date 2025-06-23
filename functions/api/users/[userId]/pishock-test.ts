@@ -47,11 +47,11 @@ async function decrypt(encryptedData: string): Promise<any> {
 
 async function validatePiShockCredentials(apiKey: string, username: string): Promise<{ valid: boolean; userId?: string; error?: string; debugInfo?: any }> {
   try {
-    console.log('TEST: Validating PiShock credentials using Legacy API');
+    console.log('TEST: Validating PiShock credentials using V3 API (auth endpoint)');
     console.log('TEST: Username:', username);
     console.log('TEST: API Key length:', apiKey.length);
 
-    // Use exact endpoint from Legacy API documentation
+    // Auth endpoint remains unchanged in V3 API
     const url = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
     console.log('TEST: Making request to:', url);
 
@@ -115,8 +115,6 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
     }
     // Check for UserID field (exact field name from documentation)
     else if (authData.UserID !== undefined && authData.UserID !== null) {
-    }
-    if (authData.UserID !== undefined && authData.UserID !== null) {
       userId = authData.UserID.toString();
       console.log('TEST: Found UserID in response:', userId);
     }
@@ -163,10 +161,10 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
 
 async function checkUserDevices(userId: string, apiKey: string): Promise<{ hasDevices: boolean; devices?: any[]; error?: string; debugInfo?: any }> {
   try {
-    console.log('TEST: Checking user devices using Legacy API');
+    console.log('TEST: Checking user devices using V3 API');
     console.log('TEST: User ID:', userId);
     
-    // Use exact endpoint from Legacy API documentation
+    // GetUserDevices endpoint remains in V3 API at ps.pishock.com
     const url = `https://ps.pishock.com/PiShock/GetUserDevices?UserId=${userId}&Token=${encodeURIComponent(apiKey)}&api=true`;
     console.log('TEST: Making devices request to:', url);
     
@@ -312,7 +310,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       
       if (credentialValidation.valid && credentialValidation.userId) {
         console.log('TEST: Credentials valid, checking for devices...');
-        // Check for devices using Legacy API
+        // Check for devices using V3 API
         const deviceCheck = await checkUserDevices(credentialValidation.userId, creds.apiKey);
         hasDevice = deviceCheck.hasDevices;
         deviceCount = deviceCheck.devices?.length || 0;
