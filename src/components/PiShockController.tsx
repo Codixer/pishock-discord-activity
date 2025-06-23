@@ -237,8 +237,17 @@ export function PiShockController({
   const savePiShockSettings = async () => {
     if (!currentUser || !auth) return;
     
-    if (!apiKey || !username || !sharecode) {
+    // For new users, all fields are required
+    // For existing users, API key is optional (will preserve existing if blank)
+    const isNewUser = !hasStoredCredentials;
+    
+    if (isNewUser && (!apiKey || !username || !sharecode)) {
       addNotification('warning', 'Missing Information', 'Please fill in all required fields: API Key, Username, and Share Code');
+      return;
+    }
+    
+    if (!username || !sharecode) {
+      addNotification('warning', 'Missing Information', 'Please fill in Username and Share Code');
       return;
     }
 
@@ -257,7 +266,7 @@ export function PiShockController({
           'Authorization': `Bearer ${auth.access_token}`,
         },
         body: JSON.stringify({
-          apiKey,
+          apiKey: apiKey || undefined, // undefined will preserve existing API key
           username,
           sharecode: finalSharecode,
           hasOwnDevice: true, // Always true now
@@ -276,7 +285,7 @@ export function PiShockController({
         addNotification('success', 'Settings Saved', 'Your PiShock device settings saved and connection verified');
         
         // Clear the form fields for security
-        setApiKey('');
+        setApiKey(''); // Always clear API key field for security
         setUsername('');
         setSharecode('');
         setShowSettings(false);
@@ -578,7 +587,7 @@ export function PiShockController({
 
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">
-                API Key <span className="text-red-400">*</span>
+                API Key {!hasStoredCredentials && <span className="text-red-400">*</span>}
               </label>
               <input
                 type="password"
@@ -586,11 +595,11 @@ export function PiShockController({
                 onChange={(e) => setApiKey(e.target.value)}
                 disabled={settingsLoadingData}
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
-                placeholder={hasStoredCredentials ? "Leave blank to keep current API key" : "Enter your PiShock API key"}
+                placeholder={hasStoredCredentials ? "Leave blank to keep your current API key" : "Enter your PiShock API key"}
               />
               {hasStoredCredentials && (
                 <p className="text-xs text-gray-400 mt-1">
-                  {settingsLoadingData ? 'Loading...' : 'Leave blank to keep your current API key (not shown for security)'}
+                  {settingsLoadingData ? 'Loading...' : '✓ Your current API key is saved. Leave blank to keep it unchanged.'}
                 </p>
               )}
             </div>

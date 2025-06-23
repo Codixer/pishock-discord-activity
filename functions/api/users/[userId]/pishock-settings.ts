@@ -399,10 +399,47 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (method === 'PUT') {
       const { apiKey, username, sharecode, hasOwnDevice, maxIntensity = 100, maxDuration = 15 } = await request.json();
 
-      if (!apiKey || !username || !sharecode) {
+      // Get existing user data to check if this is an update
+      const existingUserDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
+      const existingUserData = existingUserDataStr ? JSON.parse(existingUserDataStr) : null;
+      const isExistingUser = !!existingUserData?.credentials;
+      
+      // For new users, all fields are required
+      // For existing users, API key is optional (will preserve existing if not provided)
+      if (!isExistingUser && (!apiKey || !username || !sharecode)) {
         return jsonResponse({ 
           success: false, 
           error: 'Missing required fields: API Key, Username, and Share Code are all required' 
+        }, 400);
+      }
+      
+      if (!username || !sharecode) {
+        return jsonResponse({ 
+          success: false, 
+          error: 'Username and Share Code are required' 
+        }, 400);
+      }
+      
+      // Get existing API key if not provided in request
+      let finalApiKey = apiKey;
+      if (!apiKey && isExistingUser) {
+        try {
+          const existingCreds = await decrypt(existingUserData.credentials);
+          finalApiKey = existingCreds.apiKey;
+          console.log('SETTINGS API: Preserving existing API key for user:', userId);
+        } catch (error) {
+          console.error('SETTINGS API: Failed to decrypt existing credentials:', error);
+          return jsonResponse({ 
+            success: false, 
+            error: 'Failed to preserve existing API key. Please provide your API key.' 
+          }, 500);
+        }
+      }
+      
+      if (!finalApiKey) {
+        return jsonResponse({ 
+          success: false, 
+          error: 'API Key is required for new accounts or when existing credentials cannot be retrieved' 
         }, 400);
       }
 
@@ -422,12 +459,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
       console.log('=== Starting PiShock Legacy API validation ===');
       console.log('Username:', username);
+      console.log('API Key provided:', !!apiKey);
+      console.log('Using existing API key:', !apiKey && isExistingUser);
       console.log('Has own device:', true); // Always true now
       console.log('Share code provided:', !!sharecode);
       console.log('Max limits:', { maxIntensity, maxDuration });
 
       // Step 1: Validate credentials and get UserID using V3 API (auth endpoint unchanged)
-      const credentialValidation = await validatePiShockCredentials(apiKey, username);
+      const credentialValidation = await validatePiShockCredentials(finalApiKey, username);
       
       if (!credentialValidation.valid) {
         console.log('Credential validation failed:', credentialValidation.error);
@@ -446,7 +485,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       console.log('✓ Credential validation successful, PiShock User ID:', piShockUserId);
       
       // Step 2: Check if user has devices using V3 API (endpoint unchanged)
-      const deviceCheck = await checkUserDevices(piShockUserId, apiKey);
+      const deviceCheck = await checkUserDevices(piShockUserId, finalApiKey);
       console.log('Device check result:', deviceCheck);
       
       // Step 3: Validate the sharecode using V3 API (always required now)
@@ -456,7 +495,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       
       if (sharecode) {
         console.log('Validating share code...');
-        const shareCodeValidation = await validateShareCode(username, apiKey, sharecode);
+        const shareCodeValidation = await validateShareCode(username, finalApiKey, sharecode);
         shareCodeValid = shareCodeValidation.valid;
         shareCodeError = shareCodeValidation.error;
         shareCodeDebug = shareCodeValidation.debugInfo;
@@ -487,7 +526,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       
       // Encrypt and store credentials
       const credentialsToStore = {
-        apiKey: apiKey || (await getExistingApiKey(env.PISHOCK_KV, userId)) || apiKey, // Preserve existing API key if not provided
+        apiKey: finalApiKey, // Always have a valid API key at this point
         username,
         sharecode: finalSharecode,
         hasOwnDevice: actuallyHasDevice,
@@ -562,19 +601,3 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }, 500);
   }
 };
-// Helper function to get existing API key when updating settings
-async function getExistingApiKey(kv: KVNamespace, userId: string): Promise<string | null> {
-  try {
-    const userDataStr = await kv.get(`user:${userId}:data`);
-    if (!userDataStr) return null;
-    
-    const userData = JSON.parse(userDataStr);
-    if (!userData?.credentials) return null;
-    
-    const creds = await decrypt(userData.credentials);
-    return creds.apiKey || null;
-  } catch (error) {
-    console.error('Failed to get existing API key:', error);
-    return null;
-  }
-}
