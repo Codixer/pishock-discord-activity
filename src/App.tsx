@@ -145,6 +145,9 @@ function MainApp() {
 
   // Function to check PiShock status for all participants
   const checkAllUserPiShockStatus = async () => {
+    // Don't check PiShock status in development mode
+    if (!isEmbedded) return;
+    
     if (!instanceId || !auth || participants.length === 0) return;
 
     console.log('Checking PiShock status for participants:', participants.map(p => ({ id: p.id, username: p.username })));
