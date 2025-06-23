@@ -243,9 +243,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   if (!user) return new Response('Invalid token', { status: 401 });
 
   try {
+    console.log('STATUS API: Checking status for user:', userId);
+    
     // Try to get cached status first
     const cachedStatus = await getCachedUserStatus(env.PISHOCK_KV, userId);
     if (cachedStatus) {
+      console.log('STATUS API: Returning cached status for user:', userId);
       return jsonResponse(cachedStatus, 200, {
         'Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
         'X-Cache-Status': 'HIT'
@@ -253,8 +256,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
     
     // Get all user data from single key
+    console.log('STATUS API: Loading fresh data for user:', userId);
     const userDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
     const userData = userDataStr ? JSON.parse(userDataStr) : null;
+    
+    console.log('STATUS API: User data found:', !!userData, 'Has credentials:', !!userData?.credentials);
     
     let isConnected = false;
     let hasDevice = false;
@@ -328,7 +334,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     // Cache the result
     await setCachedUserStatus(env.PISHOCK_KV, userId, result);
     
-    return jsonResponse(result);
+    return jsonResponse(result, 200, {
+      'Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
+      'X-Cache-Status': 'MISS'
+    });
   } catch (error) {
     console.error('User PiShock status error:', error);
     return jsonResponse({ 

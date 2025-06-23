@@ -10,6 +10,9 @@ function jsonResponse(body: any, status = 200) {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      // Match caching with status endpoint to prevent inconsistency
+      'Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
+      'Vary': 'Authorization',
     },
   });
 }
@@ -39,6 +42,11 @@ async function validateDiscordToken(token: string): Promise<any> {
 async function encrypt(data: any): Promise<string> {
   // Simple base64 encoding for now - in production, use proper encryption
   return btoa(JSON.stringify(data));
+}
+
+async function decrypt(data: string): Promise<any> {
+  // Simple base64 decoding for now - in production, use proper decryption
+  return JSON.parse(atob(data));
 }
 
 async function validatePiShockCredentials(apiKey: string, username: string): Promise<{ valid: boolean; userId?: string; error?: string; debugInfo?: any }> {
@@ -111,8 +119,6 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
     }
     // Check for UserID field (exact field name from documentation)
     else if (authData.UserID !== undefined && authData.UserID !== null) {
-    }
-    if (authData.UserID !== undefined && authData.UserID !== null) {
       userId = authData.UserID.toString();
       console.log('Found UserID in response:', userId);
     }
@@ -332,10 +338,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   try {
     if (method === 'GET') {
       // Get all user data from single key
+      console.log('SETTINGS API: Loading settings for user:', userId);
       const userDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
       const userData = userDataStr ? JSON.parse(userDataStr) : null;
       
+      console.log('SETTINGS API: User data found:', !!userData, 'Has credentials:', !!userData?.credentials);
+      
       if (!userData?.credentials) {
+        console.log('SETTINGS API: No credentials found in user data');
         return jsonResponse({ 
           hasSettings: false,
           settings: null
@@ -343,6 +353,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
 
       try {
+        console.log('SETTINGS API: Decrypting credentials...');
         const creds = await decrypt(userData.credentials);
         
         // Return settings without sensitive data (API key)
@@ -355,6 +366,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           lastUpdated: userData.lastUpdated,
           piShockUserId: creds.piShockUserId
         };
+        
+        console.log('SETTINGS API: ✓ Successfully loaded settings for user:', userId);
         
         return jsonResponse({ 
           hasSettings: true,
@@ -491,9 +504,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       
       // Clear the user's status cache so it gets refreshed immediately
       try {
-        const statusCacheKey = `cache:user_status:${userId}`;
-        await env.PISHOCK_KV.delete(statusCacheKey);
-        console.log('✓ Cleared status cache for user:', userId);
+        // Clear multiple possible cache keys to ensure consistency
+        const cacheKeys = [
+          `cache:user_status:${userId}`,
+          `user_status_cache:${userId}`,
+        ];
+        
+        await Promise.allSettled(cacheKeys.map(key => env.PISHOCK_KV.delete(key)));
+        console.log('✓ Cleared all status caches for user:', userId);
       } catch (error) {
         console.warn('Failed to clear status cache:', error);
       }
