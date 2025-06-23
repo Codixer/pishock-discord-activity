@@ -344,7 +344,11 @@ export function PiShockController({
 
       if (response.ok) {
         const result = await response.json();
-        if (result.success) {
+        if (result.bannedExecutors || result.settings?.bannedExecutors) {
+          const bannedList = result.bannedExecutors || result.settings?.bannedExecutors || [];
+          setBannedExecutors(bannedList);
+          console.log('BAN_MANAGEMENT: Loaded ban list:', bannedList);
+          
           setCurrentUserPiShockConnected(true);
           onConnectionChange(true);
           addNotification('success', 'Connection Test', 'Your PiShock account is responding correctly');
@@ -437,9 +441,11 @@ export function PiShockController({
         if (error.message.includes('Invalid parameters')) {
           errorMessage = 'Invalid shock parameters. Please check intensity and duration settings.';
         } else if (error.message.includes('exceeds target user\'s maximum')) {
-          errorMessage = error.message; // Show the specific limit error
+              bannedExecutors: bannedList
         } else {
           errorMessage = `Command failed: ${error.message}`;
+        } else {
+          console.log('BAN_MANAGEMENT: No ban list found in response');
         }
       }
       
@@ -879,6 +885,46 @@ export function PiShockController({
               </div>
             </div>
 
+            {/* Ban Management for Selected User */}
+            {!isPipMode && selectedUser && (
+              <div className="p-3 bg-red-900/20 border border-red-500/30 rounded-lg flex-shrink-0">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3 flex-1 min-w-0">
+                    <div className="flex items-center space-x-2">
+                      <Shield className="h-4 w-4 text-red-400" />
+                      <span className="text-sm font-medium text-red-300">Protection</span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      {bannedExecutors.includes(selectedUser.id) ? (
+                        <p className="text-xs text-red-200">
+                          <span className="font-semibold text-red-300">{getDisplayName(selectedUser)}</span> is blocked from shocking you
+                        </p>
+                      ) : (
+                        <p className="text-xs text-gray-300">
+                          <span className="font-semibold text-white">{getDisplayName(selectedUser)}</span> can shock you if you have PiShock configured
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => toggleBanUser(selectedUser.id)}
+                    className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                      bannedExecutors.includes(selectedUser.id)
+                        ? 'bg-green-600 hover:bg-green-700 text-white'
+                        : 'bg-red-600 hover:bg-red-700 text-white'
+                    }`}
+                  >
+                    {bannedExecutors.includes(selectedUser.id) ? 'Unblock' : 'Block'}
+                  </button>
+                </div>
+                <div className="mt-2 text-xs text-red-200">
+                  {bannedExecutors.includes(selectedUser.id) 
+                    ? "This user cannot send commands to your PiShock device"
+                    : "Block this user to prevent them from sending commands to your PiShock device"
+                  }
+                </div>
+              </div>
+            )}
             {/* Controls Container */}
             <div className="flex-1 flex flex-col space-y-4 min-h-0">
               {/* Intensity Control */}
@@ -991,6 +1037,25 @@ export function PiShockController({
                 </button>
               </div>
 
+              {/* No PiShock Device Warning & Ban Option */}
+              {!isPipMode && selectedUser && !(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected && (
+                <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex-shrink-0">
+                  <div className="flex items-start space-x-3">
+                    <AlertTriangle className="h-4 w-4 text-yellow-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-yellow-300 mb-1">No PiShock Device</p>
+                      <p className="text-xs text-yellow-200 mb-2">
+                        {getDisplayName(selectedUser)} hasn't configured their PiShock device yet. 
+                        Commands cannot be sent until they set up their credentials.
+                      </p>
+                      <p className="text-xs text-yellow-200">
+                        However, you can still {bannedExecutors.includes(selectedUser.id) ? 'unblock' : 'block'} them 
+                        to manage who can shock you when they do set up their device.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
               {isShocking && (
                 <div className={`text-center flex-shrink-0 ${isPipMode ? 'mt-2' : ''}`}>
                   <div className={`inline-flex items-center space-x-2 text-yellow-400 ${isPipMode ? 'text-xs' : 'text-sm'}`}>
