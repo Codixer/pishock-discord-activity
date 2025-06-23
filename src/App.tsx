@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
-import { DiscordSDK, Events } from '@discord/embedded-app-sdk';
-import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText } from 'lucide-react';
+import { DiscordSDK, Events, type Types } from '@discord/embedded-app-sdk';
+import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText, Layout } from 'lucide-react';
 import { PiShockController } from './components/PiShockController';
 import { SafetyWarning } from './components/SafetyWarning';
 import { UserSelector } from './components/UserSelector';
@@ -89,8 +89,8 @@ function MainApp() {
   const [instanceId, setInstanceId] = useState<string>('');
   const [showActivityLog, setShowActivityLog] = useState(true);
   const [userPiShockStatus, setUserPiShockStatus] = useState<Record<string, any>>({});
-  const [isInstanceExpired, setIsInstanceExpired] = useState(false);
-  const [participantCount, setParticipantCount] = useState(0);
+  const [isInstanceValid, setIsInstanceValid] = useState(true);
+  const [layoutMode, setLayoutMode] = useState<Types.LayoutMode | null>(null);
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
   
@@ -145,9 +145,15 @@ function MainApp() {
     }, 500);
   }, [isEmbedded, updateParticipants]);
 
+  // Handle layout mode updates for PIP mode
+  const handleLayoutModeUpdate = useCallback((update: { layout_mode: Types.LayoutMode }) => {
+    console.log('Layout mode updated:', update.layout_mode);
+    setLayoutMode(update.layout_mode);
+  }, []);
+
   // Function to check PiShock status for all participants
   const checkAllUserPiShockStatus = async () => {
-    // Don't check PiShock status if not embedded
+    // Don't check PiShock status in development mode
     if (!isEmbedded) return;
     
     if (!instanceId || !auth || participants.length === 0) return;
@@ -237,71 +243,6 @@ function MainApp() {
   // Make user status available globally for PiShockController
   (window as any).userPiShockStatus = userPiShockStatus;
 
-  // Check instance status
-  const checkInstanceStatus = useCallback(async (instanceId: string) => {
-    if (!instanceId || !isEmbedded) return true; // Always allow in development
-
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/instances/${instanceId}/status`, {
-        headers: {
-          'Authorization': `Bearer ${auth?.access_token}`,
-        },
-      });
-
-      if (response.ok) {
-        const statusData = await response.json();
-        console.log('Instance status check:', statusData);
-        
-        if (statusData.status === 'inactive') {
-          console.log('Instance is inactive, marking as expired');
-          setIsInstanceExpired(true);
-          return false;
-        }
-        return true;
-      }
-    } catch (error) {
-      console.warn('Failed to check instance status:', error);
-    }
-    return true; // Allow access if check fails
-  }, [auth, isEmbedded]);
-
-  // Update instance status based on participant count
-  const updateInstanceStatus = useCallback(async (participantCount: number) => {
-    if (!instanceId || !auth || !isEmbedded) return;
-
-    try {
-      const newStatus = participantCount === 0 ? 'inactive' : 'active';
-      
-      await fetch(`${getApiBaseUrl()}/instances/${instanceId}/status`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${auth.access_token}`,
-        },
-        body: JSON.stringify({
-          status: newStatus,
-          participant_count: participantCount,
-        }),
-      });
-
-      console.log(`Instance ${instanceId} status updated to ${newStatus} (${participantCount} participants)`);
-      
-      // If instance becomes inactive, set expiration flag
-      if (newStatus === 'inactive') {
-        setTimeout(() => {
-          setIsInstanceExpired(true);
-          addNotification('info', 'Session Ended', 'All participants have left. This session has ended.');
-        }, 5000); // 5 second delay before showing expired state
-      } else if (newStatus === 'active' && isInstanceExpired) {
-        // Reactivating an expired instance
-        setIsInstanceExpired(false);
-        addNotification('success', 'Session Reactivated', 'Participants have rejoined. Session is now active.');
-      }
-    } catch (error) {
-      console.warn('Failed to update instance status:', error);
-    }
-  }, [instanceId, auth, isEmbedded, isInstanceExpired, addNotification]);
-
   useEffect(() => {
     const initializeDiscord = async () => {
       try {
@@ -311,12 +252,26 @@ function MainApp() {
           // Get instance ID immediately after SDK construction
           const currentInstanceId = discordSdk.instanceId;
           setInstanceId(currentInstanceId);
+
+          // Verify instance with Discord's API before proceeding
+          console.log('Verifying Discord instance:', currentInstanceId);
+          const verifyResponse = await fetch(`${getApiBaseUrl()}/verify-instance?application_id=${import.meta.env.VITE_DISCORD_CLIENT_ID}&instance_id=${currentInstanceId}`);
           
-          // Check if instance is still active before proceeding
-          const instanceActive = await checkInstanceStatus(currentInstanceId);
-          if (!instanceActive) {
+          if (!verifyResponse.ok) {
+            console.error('Instance verification failed:', verifyResponse.status);
+            setIsInstanceValid(false);
             setLoading(false);
-            return; // Stop initialization if instance is expired
+            addNotification('error', 'Invalid Session', 'This Discord Activity session is not valid or has expired.');
+            return;
+          }
+
+          const verifyData = await verifyResponse.json();
+          if (!verifyData.valid) {
+            console.error('Instance not valid:', verifyData.error);
+            setIsInstanceValid(false);
+            setLoading(false);
+            addNotification('error', 'Invalid Session', verifyData.error || 'This Discord Activity session is not valid.');
+            return;
           }
 
           // Authenticate with Discord
@@ -356,42 +311,62 @@ function MainApp() {
           // Subscribe to participant updates
           discordSdk.subscribe(
             Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE,
-            async (data: any) => {
-              const newParticipantCount = data.participants.length;
-              setParticipantCount(newParticipantCount);
+            (data: Types.GetActivityInstanceConnectedParticipantsResponse) => {
               updateParticipants(data.participants);
-              
-              // Update instance status based on participant count
-              await updateInstanceStatus(newParticipantCount);
             }
           );
 
           // Get initial participants
           const initialParticipants = await discordSdk.commands.getInstanceConnectedParticipants();
-          const initialCount = initialParticipants.participants.length;
-          setParticipantCount(initialCount);
           updateParticipants(initialParticipants.participants);
-          
-          // Update instance status with initial participant count
-          await updateInstanceStatus(initialCount);
+
+          // Subscribe to layout mode updates
+          discordSdk.subscribeToLayoutModeUpdatesCompat(handleLayoutModeUpdate);
+
+          // Get initial layout mode
+          try {
+            const initialLayoutMode = await discordSdk.commands.getLayoutMode();
+            setLayoutMode(initialLayoutMode.layout_mode);
+          } catch (error) {
+            console.warn('Failed to get initial layout mode:', error);
+          }
 
           addNotification('success', 'Connected', 'Successfully connected to Discord');
         } else {
-          // For development, use dummy data
-          console.log('Development mode: Using dummy Discord data');
+          // Mock data for development environment
           const mockInstanceId = 'dev_instance_123';
           setInstanceId(mockInstanceId);
           
-          const mockAuth = { user: { id: 'dev_user_123', username: 'DevUser' } };
+          const mockAuth = {
+            user: {
+              id: 'dev_user_123',
+              username: 'DevUser',
+              discriminator: '0001',
+              avatar: null,
+              global_name: 'Development User'
+            }
+          };
+          
           const mockParticipants = [
-            { id: 'dev_user_123', username: 'DevUser', displayName: 'Development User' },
-            { id: 'test_user_456', username: 'TestUser', displayName: 'Test User' }
+            {
+              id: 'dev_user_123',
+              username: 'DevUser',
+              discriminator: '0001',
+              avatar: null,
+              global_name: 'Development User'
+            },
+            {
+              id: 'test_user_456',
+              username: 'TestUser',
+              discriminator: '0002',
+              avatar: null,
+              global_name: 'Test User'
+            }
           ];
 
           setAuth(mockAuth);
-          setParticipantCount(mockParticipants.length);
           updateParticipants(mockParticipants);
-          
+          setLayoutMode(Types.LayoutMode.FOCUSED);
           addNotification('info', 'Development Mode', 'Running in development mode with mock data');
         }
 
@@ -414,10 +389,11 @@ function MainApp() {
     // Cleanup subscriptions on unmount
     return () => {
       if (isEmbedded && discordSdk) {
+        discordSdk.unsubscribeFromLayoutModeUpdatesCompat(handleLayoutModeUpdate);
         discordSdk.unsubscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
       }
     };
-  }, [addNotification, updateParticipants, checkInstanceStatus, updateInstanceStatus]);
+  }, [addNotification, updateParticipants]);
 
   // Load instance data when instanceId changes
   useEffect(() => {
@@ -532,29 +508,62 @@ function MainApp() {
     return <SafetyWarning onAccept={() => setSafetyAccepted(true)} />;
   }
 
-  // Show instance expired message
-  if (isInstanceExpired) {
+  // Show invalid session message
+  if (!isInstanceValid) {
     return (
       <div className="h-screen w-screen bg-gradient-to-br from-red-900 via-red-800 to-orange-900 text-white overflow-hidden flex items-center justify-center">
         <div className="text-center max-w-md p-8">
           <div className="w-16 h-16 mx-auto mb-6 bg-red-500/20 rounded-full flex items-center justify-center">
             <AlertTriangle className="h-8 w-8 text-red-400" />
           </div>
-          <h1 className="text-3xl font-bold mb-4">Session Ended</h1>
+          <h1 className="text-3xl font-bold mb-4">Invalid Session</h1>
           <p className="text-red-200 mb-6">
-            This Discord Activity session has ended because all participants have left.
+            This Discord Activity session is not valid or has expired. Please start a new session from Discord.
           </p>
-          <div className="space-y-3">
-            <button
-              onClick={() => window.location.reload()}
-              className="w-full py-3 px-6 bg-red-600 hover:bg-red-700 rounded-lg font-semibold transition-colors"
-            >
-              Start New Session
-            </button>
-            <p className="text-sm text-red-300">
-              Refresh the page or restart the Discord Activity to begin a new session.
-            </p>
+          <p className="text-sm text-red-300">
+            Make sure you're accessing this application through Discord's Activity feature.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Picture-in-Picture mode - simplified layout with only activity log
+  if (layoutMode === Types.LayoutMode.PIP) {
+    return (
+      <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white overflow-hidden flex flex-col">
+        <NotificationSystem 
+          notifications={notifications} 
+          onDismiss={dismissNotification} 
+        />
+        
+        {/* Minimal PIP Header */}
+        <div className="bg-black/30 backdrop-blur-sm border-b border-white/10 flex-shrink-0 p-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Layout className="h-4 w-4 text-purple-400" />
+              <span className="text-sm font-medium">PiShock Activity Log</span>
+            </div>
+            <div className="text-xs text-gray-400">
+              {participants.length} participant{participants.length !== 1 ? 's' : ''}
+            </div>
           </div>
+        </div>
+
+        {/* Activity Log Only */}
+        <div className="flex-1 overflow-hidden p-2">
+          <ActivityLog
+            instanceId={instanceId}
+            auth={auth}
+            addNotification={addNotification}
+          />
+        </div>
+
+        {/* Version Indicator - Bottom Right */}
+        <div className="fixed bottom-2 right-2 z-40 bg-black/40 backdrop-blur-sm border border-white/10 rounded px-2 py-1 text-xs">
+          <span className="text-gray-300">
+            {import.meta.env.DEV ? 'dev' : `v${currentVersion.slice(-8)}`} • PIP
+          </span>
         </div>
       </div>
     );
@@ -582,11 +591,20 @@ function MainApp() {
               <div>
                 <h1 className="text-lg font-bold">PiShock Controller</h1>
                 <p className="text-xs text-gray-300">
-                  Discord Activity • {participantCount} participant{participantCount !== 1 ? 's' : ''}
+                  Discord Activity • {participants.length} participant{participants.length !== 1 ? 's' : ''}
                 </p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
+              {layoutMode !== null && (
+                <div className="flex items-center space-x-1 text-xs text-gray-400">
+                  <Layout className="h-3 w-3" />
+                  <span>
+                    {layoutMode === Types.LayoutMode.FOCUSED ? 'Focused' : 
+                     layoutMode === Types.LayoutMode.PIP ? 'PIP' : 'Grid'}
+                  </span>
+                </div>
+              )}
               {instanceId && (
                 <div className="text-xs text-gray-400">
                   Instance: {instanceId.slice(-8)}
