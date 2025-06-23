@@ -47,10 +47,10 @@ async function decrypt(encryptedData: string): Promise<any> {
 
 async function validatePiShockCredentials(apiKey: string, username: string): Promise<{ valid: boolean; userId?: string }> {
   try {
-    console.log('STATUS: Validating PiShock credentials using Legacy API');
+    console.log('STATUS: Validating PiShock credentials using V3 API (auth endpoint)');
     console.log('STATUS: Username:', username);
     
-    // Use exact endpoint from Legacy API documentation
+    // Auth endpoint remains unchanged in V3 API
     const url = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
     
     const response = await fetch(url, {
@@ -169,10 +169,10 @@ async function clearUserStatusCache(kv: KVNamespace, userId: string) {
 
 async function checkUserDevices(userId: string, apiKey: string): Promise<{ hasDevices: boolean; devices?: any[] }> {
   try {
-    console.log('STATUS: Checking user devices using Legacy API');
+    console.log('STATUS: Checking user devices using V3 API');
     console.log('STATUS: User ID:', userId);
     
-    // Use exact endpoint from Legacy API documentation
+    // GetUserDevices endpoint remains in V3 API at ps.pishock.com
     const url = `https://ps.pishock.com/PiShock/GetUserDevices?UserId=${userId}&Token=${encodeURIComponent(apiKey)}&api=true`;
     
     const response = await fetch(url, {
@@ -283,7 +283,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         if (isConnected && credentialValidation.userId) {
           piShockUserId = credentialValidation.userId;
           
-          // Check for devices using Legacy API
+          // Check for devices using V3 API
           const deviceCheck = await checkUserDevices(credentialValidation.userId, creds.apiKey);
           hasDevice = deviceCheck.hasDevices;
           deviceCount = deviceCheck.devices?.length || 0;
