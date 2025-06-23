@@ -3,7 +3,6 @@ import { Notification } from '../components/NotificationSystem';
 
 export function useNotifications() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [recentNotifications, setRecentNotifications] = useState<Set<string>>(new Set());
 
   const addNotification = useCallback((
     type: Notification['type'],
@@ -11,29 +10,18 @@ export function useNotifications() {
     message: string,
     duration: number = 5000
   ) => {
-    // Create a unique key for this notification
-    const notificationKey = `${type}-${title}-${message}`;
-    
-    // Check if this exact notification was recently shown (within last 10 seconds)
-    if (recentNotifications.has(notificationKey)) {
-      return; // Skip duplicate
-    }
-    
     const id = Math.random().toString(36).substr(2, 9);
     
-    // Add to recent notifications set
-    setRecentNotifications(prev => new Set(prev).add(notificationKey));
-    
-    // Remove from recent notifications after 10 seconds
-    setTimeout(() => {
-      setRecentNotifications(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(notificationKey);
-        return newSet;
-      });
-    }, 10000);
-    
+    // Prevent duplicate notifications by checking recent notifications (more robust check)
     setNotifications(prev => {
+      const isDuplicate = prev.some(n => 
+        n.type === type && n.title === title && n.message === message
+      );
+      
+      if (isDuplicate) {
+        return prev; // Don't add duplicate
+      }
+      
       const notification: Notification = { id, type, title, message };
       
       // Auto-dismiss after duration
@@ -43,8 +31,7 @@ export function useNotifications() {
         }, duration);
       }
       
-      // Limit to maximum 3 notifications at once
-      return [...prev.slice(-2), notification];
+      return [...prev, notification];
     });
     
     return id;

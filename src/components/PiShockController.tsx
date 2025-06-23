@@ -118,7 +118,7 @@ export function PiShockController({
     if (currentUser && auth) {
       checkCurrentUserCredentials();
     }
-  }, [currentUser, auth, onConnectionChange]);
+  }, [currentUser, auth]);
 
   // Load settings data when settings panel is opened
   useEffect(() => {
@@ -169,15 +169,9 @@ export function PiShockController({
         }
         
         if (status.hasCredentials && !status.isConnected) {
-          // Only show connection issues in production to reduce dev noise
-          if (!isDevelopmentMode()) {
-            addNotification('warning', 'Connection Issue', 'Your PiShock credentials found but connection failed. Please check your settings.');
-          }
+          addNotification('warning', 'Connection Issue', 'Your PiShock credentials found but connection failed. Please check your settings.');
         } else if (status.isConnected) {
-          // Only show success notifications in production
-          if (!isDevelopmentMode()) {
-            addNotification('success', 'Connected', 'Your PiShock account is connected and ready');
-          }
+          addNotification('success', 'Connected', 'Your PiShock account is connected and ready');
         }
       }
     } catch (error) {
@@ -759,17 +753,17 @@ export function PiShockController({
       </div>
 
       {/* Control Panel */}
-      <div className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 flex-1 flex flex-col min-h-0">
-        <h3 className="text-base sm:text-lg font-semibold mb-4 flex-shrink-0 px-4 pt-4">Control Panel</h3>
+      <div className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex-1 flex flex-col min-h-0">
+        <h3 className="text-base sm:text-lg font-semibold mb-4 flex-shrink-0">Control Panel</h3>
 
         {!selectedUser ? (
-          <div className="text-center py-8 text-gray-400 flex-1 flex flex-col justify-center px-4 pb-4">
+          <div className="text-center py-8 text-gray-400 flex-1 flex flex-col justify-center">
             <AlertTriangle className="h-12 w-12 mx-auto mb-3 opacity-50" />
             <p>Please select a participant to continue</p>
             <p className="text-sm mt-1">Only users with PiShock accounts can be targeted</p>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col space-y-4 min-h-0 px-4 pb-4">
+          <div className="flex-1 flex flex-col space-y-4 min-h-0">
             {/* Target User */}
             <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg flex-shrink-0">
               <div className="flex items-center space-x-3">

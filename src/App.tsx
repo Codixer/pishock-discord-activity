@@ -386,10 +386,7 @@ function MainApp() {
           // Update instance status with initial participant count
           await updateInstanceStatus(initialCount);
 
-          // Only show connection notification in production
-          if (!isDevelopmentMode()) {
-            addNotification('success', 'Connected', 'Successfully connected to Discord');
-          }
+          addNotification('success', 'Connected', 'Successfully connected to Discord');
         } else {
           // Use comprehensive mock data for development environment
           console.log('🔒 DEV MODE: Using mock Discord data');
@@ -405,10 +402,7 @@ function MainApp() {
           // Set mock PiShock status
           setUserPiShockStatus(mockUserPiShockStatus);
           
-          // Show development mode notification only once
-          setTimeout(() => {
-            addNotification('info', 'Development Mode', 'Running in development mode with mock data');
-          }, 1000);
+          addNotification('info', 'Development Mode', 'Running in development mode with mock data');
         }
 
         setLoading(false);
