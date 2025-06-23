@@ -82,7 +82,7 @@ async function getUserDevices(apiKey: string, username: string): Promise<{ hasDe
 
     const userId = authData.UserId;
     
-    const url = `https://ps.pishock.com/PiShock/GetUserDevices?userId=${userId}&token=${encodeURIComponent(apiKey)}&api=true`;
+    const url = `https://ps.pishock.com/PiShock/?userId=${userId}&token=${encodeURIComponent(apiKey)}&api=true`;
     
     const response = await fetch(url, {
       method: 'GET',
