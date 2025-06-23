@@ -326,6 +326,46 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   }
 
   try {
+    if (method === 'GET') {
+      // Get all user data from single key
+      const userDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
+      const userData = userDataStr ? JSON.parse(userDataStr) : null;
+      
+      if (!userData?.credentials) {
+        return jsonResponse({ 
+          hasSettings: false,
+          settings: null
+        });
+      }
+
+      try {
+        const creds = await decrypt(userData.credentials);
+        
+        // Return settings without sensitive data (API key)
+        const settings = {
+          username: creds.username || '',
+          sharecode: creds.sharecode === 'account_access' ? '' : (creds.sharecode || ''),
+          hasOwnDevice: creds.hasOwnDevice || false,
+          maxIntensity: creds.maxIntensity || 100,
+          maxDuration: creds.maxDuration || 15,
+          lastUpdated: userData.lastUpdated,
+          piShockUserId: creds.piShockUserId
+        };
+        
+        return jsonResponse({ 
+          hasSettings: true,
+          settings
+        });
+      } catch (error) {
+        console.error('Failed to decrypt user settings:', error);
+        return jsonResponse({ 
+          hasSettings: false,
+          settings: null,
+          error: 'Failed to load settings'
+        });
+      }
+    }
+
     if (method === 'PUT') {
       const { apiKey, username, sharecode, hasOwnDevice, maxIntensity = 100, maxDuration = 15 } = await request.json();
 
@@ -417,7 +457,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       
       // Encrypt and store credentials
       const credentialsToStore = {
-        apiKey,
+        apiKey: apiKey || (await getExistingApiKey(env.PISHOCK_KV, userId)) || apiKey, // Preserve existing API key if not provided
         username,
         sharecode: finalSharecode,
         hasOwnDevice: actuallyHasDevice,
@@ -487,3 +527,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }, 500);
   }
 };
+// Helper function to get existing API key when updating settings
+async function getExistingApiKey(kv: KVNamespace, userId: string): Promise<string | null> {
+  try {
+    const userDataStr = await kv.get(`user:${userId}:data`);
+    if (!userDataStr) return null;
+    
+    const userData = JSON.parse(userDataStr);
+    if (!userData?.credentials) return null;
+    
+    const creds = await decrypt(userData.credentials);
+    return creds.apiKey || null;
+  } catch (error) {
+    console.error('Failed to get existing API key:', error);
+    return null;
+  }
+}

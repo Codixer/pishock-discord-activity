@@ -46,6 +46,7 @@ export function PiShockController({
   const [showSettings, setShowSettings] = useState(false);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsLoadingData, setSettingsLoadingData] = useState(false);
   const [hasStoredCredentials, setHasStoredCredentials] = useState(false);
   const [currentUserPiShockConnected, setCurrentUserPiShockConnected] = useState(false);
   const [currentUserPiShockUserId, setCurrentUserPiShockUserId] = useState<string>('');
@@ -106,6 +107,12 @@ export function PiShockController({
     }
   }, [currentUser, auth]);
 
+  // Load settings data when settings panel is opened
+  useEffect(() => {
+    if (showSettings && currentUser && auth && hasStoredCredentials) {
+      loadExistingSettings();
+    }
+  }, [showSettings, currentUser, auth, hasStoredCredentials]);
   const checkCurrentUserCredentials = async () => {
     setSettingsLoading(true);
     try {
@@ -145,7 +152,46 @@ export function PiShockController({
     }
   };
 
+  const loadExistingSettings = async () => {
+    if (!currentUser || !auth) return;
 
+    setSettingsLoadingData(true);
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.hasSettings && result.settings) {
+          const settings = result.settings;
+          
+          // Populate form fields with existing data
+          setUsername(settings.username || '');
+          setSharecode(settings.sharecode || '');
+          setHasOwnDevice(settings.hasOwnDevice || false);
+          setUserMaxIntensity(settings.maxIntensity || 100);
+          setUserMaxDuration(settings.maxDuration || 15);
+          
+          console.log('Loaded existing settings:', {
+            username: settings.username,
+            hasOwnDevice: settings.hasOwnDevice,
+            maxIntensity: settings.maxIntensity,
+            maxDuration: settings.maxDuration,
+            lastUpdated: settings.lastUpdated
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load existing settings:', error);
+      // Don't show notification for this - it's not critical
+    } finally {
+      setSettingsLoadingData(false);
+    }
+  };
   const savePiShockSettings = async () => {
     if (!currentUser || !auth) return;
     
@@ -396,7 +442,7 @@ export function PiShockController({
           <div className="flex items-center space-x-3">
             <Settings className="h-5 w-5 text-purple-400" />
             <h3 className="text-base sm:text-lg font-semibold">Your PiShock Settings</h3>
-            {settingsLoading && <Loader className="h-4 w-4 animate-spin text-gray-400" />}
+            {(settingsLoading || settingsLoadingData) && <Loader className="h-4 w-4 animate-spin text-gray-400" />}
           </div>
           <button
             onClick={() => setShowSettings(!showSettings)}
@@ -463,9 +509,23 @@ export function PiShockController({
 
         {showSettings && (
           <div className="space-y-3 mb-4">
+            {settingsLoadingData && (
+              <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg text-sm text-blue-200">
+                <div className="flex items-center space-x-2">
+                  <Loader className="h-4 w-4 animate-spin" />
+                  <span>Loading your existing settings...</span>
+                </div>
+              </div>
+            )}
+            
             <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg text-sm text-blue-200">
               <p className="font-semibold mb-1">Account Setup:</p>
-              <p>Configure your PiShock account to participate. You can use account access even without owning a device.</p>
+              <p>
+                {hasStoredCredentials 
+                  ? "Update your PiShock settings or safety limits. Your current settings are loaded below."
+                  : "Configure your PiShock account to participate. You can use account access even without owning a device."
+                }
+              </p>
             </div>
 
             {/* Device Type Selection */}
@@ -511,9 +571,15 @@ export function PiShockController({
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
+                disabled={settingsLoadingData}
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
-                placeholder="Enter your PiShock API key"
+                placeholder={hasStoredCredentials ? "Leave blank to keep current API key" : "Enter your PiShock API key"}
               />
+              {hasStoredCredentials && (
+                <p className="text-xs text-gray-400 mt-1">
+                  Leave blank to keep your current API key
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -523,6 +589,7 @@ export function PiShockController({
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
+                disabled={settingsLoadingData}
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
                 placeholder="Your PiShock username"
               />
@@ -536,6 +603,7 @@ export function PiShockController({
                   type="text"
                   value={sharecode}
                   onChange={(e) => setSharecode(e.target.value)}
+                  disabled={settingsLoadingData}
                   className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
                   placeholder="Device share code"
                 />
@@ -560,6 +628,7 @@ export function PiShockController({
                   max="100"
                   value={userMaxIntensity}
                   onChange={(e) => setUserMaxIntensity(parseInt(e.target.value))}
+                  disabled={settingsLoadingData}
                   className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
                 />
                 <div className="flex justify-between text-xs text-gray-400 mt-1">
@@ -579,6 +648,7 @@ export function PiShockController({
                   max="15"
                   value={userMaxDuration}
                   onChange={(e) => setUserMaxDuration(parseInt(e.target.value))}
+                  disabled={settingsLoadingData}
                   className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
                 />
                 <div className="flex justify-between text-xs text-gray-400 mt-1">
@@ -591,16 +661,16 @@ export function PiShockController({
             
             <button
               onClick={savePiShockSettings}
-              disabled={settingsSaving}
+              disabled={settingsSaving || settingsLoadingData}
               className="w-full py-2 px-4 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center space-x-2 transition-all text-sm"
             >
-              {settingsSaving ? (
+              {(settingsSaving || settingsLoadingData) ? (
                 <Loader className="h-4 w-4 animate-spin" />
               ) : (
                 <Save className="h-4 w-4" />
               )}
               <span>
-                Save & Test Connection
+                {settingsLoadingData ? 'Loading...' : 'Save & Test Connection'}
               </span>
             </button>
           </div>
