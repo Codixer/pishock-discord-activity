@@ -411,25 +411,69 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         bannedExecutors = []
       } = await request.json();
 
+      console.log('SETTINGS API: PUT request received with fields:', {
+        hasApiKey: !!apiKey,
+        hasUsername: !!username,
+        hasSharecode: !!sharecode,
+        maxIntensity,
+        maxDuration,
+        bannedExecutorsCount: Array.isArray(bannedExecutors) ? bannedExecutors.length : 'not-array'
+      });
+
       // Get existing user data to check if this is an update
       const existingUserDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
       const existingUserData = existingUserDataStr ? JSON.parse(existingUserDataStr) : null;
       const isExistingUser = !!existingUserData?.credentials;
       
-      // For new users, all fields are required
-      // For existing users, API key is optional (will preserve existing if not provided)
-      if (!isExistingUser && (!apiKey || !username || !sharecode)) {
-        return jsonResponse({ 
-          success: false, 
-          error: 'Missing required fields: API Key, Username, and Share Code are all required' 
-        }, 400);
-      }
+      // Check if this is a ban-list-only update
+      const isBanListOnlyUpdate = !apiKey && !username && !sharecode && 
+                                 Array.isArray(bannedExecutors) && 
+                                 isExistingUser;
       
-      if (!username || !sharecode) {
+      console.log('SETTINGS API: Update type analysis:', {
+        isExistingUser,
+        isBanListOnlyUpdate,
+        hasCredentialFields: !!(apiKey || username || sharecode)
+      });
+      
+      if (isBanListOnlyUpdate) {
+        console.log('SETTINGS API: Processing ban list only update');
+        
+        // Update only the banned executors list
+        const updatedUserData = {
+          ...existingUserData,
+          bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : [],
+          lastUpdated: new Date().toISOString()
+        };
+        
+        await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(updatedUserData));
+        
+        console.log('SETTINGS API: ✓ Ban list updated successfully');
+        
         return jsonResponse({ 
-          success: false, 
-          error: 'Username and Share Code are required' 
-        }, 400);
+          success: true,
+          banListUpdated: true,
+          bannedExecutors: updatedUserData.bannedExecutors
+        });
+      } else {
+        // Full credential update - validate required fields
+        console.log('SETTINGS API: Processing full credential update');
+        
+        // For new users, all fields are required
+        // For existing users, API key is optional (will preserve existing if not provided)
+        if (!isExistingUser && (!apiKey || !username || !sharecode)) {
+          return jsonResponse({ 
+            success: false, 
+            error: 'Missing required fields: API Key, Username, and Share Code are all required' 
+          }, 400);
+        }
+        
+        if (!username || !sharecode) {
+          return jsonResponse({ 
+            success: false, 
+            error: 'Username and Share Code are required' 
+          }, 400);
+        }
       }
       
       // Get existing API key if not provided in request

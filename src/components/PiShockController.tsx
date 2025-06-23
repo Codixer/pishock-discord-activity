@@ -126,6 +126,38 @@ export function PiShockController({
     }
   }, [showSettings, currentUser, auth]);
 
+  // Auto-save ban list whenever it changes
+  useEffect(() => {
+    if (currentUser && auth && bannedExecutors.length >= 0) {
+      // Debounce the save to avoid excessive API calls
+      const saveTimeout = setTimeout(async () => {
+        try {
+          console.log('BAN_MANAGEMENT: Auto-saving ban list:', bannedExecutors);
+          
+          await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${auth.access_token}`,
+            },
+            body: JSON.stringify({
+              // Only send the banned executors to update that field
+              bannedExecutors,
+              // Keep existing other settings by not providing them (backend will preserve)
+            }),
+          });
+          
+          console.log('BAN_MANAGEMENT: ✓ Ban list saved successfully');
+        } catch (error) {
+          console.error('BAN_MANAGEMENT: Failed to save ban list:', error);
+          // Silently fail - user will see the change in UI immediately
+        }
+      }, 1000); // 1 second debounce
+      
+      return () => clearTimeout(saveTimeout);
+    }
+  }, [bannedExecutors, currentUser, auth]);
+
   const checkCurrentUserCredentials = async () => {
     console.log('STATUS: Checking current user credentials for:', currentUser?.id);
     
@@ -441,11 +473,9 @@ export function PiShockController({
         if (error.message.includes('Invalid parameters')) {
           errorMessage = 'Invalid shock parameters. Please check intensity and duration settings.';
         } else if (error.message.includes('exceeds target user\'s maximum')) {
-              bannedExecutors: bannedList
+          errorMessage = `Command intensity or duration exceeds the target user's maximum limits.`;
         } else {
           errorMessage = `Command failed: ${error.message}`;
-        } else {
-          console.log('BAN_MANAGEMENT: No ban list found in response');
         }
       }
       
@@ -702,7 +732,7 @@ export function PiShockController({
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
                 placeholder="Device share code (required to receive commands)"
               />
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-gray-400  mt-1">
                 Your PiShock device share code is required to receive commands from other users
               </p>
             </div>
