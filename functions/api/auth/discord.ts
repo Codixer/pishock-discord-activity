@@ -47,6 +47,24 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return jsonResponse({ error: 'Missing code or instanceId' }, 400);
     }
 
+    // Check instance status before allowing authentication
+    try {
+      const instanceStatusData = await env.PISHOCK_KV.get(`instance:${instanceId}:status`);
+      if (instanceStatusData) {
+        const instanceStatus = JSON.parse(instanceStatusData);
+        if (instanceStatus.status === 'inactive') {
+          console.log(`Authentication blocked for inactive instance: ${instanceId}`);
+          return jsonResponse({ 
+            error: 'This Discord Activity session has ended. Please start a new session.',
+            instanceExpired: true
+          }, 403);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to check instance status:', error);
+      // Continue with authentication if status check fails
+    }
+
     // Exchange code for token
     const params = new URLSearchParams();
     params.append('client_id', env.DISCORD_CLIENT_ID);
@@ -95,6 +113,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       env.PISHOCK_KV.put(`discord_user:${user.id}`, JSON.stringify(user), {
         expirationTtl: 3600 // 1 hour
       }),
+      // Mark instance as active when user successfully authenticates
+      env.PISHOCK_KV.put(`instance:${instanceId}:status`, JSON.stringify({
+        status: 'active',
+        last_activity: new Date().toISOString(),
+        participant_count: 1, // This will be updated when participants are fetched
+        created_at: new Date().toISOString(),
+        last_authenticated_user: user.id
+      }), { expirationTtl: 604800 }) // 7 days
     ]);
 
     return jsonResponse({ access_token, user });
