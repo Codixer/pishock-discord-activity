@@ -320,6 +320,17 @@ export function PiShockController({
       return;
     }
 
+    // Check if selected user has PiShock configured
+    const userStatus = (window as any).userPiShockStatus?.[selectedUser.id];
+    if (!userStatus?.isConnected) {
+      const displayName = getDisplayName(selectedUser);
+      addNotification(
+        'error', 
+        'PiShock Setup Required', 
+        `${displayName} needs to configure their PiShock device first.\n\nThey should:\n1. Open app settings (gear icon)\n2. Add their PiShock credentials\n3. Test the connection\n\nOnly users with configured devices can receive commands.`
+      );
+      return;
+    }
     if (!currentUserPiShockConnected && !useRelayAccount) {
       addNotification('warning', 'Not Connected', 'Please connect your PiShock account first');
       return;
@@ -721,8 +732,19 @@ export function PiShockController({
                     <span className="font-semibold">Target:</span> {getDisplayName(selectedUser)}
                   </p>
                   <p className="text-xs text-blue-400">
-                    Commands will be sent {useRelayAccount ? 'via relay account' : 'through their PiShock account'}
+                    {(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected 
+                      ? `Commands will be sent ${useRelayAccount ? 'via relay account' : 'through their PiShock account'}`
+                      : 'User needs to configure PiShock first'
+                    }
                   </p>
+                </div>
+                {/* Status indicator */}
+                <div className="flex-shrink-0">
+                  {(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected ? (
+                    <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                  ) : (
+                    <div className="w-2 h-2 bg-red-400 rounded-full"></div>
+                  )}
                 </div>
               </div>
             </div>

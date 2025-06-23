@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, User, Crown, Zap, ZapOff, Smartphone, Lock } from 'lucide-react';
+import { Users, User, Crown, Zap, ZapOff, Smartphone, Lock, AlertTriangle } from 'lucide-react';
 import { InstanceData } from '../hooks/useInstanceData';
 
 interface UserSelectorProps {
@@ -157,11 +157,12 @@ export function UserSelector({
                           disabled={isDisabled}
                           className={`w-full p-3 rounded-lg border transition-all text-left ${
                             isDisabled
-                              ? 'bg-gray-800/30 border-gray-600/30 opacity-50 cursor-not-allowed'
+                              ? 'bg-gray-800/30 border-gray-600/30 opacity-60 cursor-not-allowed'
                               : selectedUser?.id === member.id
                               ? 'bg-purple-600/20 border-purple-500/50 ring-2 ring-purple-500/20'
                               : 'bg-gray-800/50 border-gray-600/50 hover:bg-gray-700/50 hover:border-gray-500/50'
                           }`}
+                          title={isDisabled ? `${getDisplayName(member)} needs to configure their PiShock device before receiving commands` : ''}
                         >
                           <div className="flex items-center space-x-2 sm:space-x-3">
                             <img
@@ -207,13 +208,20 @@ export function UserSelector({
                                   </div>
                                 ) : (
                                   <div className="flex items-center space-x-1 text-xs text-gray-400">
-                                    <span>❌</span>
+                                    <span>🚫</span>
                                     <ZapOff className="h-3 w-3" />
-                                    <span className="hidden sm:inline">No PiShock</span>
-                                    <span className="sm:hidden">None</span>
+                                    <span className="hidden sm:inline">Setup Required</span>
+                                    <span className="sm:hidden">Setup Needed</span>
                                   </div>
                                 )}
                                 </div>
+                                {/* Show setup instructions for users without PiShock */}
+                                {!isConnected && !hasCredentials && (
+                                  <div className="text-xs text-red-300 mt-1">
+                                    <span className="hidden sm:inline">Needs to configure PiShock credentials</span>
+                                    <span className="sm:hidden">Setup needed</span>
+                                  </div>
+                                )}
                                 {/* Show device limits if they exist */}
                                 {userStatus?.maxIntensity < 100 || userStatus?.maxDuration < 15 ? (
                                   <div className="text-xs text-yellow-400">
@@ -235,6 +243,11 @@ export function UserSelector({
                             {selectedUser?.id === member.id && !isDisabled && (
                               <div className="w-2 h-2 bg-purple-400 rounded-full flex-shrink-0"></div>
                             )}
+                            {isDisabled && (
+                              <div className="flex items-center space-x-1 text-red-400">
+                                <ZapOff className="h-3 w-3" />
+                              </div>
+                            )}
                           </div>
                         </button>
                       );
@@ -248,6 +261,19 @@ export function UserSelector({
                   <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
                   <p className="text-xs sm:text-sm">You're the only participant</p>
                   <p className="text-xs mt-1">Invite others to join the activity!</p>
+                </div>
+              )}
+              
+              {/* Show setup help if no users have PiShock configured */}
+              {otherParticipants.length > 0 && otherParticipants.every(member => !userPiShockStatus[member.id]?.isConnected) && (
+                <div className="mt-4 p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
+                  <div className="flex items-start space-x-2">
+                    <AlertTriangle className="h-4 w-4 text-yellow-400 flex-shrink-0 mt-0.5" />
+                    <div className="text-xs text-yellow-200">
+                      <p className="font-semibold mb-1">No PiShock Devices Available</p>
+                      <p>Participants need to configure their PiShock credentials in the settings panel (gear icon) before they can receive commands.</p>
+                    </div>
+                  </div>
                 </div>
               )}
             </>
