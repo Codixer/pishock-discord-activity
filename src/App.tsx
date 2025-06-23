@@ -512,7 +512,6 @@ function MainApp() {
               To continue using PiShock Controller, please start a new Discord Activity session from your Discord server or DM.
             </p>
           </div>
-          </p>
         </div>
       </div>
     );
