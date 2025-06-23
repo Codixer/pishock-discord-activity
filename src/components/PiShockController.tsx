@@ -572,7 +572,7 @@ export function PiShockController({
   const status = getConnectionStatus();
 
   return (
-    <div className="h-full flex flex-col space-y-4">
+    <div className="h-full flex flex-col space-y-4 overflow-y-auto">
       {/* Settings Panel */}
       {!isPipMode && (
         <div className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex-shrink-0">
@@ -868,7 +868,7 @@ export function PiShockController({
       )}
 
       {/* Control Panel */}
-      <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex-1 flex flex-col min-h-0 overflow-y-auto ${isPipMode ? 'p-2' : ''}`}>
+      <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex-1 flex flex-col min-h-0 ${isPipMode ? 'p-2' : ''}`}>
         {!isPipMode && <h3 className="text-base sm:text-lg font-semibold mb-4 flex-shrink-0">Control Panel</h3>}
 
         {!selectedUser ? (
