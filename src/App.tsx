@@ -13,8 +13,6 @@ import { TermsOfService } from './components/TermsOfService';
 import { useNotifications } from './hooks/useNotifications';
 import { useInstanceData } from './hooks/useInstanceData';
 import { useParticipants } from './hooks/useParticipants';
-import { useVersionCheck } from './hooks/useVersionCheck';
-import { VersionWarning } from './components/VersionWarning';
 
 // Global function to refresh user statuses
 declare global {
@@ -108,27 +106,6 @@ function MainApp() {
   // Custom hooks for managing instance data and participants
   const { instanceData, updateInstanceData } = useInstanceData(instanceId);
   const { participants, updateParticipants } = useParticipants(discordSdk, isEmbedded);
-  
-  // Version checking and session management
-  const {
-    isOutdated,
-    isChecking,
-    isShuttingDown,
-    timeRemaining,
-    forceShutdown,
-    checkVersion
-  } = useVersionCheck({
-    currentVersion,
-    onOutdated: (remaining) => {
-      console.log('Version outdated warning, time remaining:', remaining);
-    },
-    onShutdown: () => {
-      console.log('Shutting down due to version mismatch');
-      // Gracefully handle shutdown
-      handleGracefulShutdown();
-    },
-    addNotification
-  });
 
   // Graceful shutdown handler
   const handleGracefulShutdown = useCallback(() => {
@@ -143,15 +120,7 @@ function MainApp() {
       }
     }
     
-    // Clear any running intervals
-    if (window.refreshAllUserStatuses) {
-      window.refreshAllUserStatuses = undefined;
-    }
-    
-    // Add a brief delay then reload to ensure cleanup
-    setTimeout(() => {
-      window.location.href = window.location.href; // Hard refresh
-    }, 500);
+    console.log('Graceful shutdown completed');
   }, [isEmbedded, updateParticipants]);
 
   // Show Discord-only message for direct visits
@@ -736,41 +705,15 @@ function MainApp() {
         </div>
       </div>
       
-      {/* Version Warning Modal */}
-      {isOutdated && isShuttingDown && !import.meta.env.DEV && (
-        <VersionWarning
-          timeRemaining={timeRemaining}
-          onForceShutdown={forceShutdown}
-          onRefresh={handleGracefulShutdown}
-        />
-      )}
-      
       {/* Version Indicator - Bottom Right */}
-      <button
-        onClick={checkVersion}
-        disabled={isChecking}
-        className="fixed bottom-4 right-4 z-40 flex items-center space-x-2 bg-black/40 backdrop-blur-sm border border-white/10 rounded-lg px-3 py-2 text-xs hover:bg-black/60 transition-colors cursor-pointer disabled:cursor-not-allowed"
-        title={isChecking ? "Checking for updates..." : "Click to check for updates"}
-      >
+      <div className="fixed bottom-4 right-4 z-40 flex items-center space-x-2 bg-black/40 backdrop-blur-sm border border-white/10 rounded-lg px-3 py-2 text-xs">
         <div className="flex items-center space-x-2">
-          <div className={`w-2 h-2 rounded-full ${
-            isShuttingDown ? 'bg-yellow-400 animate-pulse' : 
-            isChecking ? 'bg-blue-400 animate-pulse' : 
-            'bg-green-400'
-          }`}></div>
+          <div className="w-2 h-2 rounded-full bg-green-400"></div>
           <span className="text-gray-300 font-medium">
-            {import.meta.env.DEV ? 'dev' : `${currentVersion.slice(0, 5)}${currentVersion.slice(-8)}`}
+            {import.meta.env.DEV ? 'dev' : `v${currentVersion.slice(-8)}`}
           </span>
-          {isChecking && (
-            <div className="animate-spin rounded-full h-3 w-3 border-b border-gray-300"></div>
-          )}
         </div>
-        {isShuttingDown && (
-          <span className="text-yellow-400 animate-pulse font-semibold ml-2">
-            {Math.floor(timeRemaining / 60)}:{(timeRemaining % 60).toString().padStart(2, '0')}
-          </span>
-        )}
-      </button>
+      </div>
     </div>
   );
 }
