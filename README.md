@@ -1,291 +1,398 @@
-# PiShock Discord Activity (Cloudflare Workers)
+# PiShock Discord Activity
 
-A Discord Activity application for controlling PiShock devices in a multiplayer environment, deployed on Cloudflare Workers.
+A Discord Activity application that enables consensual control of PiShock electrical devices in a multiplayer Discord environment. This application provides a safe, transparent, and accountable way for Discord users to interact with PiShock devices through a purpose-built interface.
 
-## Features
+## ⚠️ **CRITICAL SAFETY WARNING** ⚠️
 
-- Discord Activity integration with multiplayer support
-- Real-time participant management
-- PiShock device control (shock, vibrate, beep)
-- Instance-based data persistence
-- Safety warnings and consent mechanisms
-- Audit logging for all actions
+**This application controls electrical shock devices that can cause physical harm, injury, or death if misused.**
 
-## 🚀 Deployment (Cloudflare Workers)
+- **Age Requirement**: You must be 18+ to use this application
+- **Explicit Consent**: Only use with explicit, informed consent from all participants
+- **Safety First**: Always start with lowest intensity settings and establish safe words
+- **Legal Compliance**: Ensure compliance with all local laws and regulations
+- **Personal Responsibility**: Users assume all risks and responsibility for safe use
 
-This project deploys directly to Cloudflare Workers using Wrangler CLI.
+## What This Application Does
 
-### Prerequisites
+- **Discord Integration**: Runs as a native Discord Activity in voice channels or DMs
+- **Device Control**: Send shock, vibrate, and beep commands to PiShock devices
+- **Multiplayer Support**: Multiple users can participate with their own devices
+- **Safety Features**: User-configurable limits, activity logging, and consent mechanisms
+- **Session Management**: 6-hour session limits with automatic cleanup
+- **Real-time Updates**: Live participant list and activity feed
+- **Transparency**: All actions are publicly logged for accountability
 
-- Node.js 18+
-- Discord Application with Activity configured
-- Cloudflare account with Workers and KV namespace
-- Wrangler CLI (included in devDependencies)
+## Architecture Overview
 
-### Environment Variable Setup for Workers
-
-**🎯 QUICK FIX: Use the Automated Deploy Script**
-
-```bash
-# Set your Discord Client ID and deploy automatically
-export DISCORD_CLIENT_ID="your_actual_discord_client_id_here"
-npm run deploy:auto
+```
+Discord Client → Discord Activity → Cloudflare Workers → PiShock API
+                     ↓
+                 KV Storage (user data, activity logs)
+                     ↓
+                 Instance Management & Verification
 ```
 
-**Option 1: Set in Workers Dashboard**
+## Prerequisites
 
-1. **Go to Cloudflare Workers Dashboard**:
-   - Navigate to `Workers & Pages` → Your worker → `Settings` → `Variables and Secrets`
+Before setting up your own instance, you'll need:
 
-2. **Add Environment Variables**:
+### Required Accounts & Services
+1. **Discord Developer Account** - For creating the Discord Application
+2. **Cloudflare Account** - For hosting the application (Free tier sufficient)
+3. **PiShock Account** - For device API access (users need their own accounts)
+4. **Node.js 18+** - For building and deploying the application
+
+### Required Knowledge
+- Basic understanding of Discord Applications and Activities
+- Familiarity with environment variables and command line tools
+- Understanding of the safety implications of electrical shock devices
+
+---
+
+## Setup Instructions
+
+### Step 1: Discord Application Setup
+
+#### 1.1 Create Discord Application
+1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
+2. Click "New Application" and give it a name (e.g., "PiShock Controller")
+3. Note down your **Application ID** (you'll need this as `DISCORD_CLIENT_ID`)
+
+#### 1.2 Configure OAuth2
+1. In your Discord Application, go to **OAuth2 → General**
+2. Add these Redirect URIs:
    ```
-   DISCORD_CLIENT_SECRET = your_discord_client_secret
-   PISHOCK_RELAY_API_KEY = your_relay_api_key (optional)
-   PISHOCK_RELAY_USERNAME = your_relay_username (optional)
-   # Note: Relay accounts use account-only access, no sharecode needed
+   https://your-domain.pages.dev/
+   https://your-domain.pages.dev/auth/callback
    ```
+3. Under **Scopes**, ensure these are available:
+   - `identify`
+   - `guilds`
+   - `guilds.members.read`
+   - `rpc.activities.write`
 
-3. **For build-time variables**, you have two options:
+#### 1.3 Create Discord Bot
+1. Go to **Bot** section in your Discord Application
+2. Click "Add Bot" if not already created
+3. Copy the **Bot Token** (you'll need this as `DISCORD_BOT_TOKEN`)
+4. Enable these **Privileged Gateway Intents**:
+   - Server Members Intent
+   - Message Content Intent
 
-**Option 2A: Deploy with Environment Variables**
+#### 1.4 Configure Discord Activity
+1. Go to **Activities** in your Discord Application
+2. Click "Add Activity" or configure existing
+3. Set the **Activity URL** to: `https://your-domain.pages.dev`
+4. Configure **Activity Details**:
+   - **Name**: "PiShock Controller"
+   - **Description**: "Consensual PiShock device control in Discord"
+   - **Tags**: Add relevant tags like "social", "utility"
 
+### Step 2: Cloudflare Workers Setup
+
+#### 2.1 Clone and Setup Repository
 ```bash
-# Set your Discord Client ID as environment variable locally
-export DISCORD_CLIENT_ID="your_actual_discord_client_id_here"
+# Clone the repository
+git clone <your-repo-url>
+cd pishock-discord-activity
 
-# Deploy with the variable
-npm run deploy:with-env
+# Install dependencies
+npm install
+
+# Login to Cloudflare (if not already done)
+npx wrangler login
 ```
 
-**Option 2B: Use Local .env File**
-
+#### 2.2 Create KV Namespace
 ```bash
-# Create .env file
-echo "VITE_DISCORD_CLIENT_ID=your_actual_discord_client_id_here" > .env
+# Create production KV namespace
+npx wrangler kv:namespace create "PISHOCK_KV"
 
-# Build locally (picks up .env)
-npm run build
+# Create preview KV namespace  
+npx wrangler kv:namespace create "PISHOCK_KV" --preview
 
-# Deploy the built version
-npm run workers:deploy
+# Note down the returned namespace IDs
 ```
 
-### Direct Cloudflare Workers Deployment
-
-1. **Install dependencies**:
-   ```bash
-   npm install
-   ```
-
-2. **Login to Cloudflare**:
-   ```bash
-   npx wrangler login
-   ```
-
-3. **Deploy with environment variables**:
-   ```bash
-   # Method 1: Set locally and deploy
-   export DISCORD_CLIENT_ID="your_actual_client_id_here"
-   npm run deploy:auto
-   
-   # Method 2: Use .env file
-   echo "VITE_DISCORD_CLIENT_ID=your_actual_client_id_here" > .env
-   npm run deploy
-   
-   # Method 3: One-liner with environment variable
-   DISCORD_CLIENT_ID="your_actual_client_id_here" npm run deploy:auto
-   ```
-
-### Verify Environment Variables
-
-After deployment, check the browser console:
-
-```javascript
-// Should show your actual Discord Client ID
-Environment check: {
-  client_id: "your_actual_client_id_here", // ✅ Your real ID
-  env_keys: ["VITE_DISCORD_CLIENT_ID"] // ✅ Variable found
+#### 2.3 Configure wrangler.jsonc
+Update the KV namespace IDs in `wrangler.jsonc`:
+```jsonc
+{
+  "kv_namespaces": [
+    {
+      "binding": "PISHOCK_KV",
+      "id": "your_production_namespace_id_here",
+      "preview_id": "your_preview_namespace_id_here"
+    }
+  ]
 }
 ```
 
-### Worker Environment Variables vs Build Variables
+### Step 3: Environment Variables Configuration
 
-| Variable Type | Purpose | Set Where | When Available |
-|---------------|---------|-----------|----------------|
-| `VITE_*` | Build-time (React app) | Local `.env` or deploy command | Build time only |
-| Regular vars | Runtime (Worker functions) | Workers Dashboard or `wrangler.jsonc` | Runtime only |
+#### 3.1 Build-time Variables (Required for frontend)
+Create a `.env` file in the project root:
+```env
+# Discord Application ID (public, safe for frontend)
+VITE_DISCORD_CLIENT_ID=your_discord_application_id_here
+```
 
-### 🚨 Security Warning: VITE_ Variables
+#### 3.2 Runtime Variables (Required for backend functions)
+Set these in **Cloudflare Workers Dashboard** → Your Worker → **Settings** → **Variables**:
 
-**CRITICAL**: Never use `VITE_` prefix for sensitive data!
+```
+DISCORD_BOT_TOKEN = your_discord_bot_token_here
+```
 
-| ✅ **Safe for VITE_** | ❌ **Never use VITE_ for** |
-|----------------------|---------------------------|
-| Public Discord Client ID | PiShock API keys |
-| Public API endpoints | Database credentials |
-| Feature flags | Authentication secrets |
-| Theme settings | Private tokens |
+**Security Note**: Never use `VITE_` prefix for sensitive data like bot tokens!
 
-**Why?** Vite bundles all `VITE_*` variables into the frontend JavaScript, making them visible in the browser.
+### Step 4: Build and Deploy
 
-## Development
-
-### Local Development
-
-1. **Clone and install**:
-   ```bash
-   git clone <repository>
-   cd pishock-discord-activity
-   npm install
-   ```
-
-2. **Configure environment**:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your Discord credentials
-   ```
-
-3. **Start development servers**:
-   ```bash
-   npm run dev          # Frontend development (Vite)
-   npm run workers:dev  # Full Workers development with backend
-   ```
-
-### Project Scripts
-
-- `npm run dev` - Start Vite development server
-- `npm run build` - Build project with Pages Functions compilation
-- `npm run deploy` - Build and deploy to Cloudflare Workers
-- `npm run deploy:with-env` - Deploy with environment variables from shell
-- `npm run workers:dev` - Local Workers development environment
-- `npm run workers:deploy` - Deploy to Workers (build first)
-- `npm run lint` - Run ESLint
-- `npm run type-check` - TypeScript type checking
-
-### KV Namespace Setup
-
-The KV namespace is configured in `wrangler.jsonc`. To create a new one:
-
+#### 4.1 Build the Application
 ```bash
-npx wrangler kv:namespace create "PISHOCK_KV"
-npx wrangler kv:namespace create "PISHOCK_KV" --preview
+# Build with environment variables
+npm run build
 ```
 
-Update the namespace IDs in `wrangler.jsonc` with the returned values.
-
-## Configuration
-
-### Discord Application Setup
-
-1. Create a Discord Application at https://discord.com/developers/applications
-2. Configure the Activity:
-   - Set the Activity URL to your Cloudflare Worker domain
-   - Add required OAuth2 scopes: `identify`, `guilds`, `guilds.members.read`, `rpc.activities.write`
-3. Set your Discord Client ID in environment variables for deployment
-
-### Worker Environment Variables
-
-Set these in Cloudflare Workers Dashboard → Settings → Variables and Secrets:
-
-```
-DISCORD_CLIENT_SECRET = your_discord_client_secret_here
-PISHOCK_RELAY_API_KEY = your_relay_api_key (optional)
-PISHOCK_RELAY_USERNAME = your_relay_username (optional)
-# Note: Relay accounts use account-only access, no sharecode needed
-```
-
-## Architecture
-
-### Cloudflare Workers
-
-This project uses:
-- **Workers**: Server-side logic (compiled from Pages Functions)
-- **KV Storage**: User credentials and activity logs
-- **Assets**: Static file serving for the React frontend
-
-### API Endpoints
-
-- `POST /api/auth/discord` - Discord OAuth2 token exchange
-- `GET/PUT /api/instances/{instanceId}/data` - Instance data management
-- `GET/PUT /api/instances/{instanceId}/pishock-settings` - PiShock configuration
-- `POST /api/activity-log` - Activity logging
-- `POST /api/users/{userId}/pishock-execute` - Execute PiShock commands
-- `GET /api/discord/guilds/{guildId}/members/{userId}` - Guild member data
-
-## Deployment Examples
-
-### Example 1: Simple Deployment
-
+#### 4.2 Deploy to Cloudflare Workers
 ```bash
-# Set environment variable locally
-export DISCORD_CLIENT_ID="your_actual_client_id_here"
+# Deploy to production
+npm run workers:deploy
+```
 
-# Deploy with the variable
+#### 4.3 Automated Deployment (Recommended)
+```bash
+# Set environment variable and deploy in one command
+export DISCORD_CLIENT_ID="your_discord_application_id_here"
 npm run deploy:auto
 ```
 
-### Example 2: Using .env File
+### Step 5: Discord Activity Registration
 
+#### 5.1 Update Activity URL
+In Discord Developer Portal → Your Application → Activities:
+1. Update **Activity URL** to your deployed Cloudflare domain:
+   ```
+   https://your-worker-name.your-subdomain.workers.dev
+   ```
+
+#### 5.2 Test Activity in Discord
+1. Go to a Discord voice channel or DM
+2. Click the Activities button (rocket ship icon)
+3. Your "PiShock Controller" should appear in the list
+4. Click to launch and test the application
+
+---
+
+## User Setup Guide
+
+### For Application Users (Not Developers)
+
+#### Step 1: PiShock Account Setup
+1. Create a PiShock account at [pishock.com](https://pishock.com)
+2. Get your devices and note their share codes
+3. Obtain your API key from PiShock account settings
+
+#### Step 2: Using the Discord Activity
+1. Join a Discord voice channel where the activity is available
+2. Click the Activities button and select "PiShock Controller"
+3. Accept the safety warnings (read them carefully!)
+4. Configure your PiShock credentials in the settings panel:
+   - **API Key**: Your PiShock API key
+   - **Username**: Your PiShock username  
+   - **Share Code**: Device share code for receiving commands
+   - **Safety Limits**: Set your maximum intensity and duration
+5. Test your connection to ensure everything works
+6. Select other participants to send commands to (with their consent!)
+
+---
+
+## Development
+
+### Local Development Setup
 ```bash
-# Create .env file
-cat > .env << EOF
-VITE_DISCORD_CLIENT_ID=your_actual_client_id_here
-EOF
+# Install dependencies
+npm install
 
-# Build and deploy
-npm run deploy
+# Start development server (frontend only)
+npm run dev
+
+# Start full development environment (frontend + workers)
+npm run workers:dev
 ```
 
-### Example 3: CI/CD Pipeline
-
-```bash
-# In your CI/CD pipeline
-wrangler deploy --var VITE_DISCORD_CLIENT_ID:$DISCORD_CLIENT_ID
+### Environment Setup for Development
+Create `.env` file:
+```env
+VITE_DISCORD_CLIENT_ID=your_discord_application_id_here
 ```
+
+### Development vs Production
+
+| Environment | Data Source | Authentication | Limitations |
+|-------------|-------------|----------------|-------------|
+| **Development** | Mock data | Simulated | No real PiShock control |
+| **Production** | Discord API | OAuth2 | Full functionality |
+
+---
+
+## Security & Safety Features
+
+### Built-in Safety Mechanisms
+- **Explicit Consent**: Safety warnings must be acknowledged before use
+- **Activity Logging**: All device commands are publicly logged with timestamps
+- **User Limits**: Each user sets their own maximum intensity and duration
+- **Session Timeouts**: 6-hour maximum session duration
+- **Instance Verification**: Sessions verified against Discord's API
+- **Encrypted Storage**: All PiShock credentials encrypted in storage
+
+### Data Protection
+- **KV Storage**: All data stored in Cloudflare KV with automatic expiration
+- **No Logging**: Sensitive data not logged in application logs
+- **User Control**: Users can remove their credentials at any time
+- **Transparency**: Privacy policy and terms clearly outlined
+
+---
+
+## Configuration Reference
+
+### Environment Variables
+
+| Variable | Type | Required | Description |
+|----------|------|----------|-------------|
+| `VITE_DISCORD_CLIENT_ID` | Build | Yes | Discord Application ID (public) |
+| `DISCORD_BOT_TOKEN` | Runtime | Yes | Discord Bot Token (sensitive) |
+
+### KV Storage Structure
+```
+instance:{instanceId}:status          - Instance validity and metadata
+instance_data:{instanceId}            - Instance-specific application data  
+user:{userId}:data                    - User PiShock credentials (encrypted)
+activity:batch:{date}                 - Activity logs grouped by date
+discord_user:{userId}                 - Cached Discord user information
+app:latest_version                    - Version tracking for updates
+```
+
+### Session Management
+- **Instance Lifetime**: 6 hours maximum
+- **Data Retention**: Activity logs kept for 30 days
+- **Auto-cleanup**: Expired data automatically removed
+- **Version Updates**: Automatic session closure on app updates
+
+---
+
+## API Endpoints
+
+### Public Endpoints
+- `GET /api/version` - Application version information
+- `GET /api/verify-instance` - Instance validation
+
+### Authenticated Endpoints (Require Discord OAuth)
+- `POST /api/auth/discord` - Discord authentication
+- `GET/PUT /api/users/{userId}/pishock-*` - User PiShock management
+- `POST /api/users/{userId}/pishock-execute` - Execute PiShock commands
+- `GET /api/activity-log` - Retrieve activity history
+- `GET /api/discord/guilds/{guildId}/members/{userId}` - Guild member data
+
+---
 
 ## Troubleshooting
 
-### Environment Variable Issues
+### Common Issues
 
-**Problem**: `client_id: undefined`
+#### "Invalid Session" Error
+**Cause**: Instance not found in Discord or expired (6+ hours)
+**Solution**: Start a new Discord Activity session
 
-**Solutions**:
-
-1. **Check your build environment**:
-   ```bash
-   # Verify the variable is set
-   echo $DISCORD_CLIENT_ID
-   
-   # Or create .env file
-   echo "VITE_DISCORD_CLIENT_ID=your_actual_client_id_here" > .env
-   ```
-
-2. **Use the deploy command with variables**:
-   ```bash
-   npm run deploy:auto
-   ```
-
-3. **Check Workers Dashboard**:
-   - Go to your worker → Settings → Variables and Secrets
-   - Ensure runtime variables are set for the Worker functions
-
-### Debug Commands
-
+#### "No Discord Client ID" Error  
+**Cause**: Missing or incorrect `VITE_DISCORD_CLIENT_ID`
+**Solution**: Set the environment variable and rebuild:
 ```bash
-npx wrangler dev --local                    # Local development
-npx wrangler deploy --dry-run              # Validate configuration
-npx wrangler kv:namespace list             # List KV namespaces
-npx wrangler tail                          # Live logs
+export DISCORD_CLIENT_ID="your_application_id"
+npm run deploy:auto
 ```
 
-## Security
+#### PiShock Connection Failed
+**Cause**: Invalid API credentials or device offline
+**Solution**: 
+1. Verify PiShock credentials in account settings
+2. Ensure device is online and connected
+3. Check share code is correct and not expired
 
-- All PiShock credentials are encrypted and stored in Cloudflare KV
-- Instance-based data isolation ensures privacy between Discord activities
-- Comprehensive audit logging tracks all device interactions
-- Safety warnings and consent mechanisms are enforced
-- Rate limiting and authentication on all API endpoints
+#### Workers Deployment Failed
+**Cause**: Missing KV namespace or incorrect configuration
+**Solution**:
+1. Verify KV namespace IDs in `wrangler.jsonc`
+2. Ensure Cloudflare account has Workers access
+3. Check environment variables are set correctly
 
-## License
+### Debug Commands
+```bash
+# Check environment variables
+echo $DISCORD_CLIENT_ID
 
-This project is for educational and consensual use only. Users are responsible for compliance with all applicable laws and regulations.
+# Validate wrangler configuration
+npx wrangler deploy --dry-run
+
+# View worker logs
+npx wrangler tail
+
+# List KV namespaces
+npx wrangler kv:namespace list
+```
+
+### Getting Help
+1. Check the [Discord Developer Documentation](https://discord.com/developers/docs/activities/overview)
+2. Review [Cloudflare Workers documentation](https://developers.cloudflare.com/workers/)
+3. Ensure all safety protocols are being followed
+4. For safety concerns, immediately discontinue use
+
+---
+
+## Legal & Safety Disclaimers
+
+### Terms of Use
+- This application is provided for educational and consensual adult use only
+- Users must be 18+ years of age
+- Explicit consent required from all participants
+- Users assume all risks and responsibility for safe use
+- Must comply with all applicable local laws and regulations
+
+### Liability
+- Developers assume no responsibility for harm, injury, or misuse
+- Users are solely responsible for safe operation of electrical devices
+- Application provided "as-is" without warranties
+- See full Terms of Service and Privacy Policy in application
+
+### Safety Requirements
+- Always start with lowest intensity settings
+- Establish safe words and emergency procedures
+- Never use with individuals who have medical conditions or devices
+- Avoid sensitive body areas and follow PiShock safety guidelines
+- Monitor all participants for consent and comfort
+
+---
+
+## Support & Contributing
+
+### Getting Support
+- Review this documentation thoroughly
+- Check troubleshooting section for common issues
+- Ensure all safety protocols are followed
+- For safety emergencies, discontinue use immediately
+
+### Contributing
+- Follow all safety guidelines when testing
+- Ensure code changes don't bypass safety mechanisms
+- Test thoroughly in development environment
+- Document any new safety considerations
+
+### Code of Conduct
+- Prioritize safety in all development decisions
+- Respect user consent and privacy
+- Follow responsible disclosure for security issues
+- Maintain transparency in all application functions
+
+---
+
+**Remember: Safety is paramount. This application controls electrical devices. Always prioritize user safety, consent, and legal compliance.**
