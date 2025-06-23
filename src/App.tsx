@@ -15,6 +15,7 @@ import { useInstanceData } from './hooks/useInstanceData';
 import { useParticipants } from './hooks/useParticipants';
 import { useVersionCheck } from './hooks/useVersionCheck';
 import { VersionWarning } from './components/VersionWarning';
+import { AdminPanel } from './components/AdminPanel';
 
 // Global function to refresh user statuses
 declare global {
@@ -498,6 +499,13 @@ function MainApp() {
                   Instance: {instanceId.slice(-8)}
                 </div>
               )}
+              {/* Admin Panel - only shows for admin user */}
+              <AdminPanel 
+                auth={auth}
+                currentUser={auth?.user}
+                instanceId={instanceId}
+                addNotification={addNotification}
+              />
               <button
                 onClick={() => navigate('/terms')}
                 className="px-2 py-1 rounded-md bg-gray-700 hover:bg-gray-600 text-xs transition-colors flex items-center space-x-1"
