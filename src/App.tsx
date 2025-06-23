@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
-import { DiscordSDK, Events } from '@discord/embedded-app-sdk';
+import { DiscordSDK, Events, Common } from '@discord/embedded-app-sdk';
 import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText } from 'lucide-react';
 import { PiShockController } from './components/PiShockController';
 import { SafetyWarning } from './components/SafetyWarning';
@@ -97,6 +97,8 @@ function MainApp() {
   const [showActivityLog, setShowActivityLog] = useState(true);
   const [userPiShockStatus, setUserPiShockStatus] = useState<Record<string, any>>({});
   const [isInstanceValid, setIsInstanceValid] = useState(true);
+  const [layoutMode, setLayoutMode] = useState<number>(Common.LayoutModeTypeObject.FOCUSED);
+  const [isPipMode, setIsPipMode] = useState(false);
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
   
@@ -107,6 +109,13 @@ function MainApp() {
   const { instanceData, updateInstanceData } = useInstanceData(instanceId);
   const { participants, updateParticipants } = useParticipants(discordSdk, isEmbedded);
 
+  // Handle layout mode updates
+  const handleLayoutModeUpdate = useCallback((update: { layout_mode: number }) => {
+    console.log('Layout mode update:', update);
+    setLayoutMode(update.layout_mode);
+    setIsPipMode(update.layout_mode === Common.LayoutModeTypeObject.PIP);
+  }, []);
+
   // Graceful shutdown handler
   const handleGracefulShutdown = useCallback(() => {
     console.log('Starting graceful shutdown...');
@@ -115,13 +124,14 @@ function MainApp() {
     if (isEmbedded && discordSdk) {
       try {
         discordSdk.unsubscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
+        discordSdk.unsubscribeFromLayoutModeUpdatesCompat(handleLayoutModeUpdate);
       } catch (error) {
         console.warn('Error unsubscribing from Discord events:', error);
       }
     }
     
     console.log('Graceful shutdown completed');
-  }, [isEmbedded, updateParticipants]);
+  }, [isEmbedded, updateParticipants, handleLayoutModeUpdate]);
 
   // Show Discord-only message for direct visits
   if (isDirectVisit) {
@@ -301,6 +311,26 @@ function MainApp() {
         if (isEmbedded) {
           await discordSdk.ready();
           
+          // Configure orientation for PIP mode
+          try {
+            await discordSdk.commands.setOrientationLockState({
+              lock_state: Common.OrientationLockStateTypeObject.UNLOCKED,
+              picture_in_picture_lock_state: Common.OrientationLockStateTypeObject.LANDSCAPE,
+              grid_lock_state: Common.OrientationLockStateTypeObject.LANDSCAPE,
+            });
+            console.log('✓ Orientation lock state configured for PIP mode');
+          } catch (orientationError) {
+            console.warn('Failed to set orientation lock state:', orientationError);
+          }
+
+          // Subscribe to layout mode updates
+          try {
+            discordSdk.subscribeToLayoutModeUpdatesCompat(handleLayoutModeUpdate);
+            console.log('✓ Subscribed to layout mode updates');
+          } catch (layoutError) {
+            console.warn('Failed to subscribe to layout mode updates:', layoutError);
+          }
+
           // Get instance ID immediately after SDK construction
           const currentInstanceId = discordSdk.instanceId;
           setInstanceId(currentInstanceId);
@@ -431,9 +461,10 @@ function MainApp() {
     return () => {
       if (isEmbedded && discordSdk) {
         discordSdk.unsubscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
+        discordSdk.unsubscribeFromLayoutModeUpdatesCompat(handleLayoutModeUpdate);
       }
     };
-  }, [addNotification, updateParticipants]);
+  }, [addNotification, updateParticipants, handleLayoutModeUpdate]);
 
   // Load instance data when instanceId changes
   useEffect(() => {
@@ -576,6 +607,82 @@ function MainApp() {
     );
   }
 
+  // Render minimal PIP interface
+  if (isPipMode) {
+    console.log('Rendering PIP mode interface');
+    return (
+      <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white overflow-hidden flex items-center justify-center">
+        <NotificationSystem 
+          notifications={notifications} 
+          onDismiss={dismissNotification} 
+        />
+        
+        <div className="w-full h-full max-w-sm mx-auto p-4 flex flex-col">
+          {/* PIP Header */}
+          <div className="text-center mb-4 flex-shrink-0">
+            <div className="w-12 h-12 mx-auto bg-purple-500/20 rounded-full flex items-center justify-center mb-2">
+              <Zap className="h-6 w-6 text-purple-400" />
+            </div>
+            <h1 className="text-lg font-bold">PiShock Controller</h1>
+            <p className="text-xs text-gray-300">
+              {participants.length} participant{participants.length !== 1 ? 's' : ''}
+            </p>
+          </div>
+
+          {/* Minimal Controller */}
+          <div className="flex-1 flex flex-col min-h-0">
+            <PiShockController
+              selectedUser={selectedUser}
+              onConnectionChange={setPiShockConnected}
+              isConnected={piShockConnected}
+              addNotification={addNotification}
+              instanceId={instanceId}
+              auth={auth}
+              currentUser={auth?.user}
+              discordSdk={discordSdk}
+              isEmbedded={isEmbedded}
+              layoutMode={layoutMode}
+            />
+          </div>
+
+          {/* PIP Target Selection */}
+          {participants.length > 1 && (
+            <div className="mt-4 flex-shrink-0">
+              <select
+                value={selectedUser?.id || ''}
+                onChange={(e) => {
+                  const user = participants.find(p => p.id === e.target.value);
+                  if (user && user.id !== auth?.user?.id) {
+                    setSelectedUser(user);
+                  }
+                }}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              >
+                <option value="">Select target...</option>
+                {participants
+                  .filter(p => p.id !== auth?.user?.id)
+                  .map(participant => {
+                    const userStatus = userPiShockStatus[participant.id];
+                    const isConnected = userStatus?.isConnected;
+                    const displayName = participant.guildDisplayName || participant.displayName || participant.global_name || participant.username;
+                    
+                    return (
+                      <option 
+                        key={participant.id} 
+                        value={participant.id}
+                        disabled={!isConnected}
+                      >
+                        {displayName} {isConnected ? '⚡' : '🚫'}
+                      </option>
+                    );
+                  })}
+              </select>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white overflow-hidden flex flex-col">
       <NotificationSystem 
@@ -669,6 +776,7 @@ function MainApp() {
                 currentUser={auth?.user}
                 discordSdk={discordSdk}
                 isEmbedded={isEmbedded}
+                layoutMode={layoutMode}
               />
             </div>
 

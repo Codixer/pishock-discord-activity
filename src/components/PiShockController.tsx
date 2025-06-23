@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Zap, Settings, Play, Square, AlertTriangle, Wifi, Save, Loader, User, Shield, Lock, ExternalLink } from 'lucide-react';
-import { DiscordSDK } from '@discord/embedded-app-sdk';
+import { DiscordSDK, Common } from '@discord/embedded-app-sdk';
 
 interface PiShockControllerProps {
   selectedUser: any;
@@ -12,6 +12,7 @@ interface PiShockControllerProps {
   currentUser: any;
   discordSdk: DiscordSDK;
   isEmbedded: boolean;
+  layoutMode?: number;
 }
 
 // Helper function to get the correct API base URL
@@ -37,7 +38,8 @@ export function PiShockController({
   auth,
   currentUser,
   discordSdk,
-  isEmbedded
+  isEmbedded,
+  layoutMode = Common.LayoutModeTypeObject.FOCUSED
 }: PiShockControllerProps) {
   const [apiKey, setApiKey] = useState('');
   const [username, setUsername] = useState('');
@@ -56,6 +58,9 @@ export function PiShockController({
   const [currentUserPiShockConnected, setCurrentUserPiShockConnected] = useState(false);
   const [currentUserPiShockUserId, setCurrentUserPiShockUserId] = useState<string>('');
   const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
+
+  // Check if we're in PIP mode
+  const isPipMode = layoutMode === Common.LayoutModeTypeObject.PIP;
 
   // Get the effective limits based on selected user
   const getEffectiveLimits = () => {
@@ -511,7 +516,8 @@ export function PiShockController({
   return (
     <div className="h-full flex flex-col space-y-4 overflow-y-auto">
       {/* Settings Panel */}
-      <div className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex-shrink-0">
+      {!isPipMode && (
+        <div className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex-shrink-0">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-3">
             <Settings className="h-5 w-5 text-purple-400" />
@@ -748,11 +754,12 @@ export function PiShockController({
             )}
           </div>
         )}
-      </div>
+        </div>
+      )}
 
       {/* Control Panel */}
-      <div className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex-1 flex flex-col min-h-0">
-        <h3 className="text-base sm:text-lg font-semibold mb-4 flex-shrink-0">Control Panel</h3>
+      <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex-1 flex flex-col min-h-0 ${isPipMode ? 'p-2' : ''}`}>
+        {!isPipMode && <h3 className="text-base sm:text-lg font-semibold mb-4 flex-shrink-0">Control Panel</h3>}
 
         {!selectedUser ? (
           <div className="text-center py-8 text-gray-400 flex-1 flex flex-col justify-center">
@@ -763,27 +770,29 @@ export function PiShockController({
         ) : (
           <div className="flex-1 flex flex-col space-y-4 min-h-0">
             {/* Target User */}
-            <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg flex-shrink-0">
+            <div className={`p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg flex-shrink-0 ${isPipMode ? 'p-2' : ''}`}>
               <div className="flex items-center space-x-3">
                 <img
                   src={selectedUser.guildAvatarUrl || selectedUser.avatarUrl || `https://cdn.discordapp.com/embed/avatars/0.png`}
                   alt={`${getDisplayName(selectedUser)}'s avatar`}
-                  className="w-8 h-8 rounded-full flex-shrink-0"
+                  className={`rounded-full flex-shrink-0 ${isPipMode ? 'w-6 h-6' : 'w-8 h-8'}`}
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;
                     target.src = `https://cdn.discordapp.com/embed/avatars/0.png`;
                   }}
                 />
                 <div className="min-w-0 flex-1">
-                  <p className="text-blue-300 text-sm">
+                  <p className={`text-blue-300 ${isPipMode ? 'text-xs' : 'text-sm'}`}>
                     <span className="font-semibold">Target:</span> {getDisplayName(selectedUser)}
                   </p>
-                  <p className="text-xs text-blue-400">
+                  {!isPipMode && (
+                    <p className="text-xs text-blue-400">
                     {(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected 
                       ? 'Commands will be sent through their PiShock account'
                       : 'User needs to configure PiShock first'
                     }
-                  </p>
+                    </p>
+                  )}
                 </div>
                 {/* Status indicator */}
                 <div className="flex-shrink-0">
@@ -800,10 +809,10 @@ export function PiShockController({
             <div className="flex-1 flex flex-col space-y-4 min-h-0">
               {/* Intensity Control */}
               <div>
-                <label className="block text-xs sm:text-sm font-medium text-gray-300 mb-2">
+                <label className={`block font-medium text-gray-300 mb-2 ${isPipMode ? 'text-xs' : 'text-xs sm:text-sm'}`}>
                   <div className="flex items-center justify-between">
                     <span>Intensity: {intensity}%</span>
-                    {effectiveLimits.maxIntensity < 100 && (
+                    {effectiveLimits.maxIntensity < 100 && !isPipMode && (
                       <div className="flex items-center space-x-1 text-xs text-yellow-400">
                         <Lock className="h-3 w-3" />
                         <span>Max: {effectiveLimits.maxIntensity}%</span>
@@ -821,21 +830,23 @@ export function PiShockController({
                     effectiveLimits.maxIntensity < 100 ? 'limited-slider' : ''
                   }`}
                 />
-                <div className="flex justify-between text-xs text-gray-400 mt-1">
+                {!isPipMode && (
+                  <div className="flex justify-between text-xs text-gray-400 mt-1">
                   <span>1%</span>
                   <span>{Math.floor(effectiveLimits.maxIntensity / 2)}%</span>
                   <span className={effectiveLimits.maxIntensity < 100 ? 'text-yellow-400' : ''}>
                     {effectiveLimits.maxIntensity}%{effectiveLimits.maxIntensity < 100 ? ' (Max)' : ''}
                   </span>
-                </div>
+                  </div>
+                )}
               </div>
 
               {/* Duration Control */}
               <div>
-                <label className="block text-xs sm:text-sm font-medium text-gray-300 mb-2">
+                <label className={`block font-medium text-gray-300 mb-2 ${isPipMode ? 'text-xs' : 'text-xs sm:text-sm'}`}>
                   <div className="flex items-center justify-between">
                     <span>Duration: {duration}s</span>
-                    {effectiveLimits.maxDuration < 15 && (
+                    {effectiveLimits.maxDuration < 15 && !isPipMode && (
                       <div className="flex items-center space-x-1 text-xs text-yellow-400">
                         <Lock className="h-3 w-3" />
                         <span>Max: {effectiveLimits.maxDuration}s</span>
@@ -853,48 +864,62 @@ export function PiShockController({
                     effectiveLimits.maxDuration < 15 ? 'limited-slider' : ''
                   }`}
                 />
-                <div className="flex justify-between text-xs text-gray-400 mt-1">
+                {!isPipMode && (
+                  <div className="flex justify-between text-xs text-gray-400 mt-1">
                   <span>1s</span>
                   <span>{Math.floor(effectiveLimits.maxDuration / 2)}s</span>
                   <span className={effectiveLimits.maxDuration < 15 ? 'text-yellow-400' : ''}>
                     {effectiveLimits.maxDuration}s{effectiveLimits.maxDuration < 15 ? ' (Max)' : ''}
                   </span>
-                </div>
+                  </div>
+                )}
               </div>
 
               {/* Action Buttons */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 flex-shrink-0">
+              <div className={`grid gap-2 flex-shrink-0 ${isPipMode ? 'grid-cols-3' : 'grid-cols-1 sm:grid-cols-3 sm:gap-3'}`}>
                 <button
                   onClick={() => handleShock(0)}
                   disabled={isShocking}
-                  className="py-2 sm:py-3 px-3 sm:px-4 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex flex-row sm:flex-col items-center justify-center space-x-2 sm:space-x-0 sm:space-y-1 transition-all text-xs sm:text-sm"
+                  className={`bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
+                    isPipMode 
+                      ? 'py-2 px-2 text-xs flex-col space-y-1' 
+                      : 'py-2 sm:py-3 px-3 sm:px-4 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-1 text-xs sm:text-sm'
+                  }`}
                 >
-                  <Zap className="h-4 w-4 sm:h-5 sm:w-5" />
+                  <Zap className={isPipMode ? 'h-3 w-3' : 'h-4 w-4 sm:h-5 sm:w-5'} />
                   <span>Shock</span>
                 </button>
 
                 <button
                   onClick={() => handleShock(1)}
                   disabled={isShocking}
-                  className="py-2 sm:py-3 px-3 sm:px-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex flex-row sm:flex-col items-center justify-center space-x-2 sm:space-x-0 sm:space-y-1 transition-all text-xs sm:text-sm"
+                  className={`bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
+                    isPipMode 
+                      ? 'py-2 px-2 text-xs flex-col space-y-1' 
+                      : 'py-2 sm:py-3 px-3 sm:px-4 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-1 text-xs sm:text-sm'
+                  }`}
                 >
-                  <Play className="h-4 w-4 sm:h-5 sm:w-5" />
+                  <Play className={isPipMode ? 'h-3 w-3' : 'h-4 w-4 sm:h-5 sm:w-5'} />
                   <span>Vibrate</span>
                 </button>
 
                 <button
                   onClick={() => handleShock(2)}
                   disabled={isShocking}
-                  className="py-2 sm:py-3 px-3 sm:px-4 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex flex-row sm:flex-col items-center justify-center space-x-2 sm:space-x-0 sm:space-y-1 transition-all text-xs sm:text-sm"
+                  className={`bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
+                    isPipMode 
+                      ? 'py-2 px-2 text-xs flex-col space-y-1' 
+                      : 'py-2 sm:py-3 px-3 sm:px-4 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-1 text-xs sm:text-sm'
+                  }`}
                 >
-                  <Square className="h-4 w-4 sm:h-5 sm:w-5" />
+                  <Square className={isPipMode ? 'h-3 w-3' : 'h-4 w-4 sm:h-5 sm:w-5'} />
                   <span>Beep</span>
                 </button>
               </div>
 
               {isShocking && (
-                <div className="text-center flex-shrink-0">
-                  <div className="inline-flex items-center space-x-2 text-yellow-400 text-sm">
+                <div className={`text-center flex-shrink-0 ${isPipMode ? 'mt-2' : ''}`}>
+                  <div className={`inline-flex items-center space-x-2 text-yellow-400 ${isPipMode ? 'text-xs' : 'text-sm'}`}>
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400"></div>
                     <span>Executing command...</span>
                   </div>
