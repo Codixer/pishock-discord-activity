@@ -53,7 +53,7 @@ if (isEmbedded) {
     console.error('💡 Solution: Set VITE_DISCORD_CLIENT_ID in Cloudflare Pages Dashboard → Settings → Environment variables');
     throw new Error('Discord Client ID is required. Please set VITE_DISCORD_CLIENT_ID in Cloudflare Pages Dashboard');
   }
-  discordSdk = new DiscordSDK(clientId);
+  discordSdk = new DiscordSDK(clientId, {disableConsoleLogOverride: true});
 } else {
   // Add dummy query parameters for development
   const dummyParams = new URLSearchParams({
@@ -70,7 +70,7 @@ if (isEmbedded) {
   
   // For development, use a dummy client ID if not set
   const clientId = import.meta.env.VITE_DISCORD_CLIENT_ID || 'dev_dummy_client_id';
-  discordSdk = new DiscordSDK(clientId);
+  discordSdk = new DiscordSDK(clientId, {disableConsoleLogOverride: true});
   
   // Restore original URL
   window.history.replaceState({}, '', `${window.location.pathname}${originalSearch}`);
