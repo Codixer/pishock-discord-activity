@@ -15,7 +15,6 @@ import { useInstanceData } from './hooks/useInstanceData';
 import { useParticipants } from './hooks/useParticipants';
 import { useVersionCheck } from './hooks/useVersionCheck';
 import { VersionWarning } from './components/VersionWarning';
-import { isDevelopmentMode, setupMockFetch, mockParticipants, mockUserPiShockStatus, mockInstanceData } from './utils/mockData';
 
 // Global function to refresh user statuses
 declare global {
@@ -27,9 +26,6 @@ declare global {
 // Check if we're running in Discord's embedded environment
 const urlParams = new URLSearchParams(window.location.search);
 const isEmbedded = urlParams.has('frame_id');
-
-// Set up mock fetch for development mode
-setupMockFetch();
 
 // Debug environment variables
 const envCheck = {
@@ -93,8 +89,6 @@ function MainApp() {
   const [instanceId, setInstanceId] = useState<string>('');
   const [showActivityLog, setShowActivityLog] = useState(true);
   const [userPiShockStatus, setUserPiShockStatus] = useState<Record<string, any>>({});
-  const [isInstanceExpired, setIsInstanceExpired] = useState(false);
-  const [participantCount, setParticipantCount] = useState(0);
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
   
@@ -151,14 +145,7 @@ function MainApp() {
 
   // Function to check PiShock status for all participants
   const checkAllUserPiShockStatus = async () => {
-    // Use mock data in development mode
-    if (isDevelopmentMode()) {
-      console.log('🔒 DEV MODE: Using mock PiShock status data');
-      setUserPiShockStatus(mockUserPiShockStatus);
-      return;
-    }
-    
-    // Don't check PiShock status if not embedded
+    // Don't check PiShock status in development mode
     if (!isEmbedded) return;
     
     if (!instanceId || !auth || participants.length === 0) return;
@@ -248,71 +235,6 @@ function MainApp() {
   // Make user status available globally for PiShockController
   (window as any).userPiShockStatus = userPiShockStatus;
 
-  // Check instance status
-  const checkInstanceStatus = useCallback(async (instanceId: string) => {
-    if (!instanceId || !isEmbedded) return true; // Always allow in development
-
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/instances/${instanceId}/status`, {
-        headers: {
-          'Authorization': `Bearer ${auth?.access_token}`,
-        },
-      });
-
-      if (response.ok) {
-        const statusData = await response.json();
-        console.log('Instance status check:', statusData);
-        
-        if (statusData.status === 'inactive') {
-          console.log('Instance is inactive, marking as expired');
-          setIsInstanceExpired(true);
-          return false;
-        }
-        return true;
-      }
-    } catch (error) {
-      console.warn('Failed to check instance status:', error);
-    }
-    return true; // Allow access if check fails
-  }, [auth, isEmbedded]);
-
-  // Update instance status based on participant count
-  const updateInstanceStatus = useCallback(async (participantCount: number) => {
-    if (!instanceId || !auth || !isEmbedded) return;
-
-    try {
-      const newStatus = participantCount === 0 ? 'inactive' : 'active';
-      
-      await fetch(`${getApiBaseUrl()}/instances/${instanceId}/status`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${auth.access_token}`,
-        },
-        body: JSON.stringify({
-          status: newStatus,
-          participant_count: participantCount,
-        }),
-      });
-
-      console.log(`Instance ${instanceId} status updated to ${newStatus} (${participantCount} participants)`);
-      
-      // If instance becomes inactive, set expiration flag
-      if (newStatus === 'inactive') {
-        setTimeout(() => {
-          setIsInstanceExpired(true);
-          addNotification('info', 'Session Ended', 'All participants have left. This session has ended.');
-        }, 5000); // 5 second delay before showing expired state
-      } else if (newStatus === 'active' && isInstanceExpired) {
-        // Reactivating an expired instance
-        setIsInstanceExpired(false);
-        addNotification('success', 'Session Reactivated', 'Participants have rejoined. Session is now active.');
-      }
-    } catch (error) {
-      console.warn('Failed to update instance status:', error);
-    }
-  }, [instanceId, auth, isEmbedded, isInstanceExpired, addNotification]);
-
   useEffect(() => {
     const initializeDiscord = async () => {
       try {
@@ -323,13 +245,6 @@ function MainApp() {
           const currentInstanceId = discordSdk.instanceId;
           setInstanceId(currentInstanceId);
           
-          // Check if instance is still active before proceeding
-          const instanceActive = await checkInstanceStatus(currentInstanceId);
-          if (!instanceActive) {
-            setLoading(false);
-            return; // Stop initialization if instance is expired
-          }
-
           // Authenticate with Discord
           const { code } = await discordSdk.commands.authorize({
             client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
@@ -367,41 +282,50 @@ function MainApp() {
           // Subscribe to participant updates
           discordSdk.subscribe(
             Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE,
-            async (data: Types.GetActivityInstanceConnectedParticipantsResponse) => {
-              const newParticipantCount = data.participants.length;
-              setParticipantCount(newParticipantCount);
+            (data: Types.GetActivityInstanceConnectedParticipantsResponse) => {
               updateParticipants(data.participants);
-              
-              // Update instance status based on participant count
-              await updateInstanceStatus(newParticipantCount);
             }
           );
 
           // Get initial participants
           const initialParticipants = await discordSdk.commands.getInstanceConnectedParticipants();
-          const initialCount = initialParticipants.participants.length;
-          setParticipantCount(initialCount);
           updateParticipants(initialParticipants.participants);
-          
-          // Update instance status with initial participant count
-          await updateInstanceStatus(initialCount);
 
           addNotification('success', 'Connected', 'Successfully connected to Discord');
         } else {
-          // Use comprehensive mock data for development environment
-          console.log('🔒 DEV MODE: Using mock Discord data');
+          // Mock data for development environment
           const mockInstanceId = 'dev_instance_123';
           setInstanceId(mockInstanceId);
           
-          const mockAuth = { user: mockParticipants[0] };
+          const mockAuth = {
+            user: {
+              id: 'dev_user_123',
+              username: 'DevUser',
+              discriminator: '0001',
+              avatar: null,
+              global_name: 'Development User'
+            }
+          };
+          
+          const mockParticipants = [
+            {
+              id: 'dev_user_123',
+              username: 'DevUser',
+              discriminator: '0001',
+              avatar: null,
+              global_name: 'Development User'
+            },
+            {
+              id: 'test_user_456',
+              username: 'TestUser',
+              discriminator: '0002',
+              avatar: null,
+              global_name: 'Test User'
+            }
+          ];
 
           setAuth(mockAuth);
-          setParticipantCount(mockParticipants.length);
           updateParticipants(mockParticipants);
-          
-          // Set mock PiShock status
-          setUserPiShockStatus(mockUserPiShockStatus);
-          
           addNotification('info', 'Development Mode', 'Running in development mode with mock data');
         }
 
@@ -427,23 +351,10 @@ function MainApp() {
         discordSdk.unsubscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
       }
     };
-  }, [addNotification, updateParticipants, checkInstanceStatus, updateInstanceStatus]);
+  }, [addNotification, updateParticipants]);
 
   // Load instance data when instanceId changes
   useEffect(() => {
-    // Use mock data in development mode
-    if (isDevelopmentMode()) {
-      console.log('🔒 DEV MODE: Using mock instance data');
-      updateInstanceData(mockInstanceData);
-      if (mockInstanceData.selectedUserId) {
-        const selectedParticipant = participants.find(p => p.id === mockInstanceData.selectedUserId);
-        if (selectedParticipant) {
-          setSelectedUser(selectedParticipant);
-        }
-      }
-      return;
-    }
-    
     if (instanceId && auth) {
       // Load instance-specific data from backend using proxy
       fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
@@ -497,9 +408,6 @@ function MainApp() {
 
   // Check PiShock status for all participants
   useEffect(() => {
-    // Skip in development mode (already set above)
-    if (isDevelopmentMode()) return;
-    
     if (instanceId && auth && participants.length > 0) {
       checkAllUserPiShockStatus();
     }
@@ -507,9 +415,6 @@ function MainApp() {
 
   // Set up periodic status checking for real-time updates
   useEffect(() => {
-    // Skip in development mode
-    if (isDevelopmentMode()) return;
-    
     if (!instanceId || !auth || participants.length === 0) return;
 
     // Reduced frequency: Check status every 30 seconds to minimize KV reads
@@ -522,12 +427,6 @@ function MainApp() {
 
   // Save instance data when selectedUser changes
   useEffect(() => {
-    // Skip in development mode
-    if (isDevelopmentMode()) {
-      console.log('🔒 DEV MODE: Skipping instance data save');
-      return;
-    }
-    
     if (instanceId && auth && selectedUser) {
       fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
         method: 'PUT',
@@ -567,34 +466,6 @@ function MainApp() {
     return <SafetyWarning onAccept={() => setSafetyAccepted(true)} />;
   }
 
-  // Show instance expired message
-  if (isInstanceExpired) {
-    return (
-      <div className="h-screen w-screen bg-gradient-to-br from-red-900 via-red-800 to-orange-900 text-white overflow-hidden flex items-center justify-center">
-        <div className="text-center max-w-md p-8">
-          <div className="w-16 h-16 mx-auto mb-6 bg-red-500/20 rounded-full flex items-center justify-center">
-            <AlertTriangle className="h-8 w-8 text-red-400" />
-          </div>
-          <h1 className="text-3xl font-bold mb-4">Session Ended</h1>
-          <p className="text-red-200 mb-6">
-            This Discord Activity session has ended because all participants have left.
-          </p>
-          <div className="space-y-3">
-            <button
-              onClick={() => window.location.reload()}
-              className="w-full py-3 px-6 bg-red-600 hover:bg-red-700 rounded-lg font-semibold transition-colors"
-            >
-              Start New Session
-            </button>
-            <p className="text-sm text-red-300">
-              Refresh the page or restart the Discord Activity to begin a new session.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white overflow-hidden flex flex-col">
       <NotificationSystem 
@@ -617,7 +488,7 @@ function MainApp() {
               <div>
                 <h1 className="text-lg font-bold">PiShock Controller</h1>
                 <p className="text-xs text-gray-300">
-                  Discord Activity • {participantCount} participant{participantCount !== 1 ? 's' : ''}
+                  Discord Activity • {participants.length} participant{participants.length !== 1 ? 's' : ''}
                 </p>
               </div>
             </div>

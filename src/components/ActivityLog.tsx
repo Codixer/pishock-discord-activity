@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Clock, Zap, Play, Square, Users, Eye, EyeOff, RefreshCw } from 'lucide-react';
-import { isDevelopmentMode, mockActivityLogEntries } from '../utils/mockData';
 
 interface ActivityLogEntry {
   id: string;
@@ -71,30 +70,6 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
   }, [autoRefresh, auth]);
 
   const loadActivityLog = async (silent = false) => {
-    // Use mock data in development mode
-    if (isDevelopmentMode()) {
-      console.log('🔒 DEV MODE: Using mock activity log data');
-      if (!silent) setLoading(true);
-      
-      // Simulate loading delay
-      await new Promise(resolve => setTimeout(resolve, 200));
-      
-      const previousCount = entries.length;
-      setEntries(mockActivityLogEntries);
-      setLastRefresh(new Date());
-      
-      if (silent && mockActivityLogEntries.length > previousCount) {
-        setTimeout(() => {
-          if (logContainerRef.current) {
-            logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
-          }
-        }, 100);
-      }
-      
-      if (!silent) setLoading(false);
-      return;
-    }
-    
     if (!silent) setLoading(true);
     
     try {
