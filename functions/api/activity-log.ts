@@ -1,238 +1,90 @@
-import { v4 as uuidv4 } from 'uuid';
-
 interface Env {
   PISHOCK_KV: KVNamespace;
 }
 
-interface BatchedActivityLog {
-  entries: ActivityLogEntry[];
-  lastUpdated: string;
-  totalCount: number;
-}
-
-interface ActivityLogEntry {
-  id: string;
-  timestamp: string;
-  instanceId: string;
-  executorUserId: string;
-  executorUsername: string;
-  executorAvatar?: string;
-  targetUserId: string;
-  targetUsername: string;
-  targetAvatar?: string;
-  action: 'shock' | 'vibrate' | 'beep';
-  intensity: number;
-  duration: number;
-  guildId?: string;
-  guildName?: string;
-}
-
-function jsonResponse(body: any, status = 200) {
-  return new Response(JSON.stringify(body), {
+function jsonResponse(data: any, status = 200) {
+  return new Response(JSON.stringify(data), {
     status,
-    headers: { 
+    headers: {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Cache-Control': 'public, max-age=30, stale-while-revalidate=15', // 30 seconds cache for activity
     },
   });
 }
 
-async function requireAuth(request: Request): Promise<string | null> {
+async function requireAuth(request: Request, env: Env): Promise<boolean> {
   const auth = request.headers.get('authorization');
-  if (!auth || !auth.startsWith('Bearer ')) return null;
-  return auth.slice(7);
+  if (!auth || !auth.startsWith('Bearer ')) return false;
+  
+  const token = auth.slice(7);
+  const userKeys = await env.PISHOCK_KV.list({ prefix: 'discord_token:' });
+  const validToken = userKeys.keys.find(key => key.name.includes(token));
+  
+  return !!validToken;
 }
 
-async function validateDiscordToken(token: string): Promise<any> {
-  try {
-    const response = await fetch('https://discord.com/api/users/@me', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    
-    if (!response.ok) {
-      throw new Error('Invalid Discord token');
-    }
-    
-    return await response.json();
-  } catch (error) {
-    return null;
-  }
-}
-
-// Simple in-memory cache for debouncing KV writes (best effort for stateless workers)
-const writeDebounceCache = new Map<string, { data: any; lastWrite: number; timeout?: NodeJS.Timeout }>();
-const DEBOUNCE_DELAY = 5000; // 5 seconds
-
-async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
-  try {
-    const date = new Date(entry.timestamp).toISOString().split('T')[0]; // YYYY-MM-DD
-    const batchKey = `activity:batch:${date}`;
-    
-    // Check if we have a debounced write pending
-    const cached = writeDebounceCache.get(batchKey);
-    const now = Date.now();
-    
-    let batchData: BatchedActivityLog;
-    
-    if (cached && cached.data) {
-      // Use cached data and add new entry
-      batchData = { ...cached.data };
-      batchData.entries.unshift(entry);
-      batchData.lastUpdated = entry.timestamp;
-      batchData.totalCount++;
-    } else {
-      // Load from KV and add new entry
-      let batch = await kv.get(batchKey);
-      batchData = batch ? JSON.parse(batch) : {
-        entries: [],
-        lastUpdated: entry.timestamp,
-        totalCount: 0
-      };
-      
-      batchData.entries.unshift(entry);
-      batchData.lastUpdated = entry.timestamp;
-      batchData.totalCount++;
-    }
-    
-    // Limit entries per batch
-    if (batchData.entries.length > 200) {
-      batchData.entries = batchData.entries.slice(0, 200);
-    }
-    
-    // Clear existing timeout if any
-    if (cached?.timeout) {
-      clearTimeout(cached.timeout);
-    }
-    
-    // Set up debounced write
-    const timeout = setTimeout(async () => {
-      try {
-        const finalData = writeDebounceCache.get(batchKey)?.data;
-        if (finalData) {
-          await kv.put(batchKey, JSON.stringify(finalData), { expirationTtl: 2592000 });
-          console.log(`Debounced KV write completed for ${batchKey}`);
-        }
-        writeDebounceCache.delete(batchKey);
-      } catch (error) {
-        console.error('Debounced KV write failed:', error);
-        writeDebounceCache.delete(batchKey);
-      }
-    }, DEBOUNCE_DELAY);
-    
-    // Update cache
-    writeDebounceCache.set(batchKey, {
-      data: batchData,
-      lastWrite: now,
-      timeout
-    });
-    
-    console.log(`Activity entry added to batch ${batchKey} (debounced write in ${DEBOUNCE_DELAY}ms)`);
-  } catch (error) {
-    console.error('Failed to update activity batch:', error);
-  }
-}
-
-export const onRequest: PagesFunction<Env> = async (context) => {
+export const onRequestGet: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
   const url = new URL(request.url);
-  const { searchParams } = url;
-  const method = request.method;
-
-  // Handle CORS preflight requests
-  if (method === 'OPTIONS') {
-    return new Response(null, {
-      status: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'Access-Control-Max-Age': '86400',
-      },
-    });
+  
+  const isAuthed = await requireAuth(request, env);
+  if (!isAuthed) {
+    return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 
   try {
-    if (method === 'GET') {
-      const token = await requireAuth(request);
-      if (!token) return new Response('Unauthorized', { status: 401 });
-      
-      // Validate token
-      const user = await validateDiscordToken(token);
-      if (!user) return new Response('Invalid token', { status: 401 });
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 100);
+    const offset = parseInt(url.searchParams.get('offset') || '0');
 
-      const limit = Math.min(parseInt(searchParams.get('limit') || '100', 10), 500);
-      const offset = parseInt(searchParams.get('offset') || '0', 10);
-      const since = searchParams.get('since');
+    // Get activity logs
+    const logKeys = await env.PISHOCK_KV.list({ 
+      prefix: 'activity_log:',
+      limit: limit + offset
+    });
 
-      // Get recent batches (last 30 days)
-      const today = new Date();
-      let batches: ActivityLogEntry[] = [];
-      
-      for (let i = 0; i < 30; i++) {
-        const date = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
-        const dateStr = date.toISOString().split('T')[0];
-        const batchKey = `activity:batch:${dateStr}`;
-        
-        try {
-          const batchData = await env.PISHOCK_KV.get(batchKey);
-          if (batchData) {
-            const batch: BatchedActivityLog = JSON.parse(batchData);
-            batches.push(...batch.entries);
-          }
-        } catch (error) {
-          console.warn(`Failed to load batch ${dateStr}:`, error);
-        }
-      }
-      
-      // Sort by timestamp (newest first)
-      batches.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    // Sort by timestamp (newest first) and paginate
+    const sortedKeys = logKeys.keys
+      .sort((a, b) => {
+        const timestampA = parseInt(a.name.split(':')[1]);
+        const timestampB = parseInt(b.name.split(':')[1]);
+        return timestampB - timestampA;
+      })
+      .slice(offset, offset + limit);
 
-      if (since) {
-        const sinceDate = new Date(since);
-        batches = batches.filter(entry => new Date(entry.timestamp) > sinceDate);
-      }
+    // Fetch log entries
+    const logEntries = await Promise.all(
+      sortedKeys.map(async (key) => {
+        const data = await env.PISHOCK_KV.get(key.name);
+        return data ? JSON.parse(data) : null;
+      })
+    );
 
-      const total = batches.length;
-      const entries = batches.slice(offset, offset + limit);
+    const validEntries = logEntries.filter(entry => entry !== null);
 
-      return jsonResponse({ 
-        entries, 
-        total, 
-        hasMore: offset + limit < batches.length 
-      });
-    }
-
-    if (method === 'POST') {
-      const token = await requireAuth(request);
-      if (!token) return new Response('Unauthorized', { status: 401 });
-      
-      const user = await validateDiscordToken(token);
-      if (!user) return new Response('Invalid token', { status: 401 });
-
-      const entry = await request.json();
-      const id = uuidv4();
-      const timestamp = new Date().toISOString();
-      
-      const logEntry: ActivityLogEntry = { 
-        ...entry, 
-        id, 
-        timestamp 
-      };
-
-      await addToActivityBatch(env.PISHOCK_KV, logEntry);
-
-      return jsonResponse({ success: true, entryId: id });
-    }
-
-    return new Response('Method not allowed', { status: 405 });
+    return jsonResponse({
+      entries: validEntries,
+      total: logKeys.keys.length,
+      hasMore: offset + limit < logKeys.keys.length,
+    });
   } catch (error) {
     console.error('Activity log error:', error);
-    return jsonResponse({ 
-      error: 'Internal server error',
+    return jsonResponse({
+      error: 'Failed to fetch activity log',
       message: error instanceof Error ? error.message : 'Unknown error'
     }, 500);
   }
+};
+
+export const onRequestOptions: PagesFunction<Env> = async () => {
+  return new Response(null, {
+    status: 200,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Max-Age': '86400',
+    },
+  });
 };

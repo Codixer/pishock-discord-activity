@@ -2,32 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Ensure no scrollbars appear */
-html, body {
-  overflow: hidden;
-  height: 100%;
-  width: 100%;
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
 }
 
-#root {
-  height: 100vh;
-  width: 100vw;
-  overflow: hidden;
-}
-
-/* Allow scrolling for full-page legal documents */
-.legal-page {
-  overflow-y: auto !important;
-  height: 100vh !important;
-}
-
-.legal-page html,
-.legal-page body,
-.legal-page #root {
-  overflow-y: auto !important;
-}
-
-/* Custom scrollbar for internal scrollable areas */
+/* Custom scrollbar styling */
 .overflow-y-auto::-webkit-scrollbar {
   width: 6px;
 }
@@ -52,32 +38,72 @@ html, body {
   height: 20px;
   width: 20px;
   border-radius: 50%;
-  background: #8b5cf6;
+  background: linear-gradient(135deg, #8b5cf6, #a855f7);
   cursor: pointer;
   border: 2px solid #ffffff;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+  transition: all 0.2s ease;
 }
 
-/* Limited slider styling */
-.limited-slider::-webkit-slider-thumb {
-  background: #f59e0b;
-  border-color: #fbbf24;
+.slider::-webkit-slider-thumb:hover {
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.5);
+  transform: scale(1.1);
 }
 
-.limited-slider::-moz-range-thumb {
-  background: #f59e0b;
-  border-color: #fbbf24;
-}
-
-.limited-slider::-webkit-slider-track {
-  background: linear-gradient(to right, #374151 0%, #f59e0b 100%);
-}
 .slider::-moz-range-thumb {
   height: 20px;
   width: 20px;
   border-radius: 50%;
-  background: #8b5cf6;
+  background: linear-gradient(135deg, #8b5cf6, #a855f7);
   cursor: pointer;
   border: 2px solid #ffffff;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+}
+
+.slider::-webkit-slider-track {
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(to right, #374151, #6b7280);
+}
+
+.slider::-moz-range-track {
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(to right, #374151, #6b7280);
+}
+
+/* Animation utilities */
+@keyframes slide-in-from-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-in {
+  animation-fill-mode: forwards;
+}
+
+.slide-in-from-right {
+  animation: slide-in-from-right 0.3s ease-out;
+}
+
+/* Gradient background animation */
+@keyframes gradient-shift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.bg-gradient-animated {
+  background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
+  background-size: 400% 400%;
+  animation: gradient-shift 15s ease infinite;
 }

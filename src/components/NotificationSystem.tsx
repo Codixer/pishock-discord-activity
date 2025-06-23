@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, AlertTriangle, CheckCircle, Info } from 'lucide-react';
+import { CheckCircle, AlertTriangle, X, Info } from 'lucide-react';
 
 export interface Notification {
   id: string;
@@ -10,22 +10,22 @@ export interface Notification {
 
 interface NotificationSystemProps {
   notifications: Notification[];
-  onDismiss: (id: string) => void;
+  onRemove: (id: string) => void;
 }
 
-export function NotificationSystem({ notifications, onDismiss }: NotificationSystemProps) {
+export function NotificationSystem({ notifications, onRemove }: NotificationSystemProps) {
   if (notifications.length === 0) return null;
 
   const getIcon = (type: Notification['type']) => {
     switch (type) {
       case 'success':
-        return <CheckCircle className="h-5 w-5" />;
+        return <CheckCircle className="w-5 h-5" />;
       case 'error':
-        return <AlertTriangle className="h-5 w-5" />;
+        return <AlertTriangle className="w-5 h-5" />;
       case 'warning':
-        return <AlertTriangle className="h-5 w-5" />;
+        return <AlertTriangle className="w-5 h-5" />;
       case 'info':
-        return <Info className="h-5 w-5" />;
+        return <Info className="w-5 h-5" />;
     }
   };
 
@@ -58,7 +58,7 @@ export function NotificationSystem({ notifications, onDismiss }: NotificationSys
               <p className="text-sm opacity-90 mt-1">{notification.message}</p>
             </div>
             <button
-              onClick={() => onDismiss(notification.id)}
+              onClick={() => onRemove(notification.id)}
               className="flex-shrink-0 opacity-70 hover:opacity-100 transition-opacity"
             >
               <X className="h-4 w-4" />

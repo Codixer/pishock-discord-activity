@@ -1,44 +1,22 @@
-import { v4 as uuidv4 } from 'uuid';
-
 interface Env {
   PISHOCK_KV: KVNamespace;
-  DISCORD_CLIENT_ID: string;
   DISCORD_CLIENT_SECRET: string;
-  DISCORD_REDIRECT_URI?: string;
 }
 
-function jsonResponse(body: any, status = 200) {
-  return new Response(JSON.stringify(body), {
+function jsonResponse(data: any, status = 200) {
+  return new Response(JSON.stringify(data), {
     status,
-    headers: { 
+    headers: {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     },
   });
 }
 
-export const onRequest: PagesFunction<Env> = async (context) => {
+export const onRequestPost: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
-  const method = request.method;
-
-  // Handle CORS preflight requests
-  if (method === 'OPTIONS') {
-    return new Response(null, {
-      status: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'Access-Control-Max-Age': '86400',
-      },
-    });
-  }
-
-  if (method !== 'POST') {
-    return new Response('Method not allowed', { status: 405 });
-  }
 
   try {
     const { code, instanceId } = await request.json();
@@ -47,62 +25,87 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return jsonResponse({ error: 'Missing code or instanceId' }, 400);
     }
 
-    // Exchange code for token
-    const params = new URLSearchParams();
-    params.append('client_id', env.DISCORD_CLIENT_ID);
-    params.append('client_secret', env.DISCORD_CLIENT_SECRET);
-    params.append('grant_type', 'authorization_code');
-    params.append('code', code);
+    // Exchange code for Discord access token
+    const discordClientId = import.meta.env.VITE_DISCORD_CLIENT_ID;
     
-    // Discord Activities don't typically need a redirect URI
-    // but we'll include it if it's configured in the environment
-    if (env.DISCORD_REDIRECT_URI) {
-      params.append('redirect_uri', env.DISCORD_REDIRECT_URI);
-    }
-
-    const discordRes = await fetch('https://discord.com/api/oauth2/token', {
+    const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString(),
-    });
-
-    if (!discordRes.ok) {
-      const error = await discordRes.text();
-      console.error('Discord token exchange failed:', error);
-      return jsonResponse({ error: 'Failed to exchange code' }, 500);
-    }
-
-    const tokenData = await discordRes.json();
-    const { access_token, refresh_token, expires_in, token_type } = tokenData;
-
-    // Get user info
-    const userRes = await fetch('https://discord.com/api/users/@me', {
-      headers: { Authorization: `${token_type} ${access_token}` },
-    });
-
-    if (!userRes.ok) {
-      return jsonResponse({ error: 'Failed to fetch user' }, 500);
-    }
-
-    const user = await userRes.json();
-
-    // Store tokens and user in KV with proper TTL
-    await Promise.all([
-      env.PISHOCK_KV.put(`discord_auth:access_token:${instanceId}:${user.id}`, access_token, { 
-        expirationTtl: expires_in - 60 // Expire 1 minute early for safety
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        client_id: discordClientId,
+        client_secret: env.DISCORD_CLIENT_SECRET,
+        grant_type: 'authorization_code',
+        code: code,
       }),
-      env.PISHOCK_KV.put(`discord_auth:refresh_token:${user.id}`, refresh_token),
-      env.PISHOCK_KV.put(`discord_user:${user.id}`, JSON.stringify(user), {
-        expirationTtl: 3600 // 1 hour
+    });
+
+    if (!tokenResponse.ok) {
+      const error = await tokenResponse.text();
+      console.error('Discord token exchange failed:', error);
+      return jsonResponse({ error: 'Failed to exchange Discord code' }, 500);
+    }
+
+    const tokenData = await tokenResponse.json();
+    const { access_token, refresh_token, expires_in } = tokenData;
+
+    // Get user info from Discord
+    const userResponse = await fetch('https://discord.com/api/users/@me', {
+      headers: {
+        'Authorization': `Bearer ${access_token}`,
+      },
+    });
+
+    if (!userResponse.ok) {
+      return jsonResponse({ error: 'Failed to fetch Discord user info' }, 500);
+    }
+
+    const user = await userResponse.json();
+
+    // Store tokens in KV with expiration
+    const tokenKey = `discord_token:${instanceId}:${user.id}`;
+    const userKey = `discord_user:${user.id}`;
+
+    await Promise.all([
+      env.PISHOCK_KV.put(tokenKey, access_token, { 
+        expirationTtl: expires_in - 60 // Expire 1 minute early
+      }),
+      env.PISHOCK_KV.put(userKey, JSON.stringify({
+        ...user,
+        refreshToken: refresh_token,
+        lastSeen: new Date().toISOString(),
+      }), {
+        expirationTtl: 86400 // 24 hours
       }),
     ]);
 
-    return jsonResponse({ access_token, user });
+    return jsonResponse({
+      access_token,
+      user: {
+        id: user.id,
+        username: user.username,
+        displayName: user.global_name || user.username,
+        avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=256` : null,
+      },
+    });
   } catch (error) {
     console.error('Discord auth error:', error);
     return jsonResponse({ 
-      error: 'Internal server error',
+      error: 'Authentication failed',
       message: error instanceof Error ? error.message : 'Unknown error'
     }, 500);
   }
+};
+
+export const onRequestOptions: PagesFunction<Env> = async () => {
+  return new Response(null, {
+    status: 200,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Max-Age': '86400',
+    },
+  });
 };
