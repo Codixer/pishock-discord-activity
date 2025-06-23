@@ -440,10 +440,10 @@ function MainApp() {
   useEffect(() => {
     if (!instanceId || !auth || participants.length === 0) return;
 
-    // Reduced frequency: Check status every 30 seconds to minimize KV reads
+    // Optimized frequency: Check status every 2 minutes to align with backend cache TTL (120 seconds)
     const interval = setInterval(() => {
       checkAllUserPiShockStatus();
-    }, 30000);
+    }, 120000); // 2 minutes - matches backend cache duration
 
     return () => clearInterval(interval);
   }, [instanceId, auth, participants]);

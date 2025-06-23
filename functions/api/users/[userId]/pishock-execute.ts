@@ -367,7 +367,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       };
 
       // Store activity log entry
-      await addToActivityBatch(env.PISHOCK_KV, logEntry);
+      // Store activity log entry (non-blocking to reduce response time)
+      addToActivityBatch(env.PISHOCK_KV, logEntry).catch(error => {
+        console.error('Failed to log activity (non-blocking):', error);
+      });
 
       console.log('EXECUTE: Activity logged with ID:', logEntry.id);
 
