@@ -133,11 +133,16 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         const dateStr = date.toISOString().split('T')[0];
         const batchKey = `activity:batch:${dateStr}`;
         
+        console.log('ACTIVITY_LOG_READ: Checking batch for date:', dateStr, 'key:', batchKey);
+        
         try {
           const batchData = await env.PISHOCK_KV.get(batchKey);
           if (batchData) {
             const batch: BatchedActivityLog = JSON.parse(batchData);
             batches.push(...batch.entries);
+            console.log('ACTIVITY_LOG_READ: Found batch with', batch.entries.length, 'entries for', dateStr);
+          } else {
+            console.log('ACTIVITY_LOG_READ: No batch found for', dateStr);
           }
         } catch (error) {
           console.warn(`Failed to load batch ${dateStr}:`, error);
@@ -147,13 +152,18 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       // Sort by timestamp (newest first)
       batches.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
+      console.log('ACTIVITY_LOG_READ: Total entries found across all batches:', batches.length);
+      
       if (since) {
         const sinceDate = new Date(since);
         batches = batches.filter(entry => new Date(entry.timestamp) > sinceDate);
+        console.log('ACTIVITY_LOG_READ: After filtering by since date:', batches.length, 'entries');
       }
 
       const total = batches.length;
       const entries = batches.slice(offset, offset + limit);
+      
+      console.log('ACTIVITY_LOG_READ: Returning', entries.length, 'entries (total:', total, ', offset:', offset, ', limit:', limit, ')');
 
       return jsonResponse({ 
         entries, 
