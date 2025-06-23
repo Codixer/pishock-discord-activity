@@ -33,10 +33,16 @@ const isEmbedded = urlParams.has('frame_id');
 let discordSdk: DiscordSDK;
 
 const clientId = import.meta.env.VITE_DISCORD_CLIENT_ID;
-if (!clientId || clientId === 'YOUR_DISCORD_CLIENT_ID_HERE') {
+if (import.meta.env.PROD && (!clientId || clientId === 'YOUR_DISCORD_CLIENT_ID_HERE')) {
   console.error('❌ VITE_DISCORD_CLIENT_ID is not set or still using placeholder value');
   console.error('💡 Solution: Set VITE_DISCORD_CLIENT_ID in Cloudflare Pages Dashboard → Settings → Environment variables');
   throw new Error('Discord Client ID is required. Please set VITE_DISCORD_CLIENT_ID in Cloudflare Pages Dashboard');
+}
+
+// Use a development fallback when not in production
+if (!import.meta.env.PROD && (!clientId || clientId === 'YOUR_DISCORD_CLIENT_ID_HERE')) {
+  console.warn('⚠️ Using development mode without Discord Client ID');
+  // You can set a development fallback or leave it undefined for development
 }
 discordSdk = new DiscordSDK(clientId);
 
