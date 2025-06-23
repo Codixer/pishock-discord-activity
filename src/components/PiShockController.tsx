@@ -116,15 +116,18 @@ export function PiShockController({
 
   // Also load settings when hasStoredCredentials becomes true (in case it was false when panel opened)
   useEffect(() => {
-    if (showSettings && currentUser && auth && hasStoredCredentials && !settingsLoadingData) {
+    if (showSettings && currentUser && auth && hasStoredCredentials && !settingsLoadingData && !settingsSaving) {
       // Only reload if we haven't already loaded or aren't currently loading
       if (!username && !sharecode) {
+        console.log('SETTINGS: Credentials detected, loading settings...');
         loadExistingSettings();
       }
     }
-  }, [hasStoredCredentials, showSettings, currentUser, auth, settingsLoadingData, username, sharecode]);
+  }, [hasStoredCredentials, showSettings, currentUser, auth, settingsLoadingData, settingsSaving, username, sharecode]);
 
   const checkCurrentUserCredentials = async () => {
+    console.log('STATUS: Checking current user credentials for:', currentUser?.id);
+    
     setSettingsLoading(true);
     try {
       const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-status`, {
@@ -133,8 +136,17 @@ export function PiShockController({
         },
       });
 
+      console.log('STATUS: Response status:', response.status);
+      
       if (response.ok) {
         const status = await response.json();
+        console.log('STATUS: Response data:', {
+          hasCredentials: status.hasCredentials,
+          isConnected: status.isConnected,
+          maxIntensity: status.maxIntensity,
+          maxDuration: status.maxDuration
+        });
+        
         setHasStoredCredentials(status.hasCredentials);
         setCurrentUserPiShockConnected(status.isConnected);
         onConnectionChange(status.isConnected);
@@ -150,11 +162,16 @@ export function PiShockController({
           setUserMaxDuration(status.maxDuration);
         }
         
+        console.log('STATUS: ✓ Status check completed - hasCredentials:', status.hasCredentials);
+        
         if (status.hasCredentials && !status.isConnected) {
           addNotification('warning', 'Connection Issue', 'Your PiShock credentials found but connection failed. Please check your settings.');
         } else if (status.isConnected) {
           addNotification('success', 'Connected', 'Your PiShock account is connected and ready');
         }
+      } else {
+        const errorText = await response.text();
+        console.error('STATUS: Failed to check credentials:', response.status, errorText);
       }
     } catch (error) {
       console.error('Failed to check stored credentials:', error);
@@ -167,6 +184,8 @@ export function PiShockController({
     if (!currentUser || !auth) return;
 
     setSettingsLoadingData(true);
+    console.log('SETTINGS: Loading existing settings for user:', currentUser.id);
+    
     try {
       const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
         method: 'GET',
@@ -175,8 +194,12 @@ export function PiShockController({
         },
       });
 
+      console.log('SETTINGS: Response status:', response.status);
+      
       if (response.ok) {
         const result = await response.json();
+        console.log('SETTINGS: Response data:', { hasSettings: result.hasSettings, settingsKeys: result.settings ? Object.keys(result.settings) : [] });
+        
         if (result.hasSettings && result.settings) {
           const settings = result.settings;
           
@@ -187,7 +210,7 @@ export function PiShockController({
           setUserMaxIntensity(settings.maxIntensity || 100);
           setUserMaxDuration(settings.maxDuration || 15);
           
-          console.log('Loaded existing settings:', {
+          console.log('SETTINGS: ✓ Successfully loaded existing settings:', {
             username: settings.username,
             sharecode: settings.sharecode ? 'Present' : 'Not set',
             hasOwnDevice: true,
@@ -196,17 +219,32 @@ export function PiShockController({
             lastUpdated: settings.lastUpdated
           });
         } else {
-          console.log('No existing settings found for user');
+          console.log('SETTINGS: No settings in response, but user was detected as having credentials. This might be a cache inconsistency.');
+          console.log('SETTINGS: hasStoredCredentials from status check:', hasStoredCredentials);
+          console.log('SETTINGS: Response hasSettings:', result.hasSettings);
+          
           // Clear form fields if no settings exist
           setUsername('');
           setSharecode('');
           setUserMaxIntensity(100);
           setUserMaxDuration(15);
+          
+          // If status check said user has credentials but settings load failed, try refreshing status
+          if (hasStoredCredentials) {
+            console.log('SETTINGS: Inconsistency detected - refreshing status check...');
+            // Retry the status check to see if there's a cache issue
+            setTimeout(() => {
+              checkCurrentUserCredentials();
+            }, 1000);
+          }
         }
+      } else {
+        const errorText = await response.text();
+        console.error('SETTINGS: Failed to load settings:', response.status, errorText);
       }
     } catch (error) {
       console.error('Failed to load existing settings:', error);
-      console.log('Will proceed with empty form fields');
+      console.log('SETTINGS: Will proceed with empty form fields due to error');
     } finally {
       setSettingsLoadingData(false);
     }
@@ -535,6 +573,9 @@ export function PiShockController({
                   <Loader className="h-4 w-4 animate-spin" />
                   <span>Loading your saved settings...</span>
                 </div>
+                <div className="text-xs text-blue-300 mt-1">
+                  Status check: {hasStoredCredentials ? 'Found credentials' : 'No credentials'} • Loading form data...
+                </div>
               </div>
             )}
             
@@ -679,7 +720,10 @@ export function PiShockController({
             
             {hasStoredCredentials && !settingsLoadingData && (
               <div className="text-xs text-gray-400 text-center">
-                Your settings are automatically loaded when you open this panel
+                Your settings are automatically loaded when you open this panel.
+                {(!username && !sharecode) && (
+                  <span className="text-yellow-400"> If fields are empty, try closing and reopening settings.</span>
+                )}
               </div>
             )}
           </div>
