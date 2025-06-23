@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { isDevelopmentMode } from '../utils/mockData';
 
 interface VersionInfo {
   latestVersion: string;
@@ -26,7 +27,10 @@ function getApiBaseUrl(): string {
 
 // Check if we're in development mode
 function isDevelopmentMode(): boolean {
-  return import.meta.env.DEV || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  return import.meta.env.DEV || 
+         window.location.hostname === 'localhost' || 
+         window.location.hostname === '127.0.0.1' ||
+         window.location.port === '3000';
 }
 
 export function useVersionCheck({ 
@@ -45,7 +49,7 @@ export function useVersionCheck({
   const checkVersion = useCallback(async () => {
     // Skip version checking in development mode
     if (isDevelopmentMode()) {
-      console.log('Version checking disabled in development mode');
+      console.log('🔒 DEV MODE: Version checking disabled');
       return;
     }
 
@@ -161,7 +165,7 @@ export function useVersionCheck({
   // Check version periodically, but not in development mode
   useEffect(() => {
     if (isDevelopmentMode()) {
-      console.log('Skipping version checks in development mode');
+      console.log('🔒 DEV MODE: Skipping all version checks');
       return;
     }
 

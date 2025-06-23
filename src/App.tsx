@@ -15,6 +15,7 @@ import { useInstanceData } from './hooks/useInstanceData';
 import { useParticipants } from './hooks/useParticipants';
 import { useVersionCheck } from './hooks/useVersionCheck';
 import { VersionWarning } from './components/VersionWarning';
+import { isDevelopmentMode, setupMockFetch, mockParticipants, mockUserPiShockStatus, mockInstanceData } from './utils/mockData';
 
 // Global function to refresh user statuses
 declare global {
@@ -26,6 +27,9 @@ declare global {
 // Check if we're running in Discord's embedded environment
 const urlParams = new URLSearchParams(window.location.search);
 const isEmbedded = urlParams.has('frame_id');
+
+// Set up mock fetch for development mode
+setupMockFetch();
 
 // Debug environment variables
 const envCheck = {
@@ -147,7 +151,14 @@ function MainApp() {
 
   // Function to check PiShock status for all participants
   const checkAllUserPiShockStatus = async () => {
-    // Don't check PiShock status in development mode
+    // Use mock data in development mode
+    if (isDevelopmentMode()) {
+      console.log('🔒 DEV MODE: Using mock PiShock status data');
+      setUserPiShockStatus(mockUserPiShockStatus);
+      return;
+    }
+    
+    // Don't check PiShock status if not embedded
     if (!isEmbedded) return;
     
     if (!instanceId || !auth || participants.length === 0) return;
@@ -377,40 +388,21 @@ function MainApp() {
 
           addNotification('success', 'Connected', 'Successfully connected to Discord');
         } else {
-          // Mock data for development environment
+          // Use comprehensive mock data for development environment
+          console.log('🔒 DEV MODE: Using mock Discord data');
           const mockInstanceId = 'dev_instance_123';
           setInstanceId(mockInstanceId);
           
-          const mockAuth = {
-            user: {
-              id: 'dev_user_123',
-              username: 'DevUser',
-              discriminator: '0001',
-              avatar: null,
-              global_name: 'Development User'
-            }
-          };
-          
-          const mockParticipants = [
-            {
-              id: 'dev_user_123',
-              username: 'DevUser',
-              discriminator: '0001',
-              avatar: null,
-              global_name: 'Development User'
-            },
-            {
-              id: 'test_user_456',
-              username: 'TestUser',
-              discriminator: '0002',
-              avatar: null,
-              global_name: 'Test User'
-            }
-          ];
+          const mockAuth = { user: mockParticipants[0] };
 
           setAuth(mockAuth);
           setParticipantCount(mockParticipants.length);
           updateParticipants(mockParticipants);
+          
+          // Set mock PiShock status
+          setUserPiShockStatus(mockUserPiShockStatus);
+          
+          addNotification('info', 'Development Mode', 'Running in development mode with mock data');
         }
 
         setLoading(false);
@@ -439,6 +431,19 @@ function MainApp() {
 
   // Load instance data when instanceId changes
   useEffect(() => {
+    // Use mock data in development mode
+    if (isDevelopmentMode()) {
+      console.log('🔒 DEV MODE: Using mock instance data');
+      updateInstanceData(mockInstanceData);
+      if (mockInstanceData.selectedUserId) {
+        const selectedParticipant = participants.find(p => p.id === mockInstanceData.selectedUserId);
+        if (selectedParticipant) {
+          setSelectedUser(selectedParticipant);
+        }
+      }
+      return;
+    }
+    
     if (instanceId && auth) {
       // Load instance-specific data from backend using proxy
       fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
@@ -492,6 +497,9 @@ function MainApp() {
 
   // Check PiShock status for all participants
   useEffect(() => {
+    // Skip in development mode (already set above)
+    if (isDevelopmentMode()) return;
+    
     if (instanceId && auth && participants.length > 0) {
       checkAllUserPiShockStatus();
     }
@@ -499,6 +507,9 @@ function MainApp() {
 
   // Set up periodic status checking for real-time updates
   useEffect(() => {
+    // Skip in development mode
+    if (isDevelopmentMode()) return;
+    
     if (!instanceId || !auth || participants.length === 0) return;
 
     // Reduced frequency: Check status every 30 seconds to minimize KV reads
@@ -511,6 +522,12 @@ function MainApp() {
 
   // Save instance data when selectedUser changes
   useEffect(() => {
+    // Skip in development mode
+    if (isDevelopmentMode()) {
+      console.log('🔒 DEV MODE: Skipping instance data save');
+      return;
+    }
+    
     if (instanceId && auth && selectedUser) {
       fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
         method: 'PUT',

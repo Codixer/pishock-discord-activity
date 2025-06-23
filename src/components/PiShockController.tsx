@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Zap, Settings, Play, Square, AlertTriangle, Wifi, Save, Loader, User, Shield, Lock } from 'lucide-react';
+import { isDevelopmentMode, mockPiShockSettings } from '../utils/mockData';
 
 interface PiShockControllerProps {
   selectedUser: any;
@@ -102,6 +103,18 @@ export function PiShockController({
 
   // Load current user's PiShock connection status when component mounts
   useEffect(() => {
+    // Use mock data in development mode
+    if (isDevelopmentMode()) {
+      console.log('🔒 DEV MODE: Using mock PiShock connection status');
+      setHasStoredCredentials(true);
+      setCurrentUserPiShockConnected(true);
+      onConnectionChange(true);
+      setCurrentUserPiShockUserId('mock_pishock_123');
+      setUserMaxIntensity(75);
+      setUserMaxDuration(10);
+      return;
+    }
+    
     if (currentUser && auth) {
       checkCurrentUserCredentials();
     }
@@ -109,11 +122,27 @@ export function PiShockController({
 
   // Load settings data when settings panel is opened
   useEffect(() => {
+    // Use mock data in development mode
+    if (isDevelopmentMode()) {
+      if (showSettings && hasStoredCredentials) {
+        console.log('🔒 DEV MODE: Using mock PiShock settings');
+        setUsername('mock_username');
+        setSharecode('MOCK123');
+        setHasOwnDevice(true);
+        setUserMaxIntensity(75);
+        setUserMaxDuration(10);
+      }
+      return;
+    }
+    
     if (showSettings && currentUser && auth && hasStoredCredentials) {
       loadExistingSettings();
     }
   }, [showSettings, currentUser, auth, hasStoredCredentials]);
   const checkCurrentUserCredentials = async () => {
+    // Skip in development mode (handled in useEffect)
+    if (isDevelopmentMode()) return;
+    
     setSettingsLoading(true);
     try {
       const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-status`, {
@@ -140,15 +169,9 @@ export function PiShockController({
         }
         
         if (status.hasCredentials && !status.isConnected) {
-          // Only show connection warning in production, not in development with mock data
-          if (!isDevelopmentMode()) {
-            addNotification('warning', 'Connection Issue', 'Your PiShock credentials found but connection failed. Please check your settings.');
-          }
+          addNotification('warning', 'Connection Issue', 'Your PiShock credentials found but connection failed. Please check your settings.');
         } else if (status.isConnected) {
-          // Only show connected notification in production
-          if (!isDevelopmentMode()) {
-            addNotification('success', 'Connected', 'Your PiShock account is connected and ready');
-          }
+          addNotification('success', 'Connected', 'Your PiShock account is connected and ready');
         }
       }
     } catch (error) {
@@ -159,6 +182,9 @@ export function PiShockController({
   };
 
   const loadExistingSettings = async () => {
+    // Skip in development mode (handled in useEffect)
+    if (isDevelopmentMode()) return;
+    
     if (!currentUser || !auth) return;
 
     setSettingsLoadingData(true);
@@ -199,6 +225,33 @@ export function PiShockController({
     }
   };
   const savePiShockSettings = async () => {
+    // Mock save in development mode
+    if (isDevelopmentMode()) {
+      console.log('🔒 DEV MODE: Mocking PiShock settings save');
+      setSettingsSaving(true);
+      
+      // Simulate API delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      setHasStoredCredentials(true);
+      setCurrentUserPiShockConnected(true);
+      onConnectionChange(true);
+      setCurrentUserPiShockUserId('mock_pishock_123');
+      
+      addNotification('success', 'Settings Saved', 'Your PiShock device settings saved and connection verified (mock)');
+      
+      setApiKey('');
+      setUsername('');
+      setSharecode('');
+      setShowSettings(false);
+      setSettingsSaving(false);
+      
+      if (window.refreshAllUserStatuses) {
+        window.refreshAllUserStatuses();
+      }
+      return;
+    }
+    
     if (!currentUser || !auth) return;
     
     if (!apiKey || !username || !sharecode) {
@@ -270,6 +323,27 @@ export function PiShockController({
   };
 
   const testConnection = async () => {
+    // Mock test in development mode
+    if (isDevelopmentMode()) {
+      console.log('🔒 DEV MODE: Mocking PiShock connection test');
+      setSettingsLoading(true);
+      
+      // Simulate API delay
+      await new Promise(resolve => setTimeout(resolve, 800));
+      
+      setCurrentUserPiShockConnected(true);
+      onConnectionChange(true);
+      setCurrentUserPiShockUserId('mock_pishock_123');
+      addNotification('success', 'Connection Test', 'Your PiShock account is responding correctly (mock)');
+      
+      setSettingsLoading(false);
+      
+      if (window.refreshAllUserStatuses) {
+        window.refreshAllUserStatuses();
+      }
+      return;
+    }
+    
     if (!currentUser || !auth) return;
 
 
@@ -319,6 +393,27 @@ export function PiShockController({
   };
 
   const handleShock = async (operation: number) => {
+    // Mock shock in development mode
+    if (isDevelopmentMode()) {
+      console.log('🔒 DEV MODE: Mocking shock command', { operation, intensity, duration, selectedUser: selectedUser?.username });
+      
+      if (!selectedUser) {
+        addNotification('warning', 'No User Selected', 'Please select a user first');
+        return;
+      }
+      
+      setIsShocking(true);
+      
+      // Simulate API delay
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      const actionName = operation === 0 ? 'Shock' : operation === 1 ? 'Vibration' : 'Beep';
+      addNotification('success', 'Command Sent (Mock)', `${actionName} sent to ${selectedUser.displayName || selectedUser.username} - Intensity: ${intensity}%, Duration: ${duration}s`);
+      
+      setIsShocking(false);
+      return;
+    }
+    
     if (!selectedUser) {
       addNotification('warning', 'No User Selected', 'Please select a user first');
       return;
@@ -390,6 +485,16 @@ export function PiShockController({
   };
 
   const removeStoredCredentials = async () => {
+    // Mock remove in development mode
+    if (isDevelopmentMode()) {
+      console.log('🔒 DEV MODE: Mocking credential removal');
+      setHasStoredCredentials(false);
+      setCurrentUserPiShockConnected(false);
+      onConnectionChange(false);
+      addNotification('info', 'Credentials Removed', 'Your PiShock credentials have been removed (mock)');
+      return;
+    }
+    
     if (!currentUser || !auth) return;
 
 
