@@ -77,11 +77,14 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
       if (!silent) setLoading(true);
       
       // Simulate loading delay
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 100));
       
       const previousCount = entries.length;
       setEntries(mockActivityLogEntries);
       setLastRefresh(new Date());
+      
+      // Clear loading state
+      setLoading(false);
       
       if (silent && mockActivityLogEntries.length > previousCount) {
         setTimeout(() => {
@@ -91,7 +94,6 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
         }, 100);
       }
       
-      if (!silent) setLoading(false);
       return;
     }
     

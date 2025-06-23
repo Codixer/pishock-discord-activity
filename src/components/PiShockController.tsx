@@ -118,7 +118,7 @@ export function PiShockController({
     if (currentUser && auth) {
       checkCurrentUserCredentials();
     }
-  }, [currentUser, auth]);
+  }, [currentUser, auth, onConnectionChange]);
 
   // Load settings data when settings panel is opened
   useEffect(() => {
@@ -169,9 +169,15 @@ export function PiShockController({
         }
         
         if (status.hasCredentials && !status.isConnected) {
-          addNotification('warning', 'Connection Issue', 'Your PiShock credentials found but connection failed. Please check your settings.');
+          // Only show connection issues in production to reduce dev noise
+          if (!isDevelopmentMode()) {
+            addNotification('warning', 'Connection Issue', 'Your PiShock credentials found but connection failed. Please check your settings.');
+          }
         } else if (status.isConnected) {
-          addNotification('success', 'Connected', 'Your PiShock account is connected and ready');
+          // Only show success notifications in production
+          if (!isDevelopmentMode()) {
+            addNotification('success', 'Connected', 'Your PiShock account is connected and ready');
+          }
         }
       }
     } catch (error) {
