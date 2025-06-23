@@ -46,17 +46,21 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const intervalRef = useRef<NodeJS.Timeout>();
   const logContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Check if running in embedded Discord environment
+  const urlParams = new URLSearchParams(window.location.search);
+  const isEmbedded = urlParams.has('frame_id');
 
   // Load initial activity log
   useEffect(() => {
-    if (auth) {
+    if (auth && isEmbedded) {
       loadActivityLog();
     }
-  }, [auth]);
+  }, [auth, isEmbedded]);
 
   // Set up auto-refresh with longer interval
   useEffect(() => {
-    if (autoRefresh && auth) {
+    if (autoRefresh && auth && isEmbedded) {
       intervalRef.current = setInterval(() => {
         loadActivityLog(true);
       }, 60000); // Refresh every 60 seconds to minimize KV reads
@@ -67,9 +71,16 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
         }
       };
     }
-  }, [autoRefresh, auth]);
+  }, [autoRefresh, auth, isEmbedded]);
 
   const loadActivityLog = async (silent = false) => {
+    // Skip API calls in development mode
+    if (!isEmbedded) {
+      console.log('Development mode: Skipping activity log API call');
+      if (!silent) setLoading(false);
+      return;
+    }
+    
     if (!silent) setLoading(true);
     
     try {
