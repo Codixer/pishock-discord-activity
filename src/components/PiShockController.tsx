@@ -109,10 +109,21 @@ export function PiShockController({
 
   // Load settings data when settings panel is opened
   useEffect(() => {
-    if (showSettings && currentUser && auth && hasStoredCredentials) {
+    if (showSettings && currentUser && auth) {
       loadExistingSettings();
     }
-  }, [showSettings, currentUser, auth, hasStoredCredentials]);
+  }, [showSettings, currentUser, auth]);
+
+  // Also load settings when hasStoredCredentials becomes true (in case it was false when panel opened)
+  useEffect(() => {
+    if (showSettings && currentUser && auth && hasStoredCredentials && !settingsLoadingData) {
+      // Only reload if we haven't already loaded or aren't currently loading
+      if (!username && !sharecode) {
+        loadExistingSettings();
+      }
+    }
+  }, [hasStoredCredentials, showSettings, currentUser, auth, settingsLoadingData, username, sharecode]);
+
   const checkCurrentUserCredentials = async () => {
     setSettingsLoading(true);
     try {
@@ -178,16 +189,24 @@ export function PiShockController({
           
           console.log('Loaded existing settings:', {
             username: settings.username,
+            sharecode: settings.sharecode ? 'Present' : 'Not set',
             hasOwnDevice: true,
             maxIntensity: settings.maxIntensity,
             maxDuration: settings.maxDuration,
             lastUpdated: settings.lastUpdated
           });
+        } else {
+          console.log('No existing settings found for user');
+          // Clear form fields if no settings exist
+          setUsername('');
+          setSharecode('');
+          setUserMaxIntensity(100);
+          setUserMaxDuration(15);
         }
       }
     } catch (error) {
       console.error('Failed to load existing settings:', error);
-      // Don't show notification for this - it's not critical
+      console.log('Will proceed with empty form fields');
     } finally {
       setSettingsLoadingData(false);
     }
@@ -514,7 +533,7 @@ export function PiShockController({
               <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg text-sm text-blue-200">
                 <div className="flex items-center space-x-2">
                   <Loader className="h-4 w-4 animate-spin" />
-                  <span>Loading your existing settings...</span>
+                  <span>Loading your saved settings...</span>
                 </div>
               </div>
             )}
@@ -523,7 +542,7 @@ export function PiShockController({
               <p className="font-semibold mb-1">Account Setup:</p>
               <p>
                 {hasStoredCredentials 
-                  ? "Update your PiShock device settings or safety limits. Your current settings are loaded below."
+                  ? "Your saved settings have been loaded below. Update any fields as needed."
                   : "Configure your PiShock device to participate. You'll need your API key, username, and device share code."
                 }
               </p>
@@ -543,7 +562,7 @@ export function PiShockController({
               />
               {hasStoredCredentials && (
                 <p className="text-xs text-gray-400 mt-1">
-                  Leave blank to keep your current API key
+                  Leave blank to keep your current API key (not shown for security)
                 </p>
               )}
             </div>
@@ -559,6 +578,11 @@ export function PiShockController({
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
                 placeholder="Your PiShock username"
               />
+              {hasStoredCredentials && username && (
+                <p className="text-xs text-green-400 mt-1">
+                  ✓ Loaded from your saved settings
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -575,6 +599,11 @@ export function PiShockController({
               <p className="text-xs text-gray-400 mt-1">
                 Your PiShock device share code is required to receive commands from other users
               </p>
+              {hasStoredCredentials && sharecode && (
+                <p className="text-xs text-green-400 mt-1">
+                  ✓ Loaded from your saved settings
+                </p>
+              )}
             </div>
             
             {/* Max Limits Settings */}
@@ -600,6 +629,11 @@ export function PiShockController({
                   <span>50%</span>
                   <span>100%</span>
                 </div>
+                {hasStoredCredentials && userMaxIntensity !== 100 && (
+                  <p className="text-xs text-green-400 mt-1">
+                    ✓ Loaded your saved limit: {userMaxIntensity}%
+                  </p>
+                )}
               </div>
               
               <div>
@@ -620,6 +654,11 @@ export function PiShockController({
                   <span>8s</span>
                   <span>15s</span>
                 </div>
+                {hasStoredCredentials && userMaxDuration !== 15 && (
+                  <p className="text-xs text-green-400 mt-1">
+                    ✓ Loaded your saved limit: {userMaxDuration}s
+                  </p>
+                )}
               </div>
             </div>
             
@@ -637,6 +676,12 @@ export function PiShockController({
                 {settingsLoadingData ? 'Loading...' : 'Save & Test Connection'}
               </span>
             </button>
+            
+            {hasStoredCredentials && !settingsLoadingData && (
+              <div className="text-xs text-gray-400 text-center">
+                Your settings are automatically loaded when you open this panel
+              </div>
+            )}
           </div>
         )}
       </div>
