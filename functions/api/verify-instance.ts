@@ -1,4 +1,5 @@
 interface Env {
+  PISHOCK_KV: KVNamespace;
   DISCORD_BOT_TOKEN: string;
 }
 
@@ -47,6 +48,30 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }, 400);
     }
 
+    // First check if instance exists in our KV store and hasn't expired
+    try {
+      const instanceStatus = await env.PISHOCK_KV.get(`instance:${instanceId}:status`);
+      if (!instanceStatus) {
+        console.log(`Instance ${instanceId} not found in KV or has expired`);
+        return jsonResponse({ 
+          valid: false, 
+          error: 'Discord Activity session has expired (maximum 6 hours). Please start a new session from Discord.' 
+        }, 404);
+      }
+
+      const status = JSON.parse(instanceStatus);
+      if (status.status === 'inactive') {
+        console.log(`Instance ${instanceId} is marked as inactive in KV`);
+        return jsonResponse({ 
+          valid: false, 
+          error: 'Discord Activity session is inactive. Please start a new session from Discord.' 
+        }, 404);
+      }
+    } catch (kvError) {
+      console.warn('Failed to check instance status in KV:', kvError);
+      // Continue with Discord verification if KV check fails
+    }
+
     if (!env.DISCORD_BOT_TOKEN) {
       console.error('DISCORD_BOT_TOKEN not configured in environment');
       return jsonResponse({ 
@@ -71,9 +96,18 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     if (discordResponse.status === 404) {
       console.log(`Instance ${instanceId} not found or inactive`);
+      
+      // Clean up expired instance data from KV if Discord says it doesn't exist
+      try {
+        await env.PISHOCK_KV.delete(`instance:${instanceId}:status`);
+        console.log(`Cleaned up expired instance ${instanceId} from KV`);
+      } catch (cleanupError) {
+        console.warn('Failed to clean up expired instance:', cleanupError);
+      }
+      
       return jsonResponse({ 
         valid: false, 
-        error: 'Instance not found or inactive' 
+        error: 'Discord Activity session not found or has expired. Please start a new session from Discord.' 
       }, 404);
     }
 

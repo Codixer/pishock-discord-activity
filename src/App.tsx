@@ -499,10 +499,19 @@ function MainApp() {
           </div>
           <h1 className="text-3xl font-bold mb-4">Invalid Session</h1>
           <p className="text-red-200 mb-6">
-            This Discord Activity session is not valid or has expired. Please start a new session from Discord.
+            This Discord Activity session is not valid or has expired. Discord Activity sessions have a maximum duration of 6 hours for security and performance reasons.
           </p>
-          <p className="text-sm text-red-300">
-            Make sure you're accessing this application through Discord's Activity feature.
+          <div className="space-y-3">
+            <button
+              onClick={() => window.close()}
+              className="w-full py-3 px-6 bg-red-600 hover:bg-red-700 rounded-lg font-semibold transition-colors"
+            >
+              Close Session
+            </button>
+            <p className="text-sm text-red-300 text-center">
+              To continue using PiShock Controller, please start a new Discord Activity session from your Discord server or DM.
+            </p>
+          </div>
           </p>
         </div>
       </div>

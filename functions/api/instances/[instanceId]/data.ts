@@ -40,7 +40,7 @@ async function validateDiscordToken(token: string): Promise<any> {
 const pendingWrites = new Map<string, any>();
 const writeTimeouts = new Map<string, NodeJS.Timeout>();
 
-async function debouncedWrite(kv: KVNamespace, key: string, value: any, delay = 2000) {
+async function debouncedWrite(kv: KVNamespace, key: string, value: any, delay = 2000, expirationTtl?: number) {
   // Cancel existing timeout for this key
   const existingTimeout = writeTimeouts.get(key);
   if (existingTimeout) {
@@ -54,7 +54,8 @@ async function debouncedWrite(kv: KVNamespace, key: string, value: any, delay = 
   const timeout = setTimeout(async () => {
     const pendingValue = pendingWrites.get(key);
     if (pendingValue) {
-      await kv.put(key, JSON.stringify(pendingValue));
+      const putOptions = expirationTtl ? { expirationTtl } : undefined;
+      await kv.put(key, JSON.stringify(pendingValue), putOptions);
       pendingWrites.delete(key);
       writeTimeouts.delete(key);
     }
@@ -104,7 +105,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       };
       
       // Use debounced write to prevent excessive updates
-      await debouncedWrite(env.PISHOCK_KV, `instance_data:${instanceId}`, merged);
+      await debouncedWrite(env.PISHOCK_KV, `instance_data:${instanceId}`, merged, 2000, 21600); // 6 hours TTL
       return jsonResponse({ success: true });
     }
 

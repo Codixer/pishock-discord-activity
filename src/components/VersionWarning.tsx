@@ -12,13 +12,14 @@ export function VersionWarning({ timeRemaining, onForceShutdown, onRefresh }: Ve
   const seconds = timeRemaining % 60;
   
   const getUrgencyColor = () => {
-    if (timeRemaining <= 10) return 'from-red-600 to-red-700';
-    if (timeRemaining <= 30) return 'from-orange-600 to-orange-700';
+    if (timeRemaining <= 30) return 'from-red-600 to-red-700';
+    if (timeRemaining <= 60) return 'from-orange-600 to-orange-700';
     return 'from-yellow-600 to-yellow-700';
   };
 
   const getProgressWidth = () => {
-    return ((300 - timeRemaining) / 300) * 100;
+    const total = 300; // 5 minutes
+    return Math.max(0, Math.min(100, ((total - timeRemaining) / total) * 100));
   };
 
   return (

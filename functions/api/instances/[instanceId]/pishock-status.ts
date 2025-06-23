@@ -103,7 +103,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         
         // Update last tested timestamp
         if (isConnected) {
-          await env.PISHOCK_KV.put(`instance:${instanceId}:pishock:lastTested`, new Date().toISOString());
+          await env.PISHOCK_KV.put(`instance:${instanceId}:pishock:lastTested`, new Date().toISOString(), { expirationTtl: 21600 }); // 6 hours
         }
       } catch (error) {
         console.error('Failed to test stored credentials:', error);

@@ -106,7 +106,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const isConnected = await testPiShockConnection(creds.apiKey, creds.username, creds.sharecode);
       const lastTested = new Date().toISOString();
       
-      await env.PISHOCK_KV.put(`instance:${instanceId}:pishock:lastTested`, lastTested);
+      await env.PISHOCK_KV.put(`instance:${instanceId}:pishock:lastTested`, lastTested, { expirationTtl: 21600 }); // 6 hours
       
       return jsonResponse({ 
         success: isConnected, 

@@ -108,9 +108,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       // Encrypt and store credentials
       const encrypted = await encrypt({ apiKey, username, sharecode });
       await Promise.all([
-        env.PISHOCK_KV.put(`instance:${instanceId}:pishock`, encrypted),
-        env.PISHOCK_KV.put(`instance:${instanceId}:pishock:lastTested`, new Date().toISOString()),
-        env.PISHOCK_KV.put(`instance:${instanceId}:pishock:configuredBy`, user.id)
+        env.PISHOCK_KV.put(`instance:${instanceId}:pishock`, encrypted, { expirationTtl: 21600 }), // 6 hours
+        env.PISHOCK_KV.put(`instance:${instanceId}:pishock:lastTested`, new Date().toISOString(), { expirationTtl: 21600 }), // 6 hours
+        env.PISHOCK_KV.put(`instance:${instanceId}:pishock:configuredBy`, user.id, { expirationTtl: 21600 }) // 6 hours
       ]);
 
       return jsonResponse({ success: true, isConnected: true });

@@ -120,7 +120,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         participant_count: 1, // This will be updated when participants are fetched
         created_at: new Date().toISOString(),
         last_authenticated_user: user.id
-      }), { expirationTtl: 604800 }) // 7 days
+      }), { expirationTtl: 21600 }) // 6 hours
     ]);
 
     return jsonResponse({ access_token, user });

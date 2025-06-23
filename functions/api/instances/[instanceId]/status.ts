@@ -66,13 +66,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const statusData = await env.PISHOCK_KV.get(`instance:${instanceId}:status`);
       
       if (!statusData) {
-        // Instance doesn't exist yet, consider it active
-        return jsonResponse({
-          status: 'active',
-          created_at: new Date().toISOString(),
-          last_activity: new Date().toISOString(),
-          participant_count: 0
-        });
+        // Instance doesn't exist or has expired
+        return new Response('Instance not found or expired', { status: 404 });
       }
 
       const status = JSON.parse(statusData);
@@ -111,7 +106,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       await env.PISHOCK_KV.put(
         `instance:${instanceId}:status`, 
         JSON.stringify(statusData), 
-        { expirationTtl: 604800 } // 7 days
+        { expirationTtl: 21600 } // 6 hours
       );
 
       console.log(`Instance ${instanceId} status updated to ${newStatus} by user ${user.id}`);
