@@ -344,8 +344,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         // Return settings without sensitive data (API key)
         const settings = {
           username: creds.username || '',
-          sharecode: creds.sharecode === 'account_access' ? '' : (creds.sharecode || ''),
-          hasOwnDevice: creds.hasOwnDevice || false,
+          sharecode: creds.sharecode || '',
+          hasOwnDevice: true, // Always true now
           maxIntensity: creds.maxIntensity || 100,
           maxDuration: creds.maxDuration || 15,
           lastUpdated: userData.lastUpdated,
@@ -369,10 +369,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (method === 'PUT') {
       const { apiKey, username, sharecode, hasOwnDevice, maxIntensity = 100, maxDuration = 15 } = await request.json();
 
-      if (!apiKey || !username) {
+      if (!apiKey || !username || !sharecode) {
         return jsonResponse({ 
           success: false, 
-          error: 'Missing required fields: apiKey and username are required' 
+          error: 'Missing required fields: API Key, Username, and Share Code are all required' 
         }, 400);
       }
 
@@ -392,7 +392,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
       console.log('=== Starting PiShock Legacy API validation ===');
       console.log('Username:', username);
-      console.log('Has own device:', hasOwnDevice);
+      console.log('Has own device:', true); // Always true now
       console.log('Share code provided:', !!sharecode);
       console.log('Max limits:', { maxIntensity, maxDuration });
 
@@ -419,13 +419,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const deviceCheck = await checkUserDevices(piShockUserId, apiKey);
       console.log('Device check result:', deviceCheck);
       
-      // Step 3: If user claims to have a device, validate the sharecode using Legacy API
+      // Step 3: Validate the sharecode using Legacy API (always required now)
       let shareCodeValid = true;
       let shareCodeError = null;
       let shareCodeDebug = null;
       
-      if (hasOwnDevice && sharecode && sharecode !== 'account_access') {
-        console.log('Validating share code for own device...');
+      if (sharecode) {
+        console.log('Validating share code...');
         const shareCodeValidation = await validateShareCode(username, apiKey, sharecode);
         shareCodeValid = shareCodeValidation.valid;
         shareCodeError = shareCodeValidation.error;
@@ -436,7 +436,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           return jsonResponse({ 
             success: false, 
             isConnected: false, 
-            error: shareCodeError || 'Invalid share code. Please check your device share code or select "Account Only".',
+            error: shareCodeError || 'Invalid share code. Please check your device share code.',
             debug: {
               step: 'share_code_validation',
               ...shareCodeDebug
@@ -447,8 +447,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
 
       // Determine final configuration
-      const finalSharecode = hasOwnDevice && sharecode ? sharecode : 'account_access';
-      const actuallyHasDevice = hasOwnDevice && shareCodeValid && deviceCheck.hasDevices;
+      const finalSharecode = sharecode;
+      const actuallyHasDevice = shareCodeValid && deviceCheck.hasDevices;
       
       console.log('Final configuration:');
       console.log('- Share code:', finalSharecode);
@@ -497,7 +497,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return jsonResponse({ 
         success: true, 
         isConnected: true,
-        hasOwnDevice: actuallyHasDevice,
+        hasOwnDevice: true, // Always true in the new system
         deviceCount: deviceCheck.devices?.length || 0,
         piShockUserId,
         debug: {

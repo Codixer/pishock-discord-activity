@@ -37,7 +37,7 @@ export function PiShockController({
   const [apiKey, setApiKey] = useState('');
   const [username, setUsername] = useState('');
   const [sharecode, setSharecode] = useState('');
-  const [hasOwnDevice, setHasOwnDevice] = useState(false);
+  const [hasOwnDevice, setHasOwnDevice] = useState(true); // Always true now since everyone needs a device
   const [userMaxIntensity, setUserMaxIntensity] = useState(100);
   const [userMaxDuration, setUserMaxDuration] = useState(15);
   const [intensity, setIntensity] = useState(1);
@@ -172,13 +172,13 @@ export function PiShockController({
           // Populate form fields with existing data
           setUsername(settings.username || '');
           setSharecode(settings.sharecode || '');
-          setHasOwnDevice(settings.hasOwnDevice || false);
+          setHasOwnDevice(true); // Always true now
           setUserMaxIntensity(settings.maxIntensity || 100);
           setUserMaxDuration(settings.maxDuration || 15);
           
           console.log('Loaded existing settings:', {
             username: settings.username,
-            hasOwnDevice: settings.hasOwnDevice,
+            hasOwnDevice: true,
             maxIntensity: settings.maxIntensity,
             maxDuration: settings.maxDuration,
             lastUpdated: settings.lastUpdated
@@ -195,14 +195,16 @@ export function PiShockController({
   const savePiShockSettings = async () => {
     if (!currentUser || !auth) return;
     
-
-    if (!apiKey || !username) {
-      addNotification('warning', 'Missing Information', 'Please fill in API Key and Username at minimum');
+    if (!apiKey || !username || !sharecode) {
+      addNotification('warning', 'Missing Information', 'Please fill in all required fields: API Key, Username, and Share Code');
       return;
     }
 
-    // If no sharecode provided, use a placeholder for account-only access
-    const finalSharecode = sharecode.trim() || 'account_access';
+    const finalSharecode = sharecode.trim();
+    if (!finalSharecode) {
+      addNotification('warning', 'Missing Share Code', 'Share code is required to control your PiShock device');
+      return;
+    }
 
     setSettingsSaving(true);
     try {
@@ -216,7 +218,7 @@ export function PiShockController({
           apiKey,
           username,
           sharecode: finalSharecode,
-          hasOwnDevice,
+          hasOwnDevice: true, // Always true now
           maxIntensity: userMaxIntensity,
           maxDuration: userMaxDuration,
         }),
@@ -229,8 +231,7 @@ export function PiShockController({
         setCurrentUserPiShockConnected(true);
         onConnectionChange(true);
         
-        const deviceType = hasOwnDevice ? 'device' : 'account';
-        addNotification('success', 'Settings Saved', `Your PiShock ${deviceType} settings saved and connection verified`);
+        addNotification('success', 'Settings Saved', 'Your PiShock device settings saved and connection verified');
         
         // Clear the form fields for security
         setApiKey('');
@@ -522,47 +523,12 @@ export function PiShockController({
               <p className="font-semibold mb-1">Account Setup:</p>
               <p>
                 {hasStoredCredentials 
-                  ? "Update your PiShock settings or safety limits. Your current settings are loaded below."
-                  : "Configure your PiShock account to participate. You can use account access even without owning a device."
+                  ? "Update your PiShock device settings or safety limits. Your current settings are loaded below."
+                  : "Configure your PiShock device to participate. You'll need your API key, username, and device share code."
                 }
               </p>
             </div>
 
-            {/* Device Type Selection */}
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-300">
-                Participation Type
-              </label>
-              <div className="flex space-x-4">
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="deviceType"
-                    checked={!hasOwnDevice}
-                    onChange={() => setHasOwnDevice(false)}
-                    className="w-4 h-4 text-purple-600 bg-gray-800 border-gray-600 focus:ring-purple-500"
-                  />
-                  <span className="text-sm text-gray-300">Account Only (No Device)</span>
-                </label>
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="deviceType"
-                    checked={hasOwnDevice}
-                    onChange={() => setHasOwnDevice(true)}
-                    className="w-4 h-4 text-purple-600 bg-gray-800 border-gray-600 focus:ring-purple-500"
-                  />
-                  <span className="text-sm text-gray-300">Own Device</span>
-                </label>
-              </div>
-              <p className="text-xs text-gray-400">
-                {hasOwnDevice 
-                  ? "You own a PiShock device and want to receive commands on it"
-                  : "You have a PiShock account but don't own a device (can still participate)"
-                }
-              </p>
-            </div>
-            
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">
                 API Key <span className="text-red-400">*</span>
@@ -594,24 +560,22 @@ export function PiShockController({
                 placeholder="Your PiShock username"
               />
             </div>
-            {hasOwnDevice && (
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Share Code <span className="text-red-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={sharecode}
-                  onChange={(e) => setSharecode(e.target.value)}
-                  disabled={settingsLoadingData}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
-                  placeholder="Device share code"
-                />
-                <p className="text-xs text-gray-400 mt-1">
-                  Required only if you own a device and want to receive commands
-                </p>
-              </div>
-            )}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">
+                Share Code <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="text"
+                value={sharecode}
+                onChange={(e) => setSharecode(e.target.value)}
+                disabled={settingsLoadingData}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
+                placeholder="Device share code (required to receive commands)"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Your PiShock device share code is required to receive commands from other users
+              </p>
+            </div>
             
             {/* Max Limits Settings */}
             <div className="space-y-3 p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
