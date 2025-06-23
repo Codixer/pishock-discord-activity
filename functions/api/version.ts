@@ -47,7 +47,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       
       // Generate a proper version based on current timestamp if none exists or if it's "unknown"
       if (!latestVersion || latestVersion === 'unknown' || latestVersion === 'null' || latestVersion === 'undefined') {
-        const newVersion = `v${Date.now()}`;
+        const newVersion = `build-${Date.now()}`;
         const newDeployedAt = new Date().toISOString();
         
         console.log('VERSION: No valid version found, creating new one:', newVersion);

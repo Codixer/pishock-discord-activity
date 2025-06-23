@@ -49,7 +49,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     console.log('DEPLOYMENT: Hook triggered with data:', deploymentData);
     
     // Generate a new version based on current timestamp
-    const newVersion = `deploy-${Date.now()}`;
+    const newVersion = `build-${Date.now()}`;
     const deployedAt = new Date().toISOString();
     
     console.log('DEPLOYMENT: Setting new version:', newVersion);

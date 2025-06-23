@@ -661,7 +661,7 @@ function MainApp() {
             'bg-green-400'
           }`}></div>
           <span className="text-gray-300 font-medium">
-            {import.meta.env.DEV ? 'dev' : `v${currentVersion.slice(-8)}`}
+            {import.meta.env.DEV ? 'dev' : `${currentVersion.slice(0, 5)}${currentVersion.slice(-8)}`}
           </span>
           {isChecking && (
             <div className="animate-spin rounded-full h-3 w-3 border-b border-gray-300"></div>

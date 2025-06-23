@@ -92,7 +92,8 @@ export function useVersionCheck({
           latest: versionInfo.latestVersion,
           lastChecked: lastCheckedVersion,
           deployedAt: versionInfo.deployedAt,
-          manual: isManualCheck
+          manual: isManualCheck,
+          versionsMatch: versionInfo.latestVersion === currentVersion
         });
 
         // On first check, just store the latest version without triggering shutdown
