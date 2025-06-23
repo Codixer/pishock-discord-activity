@@ -1,3 +1,15 @@
+---
+
+<div align="center">
+
+**⚡ Made with [Bolt.new](https://bolt.new/?rid=u8s05i) ⚡**
+
+*Get 200K extra credits by using this link! Upgrade to Pro for 5M extra tokens.*
+
+---
+
+</div>
+
 # PiShock Discord Activity
 
 A Discord Activity application that enables consensual control of PiShock electrical devices in a multiplayer Discord environment. This application provides a safe, transparent, and accountable way for Discord users to interact with PiShock devices through a purpose-built interface.
