@@ -12,9 +12,6 @@ dist
 dist-ssr
 *.local
 
-# GitHub Actions
-.github/workflows/*.log
-
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -26,26 +23,18 @@ dist-ssr
 *.sln
 *.sw?
 
-# Deployment
-.wrangler/
-.dev.vars
-wrangler.toml.backup
-
-# Logs
-*.log
-logs/
-
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
+# Lock files - let npm install generate fresh ones
+package-lock.json
 
 # Environment files
-.env.production
-.env.staging
-
-# Temporary files
-.tmp/
-temp/
 .env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Wrangler
+.wrangler/
+
+# Build outputs
+_worker.js
