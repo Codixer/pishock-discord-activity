@@ -15,7 +15,6 @@ import { useInstanceData } from './hooks/useInstanceData';
 import { useParticipants } from './hooks/useParticipants';
 import { useVersionCheck } from './hooks/useVersionCheck';
 import { VersionWarning } from './components/VersionWarning';
-import { AdminPanel } from './components/AdminPanel';
 
 // Global function to refresh user statuses
 declare global {
@@ -90,6 +89,8 @@ function MainApp() {
   const [instanceId, setInstanceId] = useState<string>('');
   const [showActivityLog, setShowActivityLog] = useState(true);
   const [userPiShockStatus, setUserPiShockStatus] = useState<Record<string, any>>({});
+  const [isInstanceExpired, setIsInstanceExpired] = useState(false);
+  const [participantCount, setParticipantCount] = useState(0);
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
   
@@ -236,6 +237,71 @@ function MainApp() {
   // Make user status available globally for PiShockController
   (window as any).userPiShockStatus = userPiShockStatus;
 
+  // Check instance status
+  const checkInstanceStatus = useCallback(async (instanceId: string) => {
+    if (!instanceId || !isEmbedded) return true; // Always allow in development
+
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/instances/${instanceId}/status`, {
+        headers: {
+          'Authorization': `Bearer ${auth?.access_token}`,
+        },
+      });
+
+      if (response.ok) {
+        const statusData = await response.json();
+        console.log('Instance status check:', statusData);
+        
+        if (statusData.status === 'inactive') {
+          console.log('Instance is inactive, marking as expired');
+          setIsInstanceExpired(true);
+          return false;
+        }
+        return true;
+      }
+    } catch (error) {
+      console.warn('Failed to check instance status:', error);
+    }
+    return true; // Allow access if check fails
+  }, [auth, isEmbedded]);
+
+  // Update instance status based on participant count
+  const updateInstanceStatus = useCallback(async (participantCount: number) => {
+    if (!instanceId || !auth || !isEmbedded) return;
+
+    try {
+      const newStatus = participantCount === 0 ? 'inactive' : 'active';
+      
+      await fetch(`${getApiBaseUrl()}/instances/${instanceId}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({
+          status: newStatus,
+          participant_count: participantCount,
+        }),
+      });
+
+      console.log(`Instance ${instanceId} status updated to ${newStatus} (${participantCount} participants)`);
+      
+      // If instance becomes inactive, set expiration flag
+      if (newStatus === 'inactive') {
+        setTimeout(() => {
+          setIsInstanceExpired(true);
+          addNotification('info', 'Session Ended', 'All participants have left. This session has ended.');
+        }, 5000); // 5 second delay before showing expired state
+      } else if (newStatus === 'active' && isInstanceExpired) {
+        // Reactivating an expired instance
+        setIsInstanceExpired(false);
+        addNotification('success', 'Session Reactivated', 'Participants have rejoined. Session is now active.');
+      }
+    } catch (error) {
+      console.warn('Failed to update instance status:', error);
+    }
+  }, [instanceId, auth, isEmbedded, isInstanceExpired, addNotification]);
+
   useEffect(() => {
     const initializeDiscord = async () => {
       try {
@@ -246,6 +312,13 @@ function MainApp() {
           const currentInstanceId = discordSdk.instanceId;
           setInstanceId(currentInstanceId);
           
+          // Check if instance is still active before proceeding
+          const instanceActive = await checkInstanceStatus(currentInstanceId);
+          if (!instanceActive) {
+            setLoading(false);
+            return; // Stop initialization if instance is expired
+          }
+
           // Authenticate with Discord
           const { code } = await discordSdk.commands.authorize({
             client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
@@ -283,14 +356,24 @@ function MainApp() {
           // Subscribe to participant updates
           discordSdk.subscribe(
             Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE,
-            (data: Types.GetActivityInstanceConnectedParticipantsResponse) => {
+            async (data: Types.GetActivityInstanceConnectedParticipantsResponse) => {
+              const newParticipantCount = data.participants.length;
+              setParticipantCount(newParticipantCount);
               updateParticipants(data.participants);
+              
+              // Update instance status based on participant count
+              await updateInstanceStatus(newParticipantCount);
             }
           );
 
           // Get initial participants
           const initialParticipants = await discordSdk.commands.getInstanceConnectedParticipants();
+          const initialCount = initialParticipants.participants.length;
+          setParticipantCount(initialCount);
           updateParticipants(initialParticipants.participants);
+          
+          // Update instance status with initial participant count
+          await updateInstanceStatus(initialCount);
 
           addNotification('success', 'Connected', 'Successfully connected to Discord');
         } else {
@@ -326,6 +409,7 @@ function MainApp() {
           ];
 
           setAuth(mockAuth);
+          setParticipantCount(mockParticipants.length);
           updateParticipants(mockParticipants);
           addNotification('info', 'Development Mode', 'Running in development mode with mock data');
         }
@@ -352,7 +436,7 @@ function MainApp() {
         discordSdk.unsubscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
       }
     };
-  }, [addNotification, updateParticipants]);
+  }, [addNotification, updateParticipants, checkInstanceStatus, updateInstanceStatus]);
 
   // Load instance data when instanceId changes
   useEffect(() => {
@@ -467,6 +551,34 @@ function MainApp() {
     return <SafetyWarning onAccept={() => setSafetyAccepted(true)} />;
   }
 
+  // Show instance expired message
+  if (isInstanceExpired) {
+    return (
+      <div className="h-screen w-screen bg-gradient-to-br from-red-900 via-red-800 to-orange-900 text-white overflow-hidden flex items-center justify-center">
+        <div className="text-center max-w-md p-8">
+          <div className="w-16 h-16 mx-auto mb-6 bg-red-500/20 rounded-full flex items-center justify-center">
+            <AlertTriangle className="h-8 w-8 text-red-400" />
+          </div>
+          <h1 className="text-3xl font-bold mb-4">Session Ended</h1>
+          <p className="text-red-200 mb-6">
+            This Discord Activity session has ended because all participants have left.
+          </p>
+          <div className="space-y-3">
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full py-3 px-6 bg-red-600 hover:bg-red-700 rounded-lg font-semibold transition-colors"
+            >
+              Start New Session
+            </button>
+            <p className="text-sm text-red-300">
+              Refresh the page or restart the Discord Activity to begin a new session.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white overflow-hidden flex flex-col">
       <NotificationSystem 
@@ -489,7 +601,7 @@ function MainApp() {
               <div>
                 <h1 className="text-lg font-bold">PiShock Controller</h1>
                 <p className="text-xs text-gray-300">
-                  Discord Activity • {participants.length} participant{participants.length !== 1 ? 's' : ''}
+                  Discord Activity • {participantCount} participant{participantCount !== 1 ? 's' : ''}
                 </p>
               </div>
             </div>
@@ -499,13 +611,6 @@ function MainApp() {
                   Instance: {instanceId.slice(-8)}
                 </div>
               )}
-              {/* Admin Panel - only shows for admin user */}
-              <AdminPanel 
-                auth={auth}
-                currentUser={auth?.user}
-                instanceId={instanceId}
-                addNotification={addNotification}
-              />
               <button
                 onClick={() => navigate('/terms')}
                 className="px-2 py-1 rounded-md bg-gray-700 hover:bg-gray-600 text-xs transition-colors flex items-center space-x-1"
