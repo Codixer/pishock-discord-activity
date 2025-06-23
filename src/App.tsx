@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { DiscordSDK, Events } from '@discord/embedded-app-sdk';
-import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText, Layout } from 'lucide-react';
+import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText } from 'lucide-react';
 import { PiShockController } from './components/PiShockController';
 import { SafetyWarning } from './components/SafetyWarning';
 import { UserSelector } from './components/UserSelector';
@@ -145,12 +145,6 @@ function MainApp() {
       window.location.href = window.location.href; // Hard refresh
     }, 500);
   }, [isEmbedded, updateParticipants]);
-
-  // Handle layout mode updates for PIP mode
-  const handleLayoutModeUpdate = useCallback((update: { layout_mode: DiscordSDK.Types.LayoutMode }) => {
-    console.log('Layout mode updated:', update.layout_mode);
-    setLayoutMode(update.layout_mode);
-  }, []);
 
   // Function to check PiShock status for all participants
   const checkAllUserPiShockStatus = async () => {
@@ -321,18 +315,6 @@ function MainApp() {
           const initialParticipants = await discordSdk.commands.getInstanceConnectedParticipants();
           updateParticipants(initialParticipants.participants);
 
-          // Subscribe to layout mode updates
-          const unsubscribeLayoutMode = discordSdk.subscribeToLayoutModeUpdatesCompat(handleLayoutModeUpdate);
-          setLayoutModeUnsubscribe(() => unsubscribeLayoutMode);
-
-          // Get initial layout mode
-          try {
-            const initialLayoutMode = await discordSdk.commands.getLayoutMode();
-            setLayoutMode(initialLayoutMode.layout_mode);
-          } catch (error) {
-            console.warn('Failed to get initial layout mode:', error);
-          }
-
           addNotification('success', 'Connected', 'Successfully connected to Discord');
         } else {
           // Mock data for development environment
@@ -368,7 +350,6 @@ function MainApp() {
 
           setAuth(mockAuth);
           updateParticipants(mockParticipants);
-          setLayoutMode(DiscordSDK.Types.LayoutMode.FOCUSED);
           addNotification('info', 'Development Mode', 'Running in development mode with mock data');
         }
 
@@ -391,13 +372,10 @@ function MainApp() {
     // Cleanup subscriptions on unmount
     return () => {
       if (isEmbedded && discordSdk) {
-        if (layoutModeUnsubscribe) {
-          layoutModeUnsubscribe();
-        }
         discordSdk.unsubscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
       }
     };
-  }, [addNotification, updateParticipants, layoutModeUnsubscribe]);
+  }, [addNotification, updateParticipants]);
 
   // Load instance data when instanceId changes
   useEffect(() => {
@@ -532,47 +510,6 @@ function MainApp() {
     );
   }
 
-  // Picture-in-Picture mode - simplified layout with only activity log
-  if (layoutMode === DiscordSDK.Types.LayoutMode.PIP) {
-    return (
-      <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white overflow-hidden flex flex-col">
-        <NotificationSystem 
-          notifications={notifications} 
-          onDismiss={dismissNotification} 
-        />
-        
-        {/* Minimal PIP Header */}
-        <div className="bg-black/30 backdrop-blur-sm border-b border-white/10 flex-shrink-0 p-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Layout className="h-4 w-4 text-purple-400" />
-              <span className="text-sm font-medium">PiShock Activity Log</span>
-            </div>
-            <div className="text-xs text-gray-400">
-              {participants.length} participant{participants.length !== 1 ? 's' : ''}
-            </div>
-          </div>
-        </div>
-
-        {/* Activity Log Only */}
-        <div className="flex-1 overflow-hidden p-2">
-          <ActivityLog
-            instanceId={instanceId}
-            auth={auth}
-            addNotification={addNotification}
-          />
-        </div>
-
-        {/* Version Indicator - Bottom Right */}
-        <div className="fixed bottom-2 right-2 z-40 bg-black/40 backdrop-blur-sm border border-white/10 rounded px-2 py-1 text-xs">
-          <span className="text-gray-300">
-            {import.meta.env.DEV ? 'dev' : `v${currentVersion.slice(-8)}`} • PIP
-          </span>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white overflow-hidden flex flex-col">
       <NotificationSystem 
@@ -600,15 +537,6 @@ function MainApp() {
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              {layoutMode !== null && (
-                <div className="flex items-center space-x-1 text-xs text-gray-400">
-                  <Layout className="h-3 w-3" />
-                  <span>
-                    {layoutMode === DiscordSDK.Types.LayoutMode.FOCUSED ? 'Focused' : 
-                     layoutMode === DiscordSDK.Types.LayoutMode.PIP ? 'PIP' : 'Grid'}
-                  </span>
-                </div>
-              )}
               {instanceId && (
                 <div className="text-xs text-gray-400">
                   Instance: {instanceId.slice(-8)}
@@ -737,8 +665,6 @@ function MainApp() {
     </div>
   );
 }
-
-function App() {
   const location = useLocation();
   const navigate = useNavigate();
 
