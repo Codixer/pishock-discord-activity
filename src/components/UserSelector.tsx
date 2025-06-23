@@ -225,7 +225,7 @@ export function UserSelector({
                                 {/* Show device limits if they exist */}
                                 {userStatus?.maxIntensity < 100 || userStatus?.maxDuration < 15 ? (
                                   <div className="text-xs text-yellow-400">
-                                    Limits: {userStatus.maxIntensity}%/{userStatus.maxDuration}s
+                                    Limits: {userStatus.maxIntensity}%/{typeof userStatus.maxDuration === 'number' ? userStatus.maxDuration.toFixed(1) : userStatus.maxDuration}s
                                   </div>
                                 ) : null}
                                 {userStatus?.piShockUserId && (

@@ -451,10 +451,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         }, 400);
       }
 
-      if (maxDuration < 1 || maxDuration > 15) {
+      if (maxDuration < 0.1 || maxDuration > 15) {
         return jsonResponse({ 
           success: false, 
-          error: 'Max duration must be between 1 and 15 seconds' 
+          error: 'Max duration must be between 0.1 and 15.0 seconds' 
         }, 400);
       }
       console.log('=== Starting PiShock Legacy API validation ===');
