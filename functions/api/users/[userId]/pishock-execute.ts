@@ -66,9 +66,13 @@ async function decrypt(encryptedData: string): Promise<any> {
 
 async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
   try {
+    console.log('ACTIVITY_LOG: Adding entry to batch for date:', new Date(entry.timestamp).toISOString().split('T')[0]);
+    
     // Use date-based batching to reduce key count
     const date = new Date(entry.timestamp).toISOString().split('T')[0]; // YYYY-MM-DD
     const batchKey = `activity:batch:${date}`;
+    
+    console.log('ACTIVITY_LOG: Using batch key:', batchKey);
     
     let batch = await kv.get(batchKey);
     let batchData = batch ? JSON.parse(batch) : {
@@ -77,20 +81,27 @@ async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
       totalCount: 0
     };
     
+    console.log('ACTIVITY_LOG: Current batch has', batchData.entries.length, 'entries');
+    
     // Add new entry at the beginning (newest first)
     batchData.entries.unshift(entry);
     batchData.lastUpdated = entry.timestamp;
     batchData.totalCount++;
     
+    console.log('ACTIVITY_LOG: Added entry, batch now has', batchData.entries.length, 'entries');
+    
     // Limit entries per batch to prevent value size issues
     if (batchData.entries.length > 200) {
       batchData.entries = batchData.entries.slice(0, 200);
+      console.log('ACTIVITY_LOG: Trimmed batch to 200 entries');
     }
     
     // Store with 30-day TTL to auto-cleanup old logs
     await kv.put(batchKey, JSON.stringify(batchData), { expirationTtl: 2592000 });
+    console.log('ACTIVITY_LOG: ✓ Successfully stored batch with', batchData.entries.length, 'entries');
   } catch (error) {
     console.error('Failed to update activity batch:', error);
+    throw error; // Re-throw to ensure calling code knows about the failure
   }
 }
 
@@ -367,10 +378,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       };
 
       // Store activity log entry
-      // Store activity log entry (non-blocking to reduce response time)
-      addToActivityBatch(env.PISHOCK_KV, logEntry).catch(error => {
-        console.error('Failed to log activity (non-blocking):', error);
-      });
+      // Store activity log entry (blocking to ensure logging works)
+      try {
+        console.log('EXECUTE: Logging activity entry with ID:', logEntry.id);
+        await addToActivityBatch(env.PISHOCK_KV, logEntry);
+        console.log('EXECUTE: ✓ Activity logged successfully');
+      } catch (logError) {
+        console.error('EXECUTE: ❌ Failed to log activity (CRITICAL):', logError);
+        // Don't fail the entire operation, but log the error clearly
+      }
 
       console.log('EXECUTE: Activity logged with ID:', logEntry.id);
 
