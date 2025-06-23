@@ -667,6 +667,8 @@ function MainApp() {
                 instanceId={instanceId}
                 auth={auth}
                 currentUser={auth?.user}
+                discordSdk={discordSdk}
+                isEmbedded={isEmbedded}
               />
             </div>
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Zap, Settings, Play, Square, AlertTriangle, Wifi, Save, Loader, User, Shield, Lock } from 'lucide-react';
+import { Zap, Settings, Play, Square, AlertTriangle, Wifi, Save, Loader, User, Shield, Lock, ExternalLink } from 'lucide-react';
+import { DiscordSDK } from '@discord/embedded-app-sdk';
 
 interface PiShockControllerProps {
   selectedUser: any;
@@ -9,6 +10,8 @@ interface PiShockControllerProps {
   instanceId: string;
   auth: any;
   currentUser: any;
+  discordSdk: DiscordSDK;
+  isEmbedded: boolean;
 }
 
 // Helper function to get the correct API base URL
@@ -32,7 +35,9 @@ export function PiShockController({
   addNotification, 
   instanceId, 
   auth,
-  currentUser
+  currentUser,
+  discordSdk,
+  isEmbedded
 }: PiShockControllerProps) {
   const [apiKey, setApiKey] = useState('');
   const [username, setUsername] = useState('');
@@ -458,6 +463,23 @@ export function PiShockController({
     }
   };
 
+  const openPiShockAccount = async () => {
+    if (isEmbedded && discordSdk) {
+      try {
+        await discordSdk.commands.openExternalLink({
+          url: 'https://pishock.com/#/account',
+        });
+        addNotification('info', 'Opening PiShock Account', 'Opening your PiShock account page in a new window');
+      } catch (error) {
+        console.error('Failed to open external link:', error);
+        addNotification('error', 'Link Failed', 'Failed to open external link. Please visit pishock.com manually.');
+      }
+    } else {
+      // Development mode fallback
+      window.open('https://pishock.com/#/account', '_blank');
+      addNotification('info', 'Opening PiShock Account', 'Opening your PiShock account page in a new tab');
+    }
+  };
   const getDisplayName = (user: any) => {
     return user?.guildDisplayName || user?.displayName || user?.global_name || user?.username || 'Unknown User';
   };
@@ -589,17 +611,35 @@ export function PiShockController({
               <label className="block text-sm font-medium text-gray-300 mb-1">
                 API Key {!hasStoredCredentials && <span className="text-red-400">*</span>}
               </label>
+              <div className="flex space-x-2">
               <input
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 disabled={settingsLoadingData}
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
+                className="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-sm"
                 placeholder={hasStoredCredentials ? "Leave blank to keep your current API key" : "Enter your PiShock API key"}
               />
+                <button
+                  onClick={openPiShockAccount}
+                  type="button"
+                  disabled={settingsLoadingData}
+                  className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 rounded-lg transition-colors flex items-center space-x-1 text-sm"
+                  title="Open PiShock Account Page"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  <span className="hidden sm:inline">Get API Key</span>
+                </button>
+              </div>
               {hasStoredCredentials && (
                 <p className="text-xs text-gray-400 mt-1">
                   {settingsLoadingData ? 'Loading...' : '✓ Your current API key is saved. Leave blank to keep it unchanged.'}
+                </p>
+              )}
+              {!hasStoredCredentials && (
+                <p className="text-xs text-blue-300 mt-1">
+                  <ExternalLink className="h-3 w-3 inline mr-1" />
+                  Click "Get API Key" to open your PiShock account page where you can find your API key
                 </p>
               )}
             </div>
