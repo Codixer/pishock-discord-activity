@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
-import { DiscordSDK, Events, type Types } from '@discord/embedded-app-sdk';
+import { DiscordSDK, Events, Types } from '@discord/embedded-app-sdk';
 import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText, Layout } from 'lucide-react';
 import { PiShockController } from './components/PiShockController';
 import { SafetyWarning } from './components/SafetyWarning';
@@ -91,6 +91,7 @@ function MainApp() {
   const [userPiShockStatus, setUserPiShockStatus] = useState<Record<string, any>>({});
   const [isInstanceValid, setIsInstanceValid] = useState(true);
   const [layoutMode, setLayoutMode] = useState<Types.LayoutMode | null>(null);
+  const [layoutModeUnsubscribe, setLayoutModeUnsubscribe] = useState<(() => void) | null>(null);
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
   
@@ -321,7 +322,8 @@ function MainApp() {
           updateParticipants(initialParticipants.participants);
 
           // Subscribe to layout mode updates
-          discordSdk.subscribeToLayoutModeUpdatesCompat(handleLayoutModeUpdate);
+          const unsubscribeLayoutMode = discordSdk.subscribeToLayoutModeUpdatesCompat(handleLayoutModeUpdate);
+          setLayoutModeUnsubscribe(() => unsubscribeLayoutMode);
 
           // Get initial layout mode
           try {
@@ -389,11 +391,13 @@ function MainApp() {
     // Cleanup subscriptions on unmount
     return () => {
       if (isEmbedded && discordSdk) {
-        discordSdk.unsubscribeFromLayoutModeUpdatesCompat(handleLayoutModeUpdate);
+        if (layoutModeUnsubscribe) {
+          layoutModeUnsubscribe();
+        }
         discordSdk.unsubscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
       }
     };
-  }, [addNotification, updateParticipants]);
+  }, [addNotification, updateParticipants, layoutModeUnsubscribe]);
 
   // Load instance data when instanceId changes
   useEffect(() => {
