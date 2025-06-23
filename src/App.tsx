@@ -18,6 +18,9 @@ import { useOrientation } from './hooks/useOrientation';
 import { useVersionCheck } from './hooks/useVersionCheck';
 import { VersionWarning } from './components/VersionWarning';
 
+// Admin user ID for KV wipe functionality
+const ADMIN_USER_ID = '173839105615069184';
+
 // Global function to refresh user statuses
 declare global {
   interface Window {
@@ -73,6 +76,7 @@ function MainApp() {
   const { layoutMode, isCompactMode } = useLayoutMode(discordSdk, isEmbedded);
   const { orientation, isLandscape, isPortrait } = useOrientation(discordSdk, isEmbedded);
   const navigate = useNavigate();
+  const [isWipingKV, setIsWipingKV] = useState(false);
   
   // Get current version from build
   const currentVersion = __BUILD_VERSION__;
@@ -370,6 +374,80 @@ function MainApp() {
     return () => clearInterval(intervalId);
   }, [auth, participants, isCompactMode]);
 
+  // Admin KV wipe function
+  const handleWipeKV = async () => {
+    if (!auth || auth.user?.id !== ADMIN_USER_ID) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      '⚠️ CRITICAL WARNING ⚠️\n\n' +
+      'This will PERMANENTLY DELETE ALL DATA from the KV namespace including:\n' +
+      '• All user PiShock credentials\n' +
+      '• All activity logs\n' +
+      '• All instance data\n' +
+      '• All cached data\n\n' +
+      'This action is IRREVERSIBLE and will affect ALL USERS.\n\n' +
+      'Are you absolutely sure you want to proceed?'
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const doubleConfirmed = window.confirm(
+      'FINAL CONFIRMATION\n\n' +
+      'You are about to wipe ALL data from the PiShock Discord Activity.\n' +
+      'This will log out all users and delete everything.\n\n' +
+      'Type YES in the next prompt to confirm.'
+    );
+
+    if (!doubleConfirmed) {
+      return;
+    }
+
+    const finalConfirm = window.prompt(
+      'Type "DELETE ALL DATA" (without quotes) to confirm:'
+    );
+
+    if (finalConfirm !== 'DELETE ALL DATA') {
+      addNotification('info', 'Cancelled', 'KV wipe operation cancelled');
+      return;
+    }
+
+    setIsWipingKV(true);
+
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/admin/wipe-kv`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        addNotification('success', 'KV Wiped', 
+          `Successfully deleted ${result.keysDeleted} keys from KV namespace. All user data has been cleared.`);
+        
+        // Force reload after a delay to clear any cached data
+        setTimeout(() => {
+          window.location.reload();
+        }, 3000);
+      } else {
+        throw new Error(result.error || 'KV wipe failed');
+      }
+    } catch (error) {
+      console.error('KV wipe error:', error);
+      addNotification('error', 'Wipe Failed', 
+        error instanceof Error ? error.message : 'Failed to wipe KV namespace');
+    } finally {
+      setIsWipingKV(false);
+    }
+  };
+
   // Save instance data when selectedUser changes
   useEffect(() => {
     if (instanceId && auth && selectedUser) {
@@ -439,6 +517,24 @@ function MainApp() {
                 <div className="text-xs text-gray-400">
                   Instance: {instanceId.slice(-8)}
                 </div>
+              )}
+              {/* Admin KV Wipe Button */}
+              {auth?.user?.id === ADMIN_USER_ID && (
+                <button
+                  onClick={handleWipeKV}
+                  disabled={isWipingKV}
+                  className="px-2 py-1 rounded-md bg-red-700 hover:bg-red-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-xs transition-colors flex items-center space-x-1"
+                  title="ADMIN: Wipe all KV data"
+                >
+                  {isWipingKV ? (
+                    <div className="animate-spin rounded-full h-3 w-3 border-b border-white"></div>
+                  ) : (
+                    <span>🗑️</span>
+                  )}
+                  <span className="hidden sm:inline">
+                    {isWipingKV ? 'Wiping...' : 'Admin Wipe'}
+                  </span>
+                </button>
               )}
               <button
                 onClick={() => navigate('/terms')}

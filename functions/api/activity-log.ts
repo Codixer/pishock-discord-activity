@@ -62,31 +62,74 @@ async function validateDiscordToken(token: string): Promise<any> {
   }
 }
 
+// Simple in-memory cache for debouncing KV writes (best effort for stateless workers)
+const writeDebounceCache = new Map<string, { data: any; lastWrite: number; timeout?: NodeJS.Timeout }>();
+const DEBOUNCE_DELAY = 5000; // 5 seconds
+
 async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
   try {
-    // Use date-based batching to reduce key count
     const date = new Date(entry.timestamp).toISOString().split('T')[0]; // YYYY-MM-DD
     const batchKey = `activity:batch:${date}`;
     
-    let batch = await kv.get(batchKey);
-    let batchData: BatchedActivityLog = batch ? JSON.parse(batch) : {
-      entries: [],
-      lastUpdated: entry.timestamp,
-      totalCount: 0
-    };
+    // Check if we have a debounced write pending
+    const cached = writeDebounceCache.get(batchKey);
+    const now = Date.now();
     
-    // Add new entry at the beginning (newest first)
-    batchData.entries.unshift(entry);
-    batchData.lastUpdated = entry.timestamp;
-    batchData.totalCount++;
+    let batchData: BatchedActivityLog;
     
-    // Limit entries per batch to prevent value size issues
+    if (cached && cached.data) {
+      // Use cached data and add new entry
+      batchData = { ...cached.data };
+      batchData.entries.unshift(entry);
+      batchData.lastUpdated = entry.timestamp;
+      batchData.totalCount++;
+    } else {
+      // Load from KV and add new entry
+      let batch = await kv.get(batchKey);
+      batchData = batch ? JSON.parse(batch) : {
+        entries: [],
+        lastUpdated: entry.timestamp,
+        totalCount: 0
+      };
+      
+      batchData.entries.unshift(entry);
+      batchData.lastUpdated = entry.timestamp;
+      batchData.totalCount++;
+    }
+    
+    // Limit entries per batch
     if (batchData.entries.length > 200) {
       batchData.entries = batchData.entries.slice(0, 200);
     }
     
-    // Store with 30-day TTL to auto-cleanup old logs
-    await kv.put(batchKey, JSON.stringify(batchData), { expirationTtl: 2592000 });
+    // Clear existing timeout if any
+    if (cached?.timeout) {
+      clearTimeout(cached.timeout);
+    }
+    
+    // Set up debounced write
+    const timeout = setTimeout(async () => {
+      try {
+        const finalData = writeDebounceCache.get(batchKey)?.data;
+        if (finalData) {
+          await kv.put(batchKey, JSON.stringify(finalData), { expirationTtl: 2592000 });
+          console.log(`Debounced KV write completed for ${batchKey}`);
+        }
+        writeDebounceCache.delete(batchKey);
+      } catch (error) {
+        console.error('Debounced KV write failed:', error);
+        writeDebounceCache.delete(batchKey);
+      }
+    }, DEBOUNCE_DELAY);
+    
+    // Update cache
+    writeDebounceCache.set(batchKey, {
+      data: batchData,
+      lastWrite: now,
+      timeout
+    });
+    
+    console.log(`Activity entry added to batch ${batchKey} (debounced write in ${DEBOUNCE_DELAY}ms)`);
   } catch (error) {
     console.error('Failed to update activity batch:', error);
   }

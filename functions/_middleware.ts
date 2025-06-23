@@ -26,11 +26,101 @@ async function setCachedResponse(request: Request, response: Response, cacheKey:
   } catch (error) {
     console.warn('Cache write error:', error);
   }
+  DISCORD_BOT_TOKEN?: string;
+}
+
+// Discord instance verification
+async function verifyDiscordInstance(instanceId: string, botToken: string): Promise<boolean> {
+  if (!botToken || !instanceId) {
+    return true; // Skip verification if no bot token configured
+  }
+  
+  try {
+    // Extract application ID from the instance ID format
+    // Format: i-{launch_id}-gc-{guild_id}-{channel_id}
+    const parts = instanceId.split('-');
+    if (parts.length < 2) {
+      console.warn('Invalid instance ID format:', instanceId);
+      return true; // Allow if format is unexpected
+    }
+    
+    // For now, we'll assume the application ID is embedded in the environment
+    // In a real implementation, you'd extract it from the instance ID or store it separately
+    const applicationId = process.env.VITE_DISCORD_CLIENT_ID || process.env.DISCORD_CLIENT_ID;
+    if (!applicationId) {
+      console.warn('No application ID available for instance verification');
+      return true;
+    }
+    
+    const response = await fetch(
+      `https://discord.com/api/applications/${applicationId}/activity-instances/${instanceId}`,
+      {
+        headers: {
+          'Authorization': botToken,
+          'User-Agent': 'PiShock-Discord-Activity/4.0'
+        }
+      }
+    );
+    
+    const isValid = response.ok;
+    console.log(`Instance ${instanceId} verification: ${isValid ? 'valid' : 'invalid'} (${response.status})`);
+    
+    return isValid;
+  } catch (error) {
+    console.error('Discord instance verification failed:', error);
+    return true; // Allow on error to prevent blocking legitimate requests
+  }
+}
+
+// Cleanup inactive instance data
+async function cleanupInstanceData(kv: KVNamespace, instanceId: string): Promise<void> {
+  try {
+    console.log(`Cleaning up data for inactive instance: ${instanceId}`);
+    
+    // List of keys to clean up for this instance
+    const keysToDelete = [
+      `instance_data:${instanceId}`,
+      `instance:${instanceId}:pishock`,
+      `instance:${instanceId}:pishock:lastTested`,
+      `instance:${instanceId}:pishock:configuredBy`
+    ];
+    
+    // Delete all instance-specific keys
+    await Promise.all(keysToDelete.map(key => kv.delete(key)));
+    
+    console.log(`Cleaned up ${keysToDelete.length} keys for instance ${instanceId}`);
+  } catch (error) {
+    console.error(`Failed to cleanup instance ${instanceId}:`, error);
+  }
 }
 
 export async function onRequest(context: any) {
-  const { request } = context;
+  const { request, env } = context;
   const url = new URL(request.url);
+  
+  // Check for instance-specific API endpoints and verify Discord instance
+  const instanceMatch = url.pathname.match(/^\/api\/instances\/([^\/]+)/);
+  if (instanceMatch && env.DISCORD_BOT_TOKEN) {
+    const instanceId = instanceMatch[1];
+    const isValid = await verifyDiscordInstance(instanceId, env.DISCORD_BOT_TOKEN);
+    
+    if (!isValid) {
+      // Instance is no longer active, clean up data and return 410 Gone
+      await cleanupInstanceData(env.PISHOCK_KV, instanceId);
+      
+      return new Response(JSON.stringify({
+        error: 'Instance no longer active',
+        message: 'This Discord Activity instance has been closed. Please restart the activity.',
+        code: 'INSTANCE_INACTIVE'
+      }), {
+        status: 410,
+        headers: {
+          'Content-Type': 'application/json',
+          ...corsHeaders
+        }
+      });
+    }
+  }
   
   // Check for cached response for GET requests to specific endpoints
   if (request.method === 'GET') {
