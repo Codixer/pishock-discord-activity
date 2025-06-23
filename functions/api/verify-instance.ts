@@ -48,30 +48,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }, 400);
     }
 
-    // First check if instance exists in our KV store and hasn't expired
-    try {
-      const instanceStatus = await env.PISHOCK_KV.get(`instance:${instanceId}:status`);
-      if (!instanceStatus) {
-        console.log(`Instance ${instanceId} not found in KV or has expired`);
-        return jsonResponse({ 
-          valid: false, 
-          error: 'Discord Activity session has expired (maximum 6 hours). Please start a new session from Discord.' 
-        }, 404);
-      }
-
-      const status = JSON.parse(instanceStatus);
-      if (status.status === 'inactive') {
-        console.log(`Instance ${instanceId} is marked as inactive in KV`);
-        return jsonResponse({ 
-          valid: false, 
-          error: 'Discord Activity session is inactive. Please start a new session from Discord.' 
-        }, 404);
-      }
-    } catch (kvError) {
-      console.warn('Failed to check instance status in KV:', kvError);
-      // Continue with Discord verification if KV check fails
-    }
-
     if (!env.DISCORD_BOT_TOKEN) {
       console.error('DISCORD_BOT_TOKEN not configured in environment');
       return jsonResponse({ 
@@ -80,9 +56,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }, 500);
     }
 
-    console.log(`Verifying Discord instance: ${instanceId} for application: ${applicationId}`);
+    console.log(`Verifying Discord instance with Discord API: ${instanceId} for application: ${applicationId}`);
 
-    // Verify the instance with Discord's API
+    // STEP 1: Check Discord's API as the primary source of truth
     const discordResponse = await fetch(
       `https://discord.com/api/applications/${applicationId}/activity-instances/${instanceId}`,
       {
@@ -94,15 +70,25 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
     );
 
+    console.log('Discord API response status:', discordResponse.status);
+
     if (discordResponse.status === 404) {
-      console.log(`Instance ${instanceId} not found or inactive`);
+      console.log(`Instance ${instanceId} not found or inactive in Discord`);
       
-      // Clean up expired instance data from KV if Discord says it doesn't exist
+      // STEP 2: Clean up any stale instance data from KV if Discord says it doesn't exist
       try {
-        await env.PISHOCK_KV.delete(`instance:${instanceId}:status`);
-        console.log(`Cleaned up expired instance ${instanceId} from KV`);
+        const cleanupPromises = [
+          env.PISHOCK_KV.delete(`instance:${instanceId}:status`),
+          env.PISHOCK_KV.delete(`instance_data:${instanceId}`),
+          env.PISHOCK_KV.delete(`instance:${instanceId}:pishock`),
+          env.PISHOCK_KV.delete(`instance:${instanceId}:pishock:lastTested`),
+          env.PISHOCK_KV.delete(`instance:${instanceId}:pishock:configuredBy`)
+        ];
+        
+        await Promise.allSettled(cleanupPromises);
+        console.log(`Cleaned up stale instance data for ${instanceId}`);
       } catch (cleanupError) {
-        console.warn('Failed to clean up expired instance:', cleanupError);
+        console.warn('Failed to clean up stale instance data:', cleanupError);
       }
       
       return jsonResponse({ 
@@ -120,20 +106,90 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }, discordResponse.status);
     }
 
+    // STEP 3: Instance is valid according to Discord - parse the response
     const instanceData = await discordResponse.json();
-    console.log(`✓ Instance ${instanceId} verified successfully`);
+    console.log(`✓ Instance ${instanceId} verified as valid by Discord`);
+    console.log('Instance data:', { 
+      users: instanceData.users?.length || 0, 
+      location: instanceData.location 
+    });
 
+    // STEP 4: Update our KV store with the valid instance status
+    try {
+      const now = new Date().toISOString();
+      const statusData = {
+        status: 'active',
+        created_at: now,
+        last_activity: now,
+        last_verified: now,
+        participant_count: instanceData.users?.length || 0,
+        discord_verified: true,
+        location: instanceData.location
+      };
+
+      // Store with 6-hour TTL (21600 seconds)
+      await env.PISHOCK_KV.put(
+        `instance:${instanceId}:status`, 
+        JSON.stringify(statusData), 
+        { expirationTtl: 21600 } // 6 hours
+      );
+
+      console.log(`Updated KV store for valid instance ${instanceId} with 6-hour TTL`);
+    } catch (kvError) {
+      console.warn('Failed to update KV store (non-critical):', kvError);
+      // Don't fail the verification if KV update fails
+    }
+
+    // STEP 5: Return success with instance data
     return jsonResponse({ 
       valid: true, 
-      instanceData 
+      instanceData: {
+        instanceId: instanceData.instance_id,
+        applicationId: instanceData.application_id,
+        participantCount: instanceData.users?.length || 0,
+        location: instanceData.location,
+        verifiedAt: new Date().toISOString()
+      }
     });
 
   } catch (error) {
     console.error('Instance verification error:', error);
+    
+    // For network errors or other issues, be more permissive and check KV as fallback
+    const instanceId = url.searchParams.get('instance_id');
+    if (instanceId) {
+      try {
+        console.log('Discord API failed, checking KV store as fallback...');
+        const kvStatus = await env.PISHOCK_KV.get(`instance:${instanceId}:status`);
+        
+        if (kvStatus) {
+          const status = JSON.parse(kvStatus);
+          // Only accept recent verifications (within last hour)
+          const lastVerified = new Date(status.last_verified || status.created_at);
+          const oneHourAgo = new Date(Date.now() - 3600000);
+          
+          if (lastVerified > oneHourAgo && status.status === 'active') {
+            console.log('Using cached instance status as fallback');
+            return jsonResponse({ 
+              valid: true, 
+              instanceData: {
+                instanceId,
+                fallback: true,
+                lastVerified: status.last_verified,
+                participantCount: status.participant_count || 0
+              }
+            });
+          }
+        }
+      } catch (kvError) {
+        console.warn('KV fallback also failed:', kvError);
+      }
+    }
+
     return jsonResponse({ 
       valid: false, 
-      error: 'Internal server error',
-      message: error instanceof Error ? error.message : 'Unknown error'
-    }, 500);
+      error: 'Instance verification failed due to network error. Please try again.',
+      temporary: true
+    }, 503);
   }
 };
