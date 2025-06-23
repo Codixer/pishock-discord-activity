@@ -753,17 +753,17 @@ export function PiShockController({
       </div>
 
       {/* Control Panel */}
-      <div className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex-1 flex flex-col min-h-0">
-        <h3 className="text-base sm:text-lg font-semibold mb-4 flex-shrink-0">Control Panel</h3>
+      <div className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 flex-1 flex flex-col min-h-0">
+        <h3 className="text-base sm:text-lg font-semibold mb-4 flex-shrink-0 px-4 pt-4">Control Panel</h3>
 
         {!selectedUser ? (
-          <div className="text-center py-8 text-gray-400 flex-1 flex flex-col justify-center">
+          <div className="text-center py-8 text-gray-400 flex-1 flex flex-col justify-center px-4 pb-4">
             <AlertTriangle className="h-12 w-12 mx-auto mb-3 opacity-50" />
             <p>Please select a participant to continue</p>
             <p className="text-sm mt-1">Only users with PiShock accounts can be targeted</p>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col space-y-4 min-h-0">
+          <div className="flex-1 flex flex-col space-y-4 min-h-0 px-4 pb-4">
             {/* Target User */}
             <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg flex-shrink-0">
               <div className="flex items-center space-x-3">
