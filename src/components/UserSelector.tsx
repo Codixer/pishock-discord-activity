@@ -150,6 +150,11 @@ export function UserSelector({
                       const hasCredentials = userStatus?.hasCredentials;
                       const isDisabled = !isConnected;
                       
+                      // Check if current user has banned this participant
+                      const currentUserStatus = userPiShockStatus[currentUser?.id];
+                      const currentUserBannedExecutors = currentUserStatus?.bannedExecutors || [];
+                      const isBannedByCurrentUser = currentUserBannedExecutors.includes(member.id);
+                      
                       return (
                         <button
                           key={member.id}

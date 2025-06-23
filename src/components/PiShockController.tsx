@@ -39,7 +39,8 @@ export function PiShockController({
   currentUser,
   discordSdk,
   isEmbedded,
-  layoutMode = Common.LayoutModeTypeObject.FOCUSED
+  layoutMode = Common.LayoutModeTypeObject.FOCUSED,
+  participants = []
 }: PiShockControllerProps) {
   const [apiKey, setApiKey] = useState('');
   const [username, setUsername] = useState('');
