@@ -37,25 +37,33 @@ export function useVersionCheck({
 }: UseVersionCheckProps) {
   const [isOutdated, setIsOutdated] = useState(false);
   const [shutdownTimer, setShutdownTimer] = useState<NodeJS.Timeout | null>(null);
-  const [timeRemaining, setTimeRemaining] = useState(60); // 60 seconds warning
+  const [timeRemaining, setTimeRemaining] = useState(300); // 5 minutes warning (300 seconds)
   const [isShuttingDown, setIsShuttingDown] = useState(false);
   const [lastCheckedVersion, setLastCheckedVersion] = useState<string>('');
   const [hasInitialized, setHasInitialized] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
 
-  const checkVersion = useCallback(async () => {
+  const checkVersion = useCallback(async (isManualCheck = false) => {
     // Skip version checking in development mode
     if (isDevelopmentMode()) {
-      console.log('Version checking disabled in development mode');
+      if (isManualCheck) {
+        addNotification('info', 'Development Mode', 'Version checking is disabled in development mode');
+      }
       return;
     }
 
     // Skip if already shutting down
     if (isShuttingDown) {
+      if (isManualCheck) {
+        addNotification('warning', 'Update Required', 'Application update is already in progress');
+      }
       return;
     }
 
+    setIsChecking(true);
+
     try {
-      console.log('Checking version...', { current: currentVersion });
+      console.log('Checking version...', { current: currentVersion, manual: isManualCheck });
       
       const response = await fetch(`${getApiBaseUrl()}/version`, {
         headers: {
@@ -73,6 +81,9 @@ export function useVersionCheck({
             versionInfo.latestVersion === 'null' || 
             versionInfo.latestVersion === 'undefined') {
           console.log('VERSION_CHECK: Received invalid version, skipping check');
+          if (isManualCheck) {
+            addNotification('warning', 'Version Check Failed', 'Unable to retrieve version information');
+          }
           return;
         }
         
@@ -80,7 +91,8 @@ export function useVersionCheck({
           current: currentVersion,
           latest: versionInfo.latestVersion,
           lastChecked: lastCheckedVersion,
-          deployedAt: versionInfo.deployedAt
+          deployedAt: versionInfo.deployedAt,
+          manual: isManualCheck
         });
 
         // On first check, just store the latest version without triggering shutdown
@@ -88,7 +100,26 @@ export function useVersionCheck({
           setLastCheckedVersion(versionInfo.latestVersion);
           setHasInitialized(true);
           console.log('VERSION_CHECK: Initialized with version:', versionInfo.latestVersion);
+          if (isManualCheck) {
+            if (versionInfo.latestVersion === currentVersion) {
+              addNotification('success', 'Up to Date', 'You are running the latest version');
+            } else {
+              addNotification('info', 'Version Check Complete', 'Version information updated');
+            }
+          }
           return;
+        }
+
+        // For manual checks, always provide feedback
+        if (isManualCheck) {
+          if (versionInfo.latestVersion === currentVersion) {
+            addNotification('success', 'Up to Date', 'You are running the latest version');
+            setLastCheckedVersion(versionInfo.latestVersion);
+            return;
+          } else if (!isOutdated) {
+            // Manual check discovered new version
+            addNotification('warning', 'Update Available', 'A new version is available. Update will begin automatically.');
+          }
         }
 
         // Only trigger shutdown if:
@@ -111,11 +142,11 @@ export function useVersionCheck({
           addNotification(
             'warning', 
             'Application Updated', 
-            'A new version has been deployed. This session will close in 60 seconds to ensure compatibility.'
+            'A new version has been deployed. This session will close in 5 minutes to ensure compatibility.'
           );
 
-          // Start countdown timer
-          let remaining = 60;
+          // Start countdown timer - 5 minutes (300 seconds)
+          let remaining = 300;
           setTimeRemaining(remaining);
           onOutdated(remaining);
 
@@ -125,17 +156,29 @@ export function useVersionCheck({
             onOutdated(remaining);
 
             // Additional warnings at key intervals
-            if (remaining === 30) {
+            if (remaining === 240) { // 4 minutes remaining
               addNotification(
                 'warning', 
                 'Session Closing Soon', 
-                'This session will close in 30 seconds due to an application update.'
+                'This session will close in 4 minutes due to an application update.'
               );
-            } else if (remaining === 10) {
+            } else if (remaining === 120) { // 2 minutes remaining
+              addNotification(
+                'warning', 
+                'Session Closing Soon', 
+                'This session will close in 2 minutes due to an application update.'
+              );
+            } else if (remaining === 60) { // 1 minute remaining
+              addNotification(
+                'error', 
+                'Session Closing Soon', 
+                'This session will close in 1 minute. Please refresh to use the new version.'
+              );
+            } else if (remaining === 30) { // 30 seconds remaining
               addNotification(
                 'error', 
                 'Session Closing', 
-                'This session will close in 10 seconds. Please refresh to use the new version.'
+                'This session will close in 30 seconds. Please refresh to use the new version.'
               );
             }
 
@@ -151,10 +194,19 @@ export function useVersionCheck({
           // Update the last checked version even if it matches current (for future comparisons)
           setLastCheckedVersion(versionInfo.latestVersion);
         }
+      } else {
+        if (isManualCheck) {
+          addNotification('error', 'Version Check Failed', 'Unable to check for updates');
+        }
       }
     } catch (error) {
       console.warn('VERSION_CHECK: Version check failed:', error);
-      // Silently fail version checks to avoid disrupting the user experience
+      if (isManualCheck) {
+        addNotification('error', 'Version Check Failed', 'Network error while checking for updates');
+      }
+      // Silently fail automatic version checks to avoid disrupting the user experience
+    } finally {
+      setIsChecking(false);
     }
   }, [currentVersion, isOutdated, isShuttingDown, lastCheckedVersion, hasInitialized, onOutdated, onShutdown, addNotification]);
 
@@ -169,11 +221,11 @@ export function useVersionCheck({
 
     // Initial check after a longer delay to allow app to fully load
     const initialTimer = setTimeout(() => {
-      checkVersion();
+      checkVersion(false);
     }, 10000); // 10 seconds delay for initial check
 
-    // Set up periodic checks every 60 seconds
-    const interval = setInterval(checkVersion, 60000);
+    // Set up periodic checks every 15 minutes (900000 ms)
+    const interval = setInterval(() => checkVersion(false), 900000);
 
     return () => {
       clearTimeout(initialTimer);
@@ -192,11 +244,17 @@ export function useVersionCheck({
     onShutdown();
   }, [shutdownTimer, onShutdown]);
 
+  // Manual check function for clicking
+  const manualCheckVersion = useCallback(() => {
+    checkVersion(true);
+  }, [checkVersion]);
+
   return {
     isOutdated,
     isShuttingDown,
+    isChecking,
     timeRemaining,
     forceShutdown,
-    checkVersion
+    checkVersion: manualCheckVersion
   };
 }

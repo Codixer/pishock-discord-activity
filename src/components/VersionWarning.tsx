@@ -18,7 +18,7 @@ export function VersionWarning({ timeRemaining, onForceShutdown, onRefresh }: Ve
   };
 
   const getProgressWidth = () => {
-    return ((60 - timeRemaining) / 60) * 100;
+    return ((300 - timeRemaining) / 300) * 100;
   };
 
   return (
@@ -30,7 +30,7 @@ export function VersionWarning({ timeRemaining, onForceShutdown, onRefresh }: Ve
           </div>
           <h1 className="text-2xl font-bold text-white mb-2">Application Updated</h1>
           <p className="text-gray-300 text-sm">
-            A new version has been deployed. This session will automatically close to ensure all participants use the same version.
+            A new version has been deployed. This session will automatically close in 5 minutes to ensure all participants use the same version.
           </p>
         </div>
 
@@ -52,7 +52,7 @@ export function VersionWarning({ timeRemaining, onForceShutdown, onRefresh }: Ve
           </div>
           
           <p className="text-center text-gray-400 text-xs mt-2">
-            Time remaining until automatic closure
+            Time remaining until automatic session closure
           </p>
         </div>
 
@@ -80,7 +80,7 @@ export function VersionWarning({ timeRemaining, onForceShutdown, onRefresh }: Ve
           <p className="text-blue-200 text-xs text-center">
             <strong>Why is this necessary?</strong><br />
             All participants must use the same version to prevent compatibility issues and ensure proper functionality. 
-            The page will automatically load the latest version.
+            This ensures everyone has access to the latest features and security updates.
           </p>
         </div>
       </div>
