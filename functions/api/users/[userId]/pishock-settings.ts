@@ -268,7 +268,7 @@ async function validateShareCode(username: string, apiKey: string, sharecode: st
     }
     
     // Check for success responses as per documentation
-    if (responseText.includes('Operation Succeeded')) {
+    if (responseText.includes('Operation Succeeded') || responseText.includes('Operation Attempted.')) {
       console.log('✓ Share code validation successful');
       return { valid: true, debugInfo: { response: responseText } };
     }
