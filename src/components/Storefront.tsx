@@ -176,10 +176,6 @@ export function Storefront({ discordSdk, isEmbedded, auth, onClose, addNotificat
     return entitlements.some(e => e.sku_id === skuId && !e.consumed);
   };
 
-  const hasEntitlement = (skuId: string) => {
-    return entitlements.some(e => e.sku_id === skuId && !e.consumed);
-  };
-
   const getEntitlementCount = (skuId: string) => {
     return entitlements.filter(e => e.sku_id === skuId && !e.consumed).length;
   };
