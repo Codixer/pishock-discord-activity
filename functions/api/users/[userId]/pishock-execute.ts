@@ -319,8 +319,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const allowLimitBypass = userData?.allowLimitBypass || false;
       console.log('EXECUTE: Target user allowLimitBypass setting:', allowLimitBypass);
       
-      let effectiveMaxIntensity = maxIntensity;
-      let effectiveMaxDuration = maxDuration;
+      let effectiveMaxIntensity = targetMaxIntensity;
+      let effectiveMaxDuration = targetMaxDuration;
       
       // If bypass is requested and allowed by target user, check executor's entitlement
       if (bypassLimits && allowLimitBypass) {
@@ -344,7 +344,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
             // Call our entitlements API to verify the executor has the bypass entitlement
             const entitlementResponse = await fetch(`${apiBaseUrl}/discord/entitlements?user_id=${executorUserId}&sku_id=1387033978053197984`, {
               headers: {
-                'Authorization': `Bearer ${auth.access_token}`,
+                'Authorization': `Bearer ${token}`,
               },
             });
           
@@ -378,7 +378,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${auth.access_token}`,
+                  'Authorization': `Bearer ${token}`,
                 },
                 body: JSON.stringify({
                   entitlement_id: entitlementToConsume.id
@@ -389,7 +389,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
                 console.warn('EXECUTE: Failed to consume entitlement, but allowing bypass anyway');
               } else {
                 const consumeResult = await consumeResponse.json();
-                console.log('EXECUTE: ✓ Entitlement consumed successfully for shock operation:', consumeResult);
+                console.log('EXECUTE: ✓ Entitlement consumed successfully:', consumeResult);
               }
             
             } else {
@@ -423,39 +423,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         bypassActive: bypassLimits && allowLimitBypass,
         operationType: ['shock', 'vibrate', 'beep'][operation],
         entitlementConsumed: bypassLimits && allowLimitBypass && operation === 0
-      });
-              }),
-            });
-            
-            if (!consumeResponse.ok) {
-              console.warn('EXECUTE: Failed to consume entitlement, but allowing bypass anyway');
-            } else {
-              const consumeResult = await consumeResponse.json();
-              console.log('EXECUTE: ✓ Entitlement consumed successfully:', consumeResult);
-            }
-            
-          } else {
-            console.log('EXECUTE: ❌ Executor does not have valid limit bypass entitlement');
-            return jsonResponse({ 
-              success: false, 
-              error: 'You need a "Limit Bypass" purchase to exceed this user\'s limits. Visit the Premium Store to purchase bypass tokens.' 
-            }, 403);
-          }
-          
-        } catch (entitlementError) {
-          console.error('EXECUTE: Failed to verify limit bypass entitlement:', entitlementError);
-          return jsonResponse({ 
-            success: false, 
-            error: 'Failed to verify limit bypass entitlement' 
-          }, 500);
-        }
-      }
-      
-      console.log('EXECUTE: Effective limits after bypass check:', { 
-        maxIntensity: effectiveMaxIntensity, 
-        maxDuration: effectiveMaxDuration,
-        originalLimits: { maxIntensity, maxDuration },
-        bypassActive: bypassLimits && allowLimitBypass
       });
       
       // Validate against target user's limits
@@ -562,7 +529,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       };
 
       // Store activity log entry
-      // Store activity log entry (blocking to ensure logging works)
       try {
         console.log('EXECUTE: Logging activity entry with ID:', logEntry.id);
         await addToActivityBatch(env.PISHOCK_KV, logEntry);
