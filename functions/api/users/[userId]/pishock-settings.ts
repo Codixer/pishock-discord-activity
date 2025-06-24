@@ -356,7 +356,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         return jsonResponse({ 
           hasSettings: false,
           settings: null,
-          bannedExecutors: []
+          bannedExecutors: [],
+          allowLimitBypass: false
         });
       }
 
@@ -375,7 +376,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           maxDuration: creds.maxDuration || 15,
           lastUpdated: userData.lastUpdated,
           piShockUserId: creds.piShockUserId,
-          bannedExecutors: userData.bannedExecutors || []
+          bannedExecutors: userData.bannedExecutors || [],
+          allowLimitBypass: userData.allowLimitBypass || false
         };
         
         console.log('SETTINGS API: ✓ Successfully loaded settings for user:', userId, {
@@ -388,14 +390,16 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         return jsonResponse({ 
           hasSettings: true,
           settings,
-          bannedExecutors: userData.bannedExecutors || []
+          bannedExecutors: userData.bannedExecutors || [],
+          allowLimitBypass: userData.allowLimitBypass || false
         });
       } catch (error) {
         console.error('Failed to decrypt user settings:', error);
         return jsonResponse({ 
           hasSettings: false,
           settings: null,
-          bannedExecutors: []
+          bannedExecutors: [],
+          allowLimitBypass: false
         });
       }
     }
@@ -408,7 +412,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         hasOwnDevice, 
         maxIntensity = 100, 
         maxDuration = 15,
-        bannedExecutors = []
+        bannedExecutors = [],
+        allowLimitBypass = false
       } = await request.json();
 
       console.log('SETTINGS API: PUT request received with fields:', {
@@ -417,7 +422,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         hasSharecode: !!sharecode,
         maxIntensity,
         maxDuration,
-        bannedExecutorsCount: Array.isArray(bannedExecutors) ? bannedExecutors.length : 'not-array'
+        bannedExecutorsCount: Array.isArray(bannedExecutors) ? bannedExecutors.length : 'not-array',
+        allowLimitBypass
       });
 
       // Get existing user data to check if this is an update
@@ -430,30 +436,38 @@ export const onRequest: PagesFunction<Env> = async (context) => {
                                  Array.isArray(bannedExecutors) && 
                                  isExistingUser;
       
+      // Check if this is a settings-only update (ban list or allowLimitBypass)
+      const isSettingsOnlyUpdate = !apiKey && !username && !sharecode && 
+                                   (Array.isArray(bannedExecutors) || allowLimitBypass !== undefined) && 
+                                   isExistingUser;
+      
       console.log('SETTINGS API: Update type analysis:', {
         isExistingUser,
         isBanListOnlyUpdate,
+        isSettingsOnlyUpdate,
         hasCredentialFields: !!(apiKey || username || sharecode)
       });
       
-      if (isBanListOnlyUpdate) {
-        console.log('SETTINGS API: Processing ban list only update');
+      if (isSettingsOnlyUpdate) {
+        console.log('SETTINGS API: Processing settings-only update (ban list and/or allowLimitBypass)');
         
-        // Update only the banned executors list
+        // Update only the settings (banned executors list and/or allowLimitBypass)
         const updatedUserData = {
           ...existingUserData,
-          bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : [],
+          bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : existingUserData.bannedExecutors || [],
+          allowLimitBypass: allowLimitBypass !== undefined ? allowLimitBypass : existingUserData.allowLimitBypass || false,
           lastUpdated: new Date().toISOString()
         };
         
         await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(updatedUserData));
         
-        console.log('SETTINGS API: ✓ Ban list updated successfully');
+        console.log('SETTINGS API: ✓ Settings updated successfully');
         
         return jsonResponse({ 
           success: true,
-          banListUpdated: true,
-          bannedExecutors: updatedUserData.bannedExecutors
+          settingsUpdated: true,
+          bannedExecutors: updatedUserData.bannedExecutors,
+          allowLimitBypass: updatedUserData.allowLimitBypass
         });
       } else {
         // Full credential update - validate required fields
@@ -604,7 +618,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         piShockUserId,
         deviceCount: deviceCheck.devices?.length || 0,
         lastUpdated: new Date().toISOString(),
-        bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : []
+        bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : [],
+        allowLimitBypass: allowLimitBypass !== undefined ? allowLimitBypass : false
       };
       
       await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));

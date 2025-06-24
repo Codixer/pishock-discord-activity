@@ -195,6 +195,9 @@ export function UserSelector({
                                       {(userStatus?.maxIntensity < 100 || userStatus?.maxDuration < 15) && (
                                         <Lock className="h-2 w-2 text-yellow-400" title="Has device limits" />
                                       )}
+                                      {userStatus?.allowLimitBypass && (
+                                        <span className="text-xs text-purple-400" title="Allows premium limit bypass">⚡+</span>
+                                      )}
                                     </div>
                                   ) : (
                                     <div className="flex items-center space-x-1 text-xs text-blue-400">
@@ -202,6 +205,9 @@ export function UserSelector({
                                       <Smartphone className="h-3 w-3" />
                                       <span className="hidden sm:inline">PiShock Account</span>
                                       <span className="sm:hidden">Account</span>
+                                      {userStatus?.allowLimitBypass && (
+                                        <span className="text-xs text-purple-400" title="Allows premium limit bypass">⚡+</span>
+                                      )}
                                     </div>
                                   )
                                 ) : hasCredentials ? (

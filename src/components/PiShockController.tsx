@@ -48,6 +48,7 @@ export function PiShockController({
   const [hasOwnDevice, setHasOwnDevice] = useState(true); // Always true now since everyone needs a device
   const [userMaxIntensity, setUserMaxIntensity] = useState(100);
   const [userMaxDuration, setUserMaxDuration] = useState(15);
+  const [allowLimitBypass, setAllowLimitBypass] = useState(false);
   const [intensity, setIntensity] = useState(1);
   const [duration, setDuration] = useState(1);
   const [isShocking, setIsShocking] = useState(false);
@@ -61,6 +62,7 @@ export function PiShockController({
   const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
   const [bannedExecutors, setBannedExecutors] = useState<string[]>([]);
   const [settingsExpanded, setSettingsExpanded] = useState(false);
+  const [bypassLimitsEnabled, setBypassLimitsEnabled] = useState(false);
 
   // Check if we're in PIP mode
   const isPipMode = layoutMode === Common.LayoutModeTypeObject.PIP;
@@ -244,6 +246,7 @@ export function PiShockController({
           setUserMaxIntensity(settings.maxIntensity || 100);
           setUserMaxDuration(settings.maxDuration || 15);
           setBannedExecutors(settings.bannedExecutors || []);
+          setAllowLimitBypass(settings.allowLimitBypass || false);
           
           console.log('SETTINGS: ✓ Successfully loaded existing settings:', {
             username: settings.username,
@@ -252,6 +255,7 @@ export function PiShockController({
             maxIntensity: settings.maxIntensity,
             maxDuration: settings.maxDuration,
             bannedExecutors: settings.bannedExecutors?.length || 0,
+            allowLimitBypass: settings.allowLimitBypass,
             lastUpdated: settings.lastUpdated
           });
         } else {
@@ -268,6 +272,7 @@ export function PiShockController({
             setSharecode('');
             setUserMaxIntensity(100);
             setUserMaxDuration(15);
+            setAllowLimitBypass(false);
           }
         }
       } else {
@@ -320,6 +325,7 @@ export function PiShockController({
           maxIntensity: userMaxIntensity,
           maxDuration: userMaxDuration,
           bannedExecutors,
+          allowLimitBypass,
         }),
       });
 
@@ -433,6 +439,10 @@ export function PiShockController({
       return;
     }
 
+    // Check if bypass is enabled and if it's allowed
+    const targetAllowsLimitBypass = userStatus?.allowLimitBypass || false;
+    const canBypass = bypassLimitsEnabled && targetAllowsLimitBypass;
+    
     setIsShocking(true);
 
     try {
@@ -450,6 +460,7 @@ export function PiShockController({
           intensity,
           duration,
           operation, // 0 = shock, 1 = vibrate, 2 = beep
+          bypassLimits: canBypass,
         }),
       });
 
@@ -790,6 +801,27 @@ export function PiShockController({
                   <span>15s</span>
                 </div>
               </div>
+              
+              {/* Allow Limit Bypass Setting */}
+              <div className="space-y-2 p-3 bg-red-900/20 border border-red-500/30 rounded-lg">
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="checkbox"
+                    id="allowLimitBypass"
+                    checked={allowLimitBypass}
+                    onChange={(e) => setAllowLimitBypass(e.target.checked)}
+                    disabled={settingsLoadingData}
+                    className="w-4 h-4 text-red-600 bg-gray-800 border-gray-600 rounded focus:ring-red-500 focus:ring-2"
+                  />
+                  <label htmlFor="allowLimitBypass" className="text-sm font-medium text-red-300">
+                    Allow Premium Limit Bypass
+                  </label>
+                </div>
+                <p className="text-xs text-red-200 ml-7">
+                  Allow users with "Limit Bypass" purchases to exceed your safety limits. 
+                  They still need to purchase the bypass for each use.
+                </p>
+              </div>
             </div>
             
             {/* Ban Management Section */}
@@ -966,11 +998,50 @@ export function PiShockController({
             )}
             {/* Controls Container */}
             <div className="flex-1 flex flex-col space-y-6 min-h-0">
+              {/* Limit Bypass Option (if available) */}
+              {!isPipMode && selectedUser && (window as any).userPiShockStatus?.[selectedUser.id]?.allowLimitBypass && (
+                <div className="p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex-shrink-0">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3 flex-1 min-w-0">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-yellow-400">⚡</span>
+                        <span className="text-base font-medium text-yellow-300">Premium Limit Bypass</span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm text-yellow-200">
+                          {getDisplayName(selectedUser)} allows limit bypass with premium purchase
+                        </p>
+                      </div>
+                    </div>
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={bypassLimitsEnabled}
+                        onChange={(e) => setBypassLimitsEnabled(e.target.checked)}
+                        className="w-4 h-4 text-yellow-600 bg-gray-800 border-gray-600 rounded focus:ring-yellow-500 focus:ring-2"
+                      />
+                      <span className="text-sm text-yellow-300">Enable Bypass</span>
+                    </label>
+                  </div>
+                  <div className="mt-3 text-sm text-yellow-200">
+                    {bypassLimitsEnabled 
+                      ? "⚠️ Bypass enabled - requires 'Limit Bypass' purchase per use"
+                      : "Enable to exceed this user's safety limits (requires purchase)"
+                    }
+                  </div>
+                </div>
+              )}
+              
               {/* Intensity Control */}
               <div>
                 <label className={`block font-medium text-gray-300 mb-3 ${isPipMode ? 'text-xs' : 'text-sm sm:text-base'}`}>
                   <div className="flex items-center justify-between">
-                    <span>Intensity: {intensity}%</span>
+                    <span>
+                      Intensity: {intensity}%
+                      {bypassLimitsEnabled && selectedUser && (window as any).userPiShockStatus?.[selectedUser.id]?.allowLimitBypass && (
+                        <span className="ml-2 text-yellow-400 text-xs">(Bypass Mode)</span>
+                      )}
+                    </span>
                     {effectiveLimits.maxIntensity < 100 && !isPipMode && (
                       <div className="flex items-center space-x-1 text-sm text-yellow-400">
                         <Lock className="h-3 w-3" />
@@ -982,7 +1053,7 @@ export function PiShockController({
                 <input
                   type="range"
                   min="1"
-                  max={effectiveLimits.maxIntensity}
+                  max={bypassLimitsEnabled && selectedUser && (window as any).userPiShockStatus?.[selectedUser.id]?.allowLimitBypass ? 100 : effectiveLimits.maxIntensity}
                   value={intensity}
                   onChange={(e) => setIntensity(parseInt(e.target.value))}
                   className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider ${
@@ -992,9 +1063,9 @@ export function PiShockController({
                 {!isPipMode && (
                   <div className="flex justify-between text-sm text-gray-400 mt-2">
                   <span>1%</span>
-                  <span>{Math.floor(effectiveLimits.maxIntensity / 2)}%</span>
-                  <span className={effectiveLimits.maxIntensity < 100 ? 'text-yellow-400' : ''}>
-                    {effectiveLimits.maxIntensity}%{effectiveLimits.maxIntensity < 100 ? ' (Max)' : ''}
+                  <span>50%</span>
+                  <span className={bypassLimitsEnabled ? 'text-yellow-400' : effectiveLimits.maxIntensity < 100 ? 'text-yellow-400' : ''}>
+                    {bypassLimitsEnabled && selectedUser && (window as any).userPiShockStatus?.[selectedUser.id]?.allowLimitBypass ? '100% (Bypass)' : `${effectiveLimits.maxIntensity}%${effectiveLimits.maxIntensity < 100 ? ' (Max)' : ''}`}
                   </span>
                   </div>
                 )}
@@ -1004,7 +1075,12 @@ export function PiShockController({
               <div>
                 <label className={`block font-medium text-gray-300 mb-3 ${isPipMode ? 'text-xs' : 'text-sm sm:text-base'}`}>
                   <div className="flex items-center justify-between">
-                    <span>Duration: {duration}s</span>
+                    <span>
+                      Duration: {duration}s
+                      {bypassLimitsEnabled && selectedUser && (window as any).userPiShockStatus?.[selectedUser.id]?.allowLimitBypass && (
+                        <span className="ml-2 text-yellow-400 text-xs">(Bypass Mode)</span>
+                      )}
+                    </span>
                     {effectiveLimits.maxDuration < 15 && !isPipMode && (
                       <div className="flex items-center space-x-1 text-sm text-yellow-400">
                         <Lock className="h-3 w-3" />
@@ -1016,7 +1092,7 @@ export function PiShockController({
                 <input
                   type="range"
                   min="1"
-                  max={effectiveLimits.maxDuration}
+                  max={bypassLimitsEnabled && selectedUser && (window as any).userPiShockStatus?.[selectedUser.id]?.allowLimitBypass ? 15 : effectiveLimits.maxDuration}
                   value={duration}
                   onChange={(e) => setDuration(parseInt(e.target.value))}
                   className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider ${
@@ -1026,9 +1102,10 @@ export function PiShockController({
                 {!isPipMode && (
                   <div className="flex justify-between text-sm text-gray-400 mt-2">
                   <span>1s</span>
-                  <span>{Math.floor(effectiveLimits.maxDuration / 2)}s</span>
-                  <span className={effectiveLimits.maxDuration < 15 ? 'text-yellow-400' : ''}>
-                    {effectiveLimits.maxDuration}s{effectiveLimits.maxDuration < 15 ? ' (Max)' : ''}
+                  <span>8s</span>
+                  <span className={bypassLimitsEnabled ? 'text-yellow-400' : effectiveLimits.maxDuration < 15 ? 'text-yellow-400' : ''}>
+                    {bypassLimitsEnabled && selectedUser && (window as any).userPiShockStatus?.[selectedUser.id]?.allowLimitBypass ? '15s (Bypass)' : `${effectiveLimits.maxDuration}s${effectiveLimits.maxDuration < 15 ? ' (Max)' : ''}`}
+                  </span>
                   </span>
                   </div>
                 )}

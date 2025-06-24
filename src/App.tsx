@@ -10,6 +10,7 @@ import { NotificationSystem } from './components/NotificationSystem';
 import { ActivityLog } from './components/ActivityLog';
 import { PrivacyPolicy } from './components/PrivacyPolicy';
 import { TermsOfService } from './components/TermsOfService';
+import { Storefront } from './components/Storefront';
 import { useNotifications } from './hooks/useNotifications';
 import { useInstanceData } from './hooks/useInstanceData';
 import { useParticipants } from './hooks/useParticipants';
@@ -97,6 +98,7 @@ function MainApp() {
   const [showActivityLog, setShowActivityLog] = useState(true);
   const [userPiShockStatus, setUserPiShockStatus] = useState<Record<string, any>>({});
   const [isInstanceValid, setIsInstanceValid] = useState(true);
+  const [showStorefront, setShowStorefront] = useState(false);
   const [layoutMode, setLayoutMode] = useState<number>(Common.LayoutModeTypeObject.FOCUSED);
   const [isPipMode, setIsPipMode] = useState(false);
   const { notifications, addNotification, dismissNotification } = useNotifications();
@@ -789,6 +791,12 @@ function MainApp() {
               >
                 Activity Log
               </button>
+              <button
+                onClick={() => setShowStorefront(true)}
+                className="px-3 py-1 rounded-md bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white text-sm transition-colors"
+              >
+                Premium Store
+              </button>
               <ConnectionStatus 
                 discordConnected={!!auth} 
                 piShockConnected={piShockConnected}
@@ -875,6 +883,17 @@ function MainApp() {
           </span>
         </div>
       </div>
+      
+      {/* Premium Storefront */}
+      {showStorefront && (
+        <Storefront
+          discordSdk={discordSdk}
+          isEmbedded={isEmbedded}
+          auth={auth}
+          onClose={() => setShowStorefront(false)}
+          addNotification={addNotification}
+        />
+      )}
     </div>
   );
 }
