@@ -155,7 +155,7 @@ export function Storefront({ discordSdk, isEmbedded, auth, onClose, addNotificat
       case MULTI_SHOCK_SKU:
         return 'Send commands to multiple users simultaneously. Perfect for group activities and events.';
       case LIMIT_BYPASS_SKU:
-        return 'Single-use token to exceed a user\'s safety limits (requires their consent).';
+        return 'Single-use tokens to exceed user safety limits (requires their consent). You can purchase multiple tokens.';
       default:
         return 'Premium feature for enhanced PiShock control.';
     }
@@ -170,6 +170,10 @@ export function Storefront({ discordSdk, isEmbedded, auth, onClose, addNotificat
       default:
         return <Star className="h-8 w-8 text-blue-400" />;
     }
+  };
+
+  const hasEntitlement = (skuId: string) => {
+    return entitlements.some(e => e.sku_id === skuId && !e.consumed);
   };
 
   const hasEntitlement = (skuId: string) => {
@@ -240,8 +244,8 @@ export function Storefront({ discordSdk, isEmbedded, auth, onClose, addNotificat
           ) : (
             <div className="grid gap-6 md:grid-cols-2">
               {skus.map((sku) => {
-                const owned = hasEntitlement(sku.id);
                 const count = getEntitlementCount(sku.id);
+                const owned = count > 0;
                 const isPurchasing = purchasing === sku.id;
                 
                 return (
@@ -261,15 +265,31 @@ export function Storefront({ discordSdk, isEmbedded, auth, onClose, addNotificat
                         <div className="flex items-center justify-between mb-2">
                           <h3 className="text-lg font-semibold text-white">{sku.name}</h3>
                           {owned && (
-                            <div className="flex items-center space-x-1 text-green-400 text-sm">
-                              <span>✓ Owned</span>
-                              {count > 1 && <span>({count})</span>}
+                            <div className="flex items-center space-x-1 text-green-400 text-sm font-semibold">
+                              {sku.type === 8 ? (
+                                <span>✓ {count} Token{count !== 1 ? 's' : ''}</span>
+                              ) : (
+                                <span>✓ Subscribed</span>
+                              )}
                             </div>
                           )}
                         </div>
                         <p className="text-gray-300 text-sm mb-4">
                           {getSkuDescription(sku)}
                         </p>
+                        
+                        {/* Show current token count for limit bypass */}
+                        {sku.id === LIMIT_BYPASS_SKU && count > 0 && (
+                          <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-3 mb-4">
+                            <p className="text-yellow-200 text-sm">
+                              <strong>You have {count} bypass token{count !== 1 ? 's' : ''}</strong>
+                            </p>
+                            <p className="text-yellow-300 text-xs mt-1">
+                              Each token allows one shock command beyond safety limits
+                            </p>
+                          </div>
+                        )}
+                        
                         <div className="flex items-center justify-between">
                           <div className="text-2xl font-bold text-white">
                             {formatPrice(sku.price)}
@@ -284,7 +304,7 @@ export function Storefront({ discordSdk, isEmbedded, auth, onClose, addNotificat
                                 ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
                                 : sku.type === 8 || !owned
                                 ? 'bg-purple-600 hover:bg-purple-700 text-white'
-                                : 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                              'bg-purple-600 hover:bg-purple-700 text-white'
                             }`}
                           >
                             {isPurchasing ? (
@@ -293,9 +313,9 @@ export function Storefront({ discordSdk, isEmbedded, auth, onClose, addNotificat
                                 <span>Processing...</span>
                               </div>
                             ) : sku.type === 8 ? (
-                              'Purchase'
+                              `Buy Token${count > 0 ? ` (+1)` : ''}`
                             ) : owned ? (
-                              'Subscribed'
+                              'Extend'
                             ) : (
                               'Subscribe'
                             )}
@@ -312,7 +332,10 @@ export function Storefront({ discordSdk, isEmbedded, auth, onClose, addNotificat
 
         {/* Footer */}
         <div className="p-6 border-t border-white/10 text-center text-gray-400 text-sm">
-          <p>All purchases are processed securely through Discord. Refunds subject to Discord's terms.</p>
+          <div className="space-y-2">
+            <p>All purchases are processed securely through Discord. Refunds subject to Discord's terms.</p>
+            <p className="text-blue-300">💝 All purchases go directly to the developer to support continued development</p>
+          </div>
         </div>
       </div>
     </div>

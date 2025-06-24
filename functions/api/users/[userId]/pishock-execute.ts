@@ -326,55 +326,104 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       if (bypassLimits && allowLimitBypass) {
         console.log('EXECUTE: Bypass requested and allowed by target user, checking executor entitlement...');
         
-        // Verify executor has "Limit Bypass" entitlement (SKU: 1387033978053197984)
+        // Only consume entitlement for SHOCK operations (operation === 0)
+        if (operation !== 0) {
+          console.log('EXECUTE: Bypass requested for non-shock operation, allowing without consuming entitlement');
+          effectiveMaxIntensity = 100;
+          effectiveMaxDuration = 15;
+        } else {
+          console.log('EXECUTE: Bypass requested for shock operation, verifying and consuming entitlement...');
         
-        try {
-          console.log('EXECUTE: Verifying limit bypass entitlement for executor:', executorUserId);
+          // Verify executor has "Limit Bypass" entitlement (SKU: 1387033978053197984)
+          try {
+            console.log('EXECUTE: Verifying limit bypass entitlement for executor:', executorUserId);
           
-          // Get API base URL for internal API calls
-          const apiBaseUrl = '/api'; // Use direct internal API calls
+            // Get API base URL for internal API calls
+            const apiBaseUrl = '/api'; // Use direct internal API calls
           
-          // Call our entitlements API to verify the executor has the bypass entitlement
-          const entitlementResponse = await fetch(`${apiBaseUrl}/discord/entitlements?user_id=${executorUserId}&sku_id=1387033978053197984`, {
-            headers: {
-              'Authorization': `Bearer ${auth.access_token}`,
-            },
-          });
+            // Call our entitlements API to verify the executor has the bypass entitlement
+            const entitlementResponse = await fetch(`${apiBaseUrl}/discord/entitlements?user_id=${executorUserId}&sku_id=1387033978053197984`, {
+              headers: {
+                'Authorization': `Bearer ${auth.access_token}`,
+              },
+            });
           
-          if (!entitlementResponse.ok) {
-            console.error('EXECUTE: Failed to verify entitlement:', entitlementResponse.status);
+            if (!entitlementResponse.ok) {
+              console.error('EXECUTE: Failed to verify entitlement:', entitlementResponse.status);
+              return jsonResponse({ 
+                success: false, 
+                error: 'Failed to verify limit bypass entitlement' 
+              }, 500);
+            }
+          
+            const entitlementData = await entitlementResponse.json();
+            const validEntitlements = entitlementData.entitlements.filter((e: any) => 
+              e.sku_id === '1387033978053197984' && 
+              !e.consumed && 
+              e.is_active
+            );
+          
+            console.log('EXECUTE: Found', validEntitlements.length, 'valid limit bypass entitlements');
+          
+            if (validEntitlements.length > 0) {
+              console.log('EXECUTE: ✓ Executor has valid limit bypass entitlement, allowing bypass');
+              effectiveMaxIntensity = 100; // Allow full intensity
+              effectiveMaxDuration = 15;   // Allow full duration
+            
+              // Mark the first available entitlement as consumed (only for shock operations)
+              const entitlementToConsume = validEntitlements[0];
+              console.log('EXECUTE: Consuming entitlement for shock operation:', entitlementToConsume.id);
+            
+              const consumeResponse = await fetch(`${apiBaseUrl}/discord/entitlements`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${auth.access_token}`,
+                },
+                body: JSON.stringify({
+                  entitlement_id: entitlementToConsume.id
+                }),
+              });
+            
+              if (!consumeResponse.ok) {
+                console.warn('EXECUTE: Failed to consume entitlement, but allowing bypass anyway');
+              } else {
+                const consumeResult = await consumeResponse.json();
+                console.log('EXECUTE: ✓ Entitlement consumed successfully for shock operation:', consumeResult);
+              }
+            
+            } else {
+              console.log('EXECUTE: ❌ Executor does not have valid limit bypass entitlement');
+              return jsonResponse({ 
+                success: false, 
+                error: 'You need a "Limit Bypass" purchase to exceed this user\'s limits. Visit the Premium Store to purchase bypass tokens.' 
+              }, 403);
+            }
+          
+          } catch (entitlementError) {
+            console.error('EXECUTE: Failed to verify limit bypass entitlement:', entitlementError);
             return jsonResponse({ 
               success: false, 
               error: 'Failed to verify limit bypass entitlement' 
             }, 500);
           }
-          
-          const entitlementData = await entitlementResponse.json();
-          const validEntitlements = entitlementData.entitlements.filter((e: any) => 
-            e.sku_id === '1387033978053197984' && 
-            !e.consumed && 
-            e.is_active
-          );
-          
-          console.log('EXECUTE: Found', validEntitlements.length, 'valid limit bypass entitlements');
-          
-          if (validEntitlements.length > 0) {
-            console.log('EXECUTE: ✓ Executor has valid limit bypass entitlement, allowing bypass');
-            effectiveMaxIntensity = 100; // Allow full intensity
-            effectiveMaxDuration = 15;   // Allow full duration
-            
-            // Mark the first available entitlement as consumed
-            const entitlementToConsume = validEntitlements[0];
-            console.log('EXECUTE: Consuming entitlement:', entitlementToConsume.id);
-            
-            const consumeResponse = await fetch(`${apiBaseUrl}/discord/entitlements`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${auth.access_token}`,
-              },
-              body: JSON.stringify({
-                entitlement_id: entitlementToConsume.id
+        }
+      } else if (bypassLimits && !allowLimitBypass) {
+        console.log('EXECUTE: Bypass requested but target user does not allow bypass');
+        return jsonResponse({ 
+          success: false, 
+          error: 'Target user does not allow limit bypass. Only their configured safety limits can be used.' 
+        }, 403);
+      }
+      
+      console.log('EXECUTE: Effective limits after bypass check:', { 
+        maxIntensity: effectiveMaxIntensity, 
+        maxDuration: effectiveMaxDuration,
+        originalLimits: { maxIntensity: targetMaxIntensity, maxDuration: targetMaxDuration },
+        bypassActive: bypassLimits && allowLimitBypass,
+        operationType: ['shock', 'vibrate', 'beep'][operation],
+        entitlementConsumed: bypassLimits && allowLimitBypass && operation === 0
+      });
               }),
             });
             
