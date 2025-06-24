@@ -300,7 +300,7 @@ export function Storefront({ discordSdk, isEmbedded, auth, onClose, addNotificat
                                 ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
                                 : sku.type === 8 || !owned
                                 ? 'bg-purple-600 hover:bg-purple-700 text-white'
-                              'bg-purple-600 hover:bg-purple-700 text-white'
+                              : 'bg-purple-600 hover:bg-purple-700 text-white'
                             }`}
                           >
                             {isPurchasing ? (
