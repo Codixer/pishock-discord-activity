@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 
 export interface InstanceData {
-  selectedUserId?: string;
+  selectedUserIds?: string[];
   piShockSettings?: {
     apiKey?: string;
     username?: string;

@@ -1127,20 +1127,23 @@ export function PiShockController({
               </div>
 
               {/* No PiShock Device Warning & Ban Option */}
-              {!isPipMode && selectedUser && !(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected && (
+              {!isPipMode && selectedUsers.length > 0 && selectedUsers.some(user => !(window as any).userPiShockStatus?.[user.id]?.isConnected) && (
                 <div className="p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex-shrink-0">
                   <div className="flex items-start space-x-3">
                     <AlertTriangle className="h-5 w-5 text-yellow-400 flex-shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
                       <p className="text-base font-medium text-yellow-300 mb-2">No PiShock Device</p>
-                      <p className="text-sm text-yellow-200 mb-3">
-                        {getDisplayName(selectedUser)} hasn't configured their PiShock device yet. 
-                        Commands cannot be sent until they set up their credentials.
-                      </p>
-                      <p className="text-sm text-yellow-200">
-                        However, you can still {bannedExecutors.includes(selectedUser.id) ? 'unblock' : 'block'} them 
-                        to manage who can shock you when they do set up their device.
-                      </p>
+                      {(() => {
+                        const usersWithoutDevice = selectedUsers.filter(user => !(window as any).userPiShockStatus?.[user.id]?.isConnected);
+                        return (
+                          <p className="text-sm text-yellow-200">
+                            {usersWithoutDevice.length === selectedUsers.length 
+                              ? `${usersWithoutDevice.length === 1 ? 'This user hasn\'t' : 'These users haven\'t'} configured their PiShock device${usersWithoutDevice.length === 1 ? '' : 's'} yet.`
+                              : `${usersWithoutDevice.length} of ${selectedUsers.length} selected users need to configure their PiShock devices.`
+                            } Commands cannot be sent until they set up their credentials.
+                          </p>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
