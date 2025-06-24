@@ -3,7 +3,7 @@ import { Zap, Settings, Play, Square, AlertTriangle, Wifi, Save, Loader, User, S
 import { DiscordSDK, Common } from '@discord/embedded-app-sdk';
 
 interface PiShockControllerProps {
-  selectedUser: any;
+  selectedUsers: any[];
   onConnectionChange: (connected: boolean) => void;
   isConnected: boolean;
   addNotification: (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => void;
@@ -13,6 +13,9 @@ interface PiShockControllerProps {
   discordSdk: DiscordSDK;
   isEmbedded: boolean;
   layoutMode?: number;
+  participants?: any[];
+  multiShockEnabled: boolean;
+  hasLimitBypassEntitlement: boolean;
 }
 
 // Helper function to get the correct API base URL
@@ -30,7 +33,7 @@ function getApiBaseUrl(): string {
 }
 
 export function PiShockController({ 
-  selectedUser, 
+  selectedUsers, 
   onConnectionChange, 
   isConnected, 
   addNotification, 
@@ -40,7 +43,9 @@ export function PiShockController({
   discordSdk,
   isEmbedded,
   layoutMode = Common.LayoutModeTypeObject.FOCUSED,
-  participants = []
+  participants = [],
+  multiShockEnabled,
+  hasLimitBypassEntitlement
 }: PiShockControllerProps) {
   const [apiKey, setApiKey] = useState('');
   const [username, setUsername] = useState('');
@@ -59,45 +64,14 @@ export function PiShockController({
   const [hasStoredCredentials, setHasStoredCredentials] = useState(false);
   const [currentUserPiShockConnected, setCurrentUserPiShockConnected] = useState(false);
   const [currentUserPiShockUserId, setCurrentUserPiShockUserId] = useState<string>('');
-  const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
   const [bannedExecutors, setBannedExecutors] = useState<string[]>([]);
   const [settingsExpanded, setSettingsExpanded] = useState(false);
+  const [bypassLimitsEnabled, setBypassLimitsEnabled] = useState(false);
   const [bypassLimitsEnabled, setBypassLimitsEnabled] = useState(false);
 
   // Check if we're in PIP mode
   const isPipMode = layoutMode === Common.LayoutModeTypeObject.PIP;
 
-  // Get the effective limits based on selected user
-  const getEffectiveLimits = () => {
-    if (!selectedUser) return { maxIntensity: 100, maxDuration: 15 };
-    
-    // Get the user's PiShock status which includes their sharecode limits
-    const userStatus = (window as any).userPiShockStatus?.[selectedUser.id];
-    if (userStatus && userStatus.maxIntensity && userStatus.maxDuration) {
-      return {
-        maxIntensity: userStatus.maxIntensity,
-        maxDuration: userStatus.maxDuration
-      };
-    }
-    
-    return { maxIntensity: 100, maxDuration: 15 };
-  };
-
-  const effectiveLimits = getEffectiveLimits();
-
-  // Update intensity and duration when limits change
-  useEffect(() => {
-    const limits = getEffectiveLimits();
-    setSelectedUserLimits(limits);
-    
-    // Clamp current values to new limits
-    if (intensity > limits.maxIntensity) {
-      setIntensity(limits.maxIntensity);
-    }
-    if (duration > limits.maxDuration) {
-      setDuration(limits.maxDuration);
-    }
-  }, [selectedUser, intensity, duration]);
 
   // 🔒 Security Check: Ensure no sensitive data is exposed in frontend
   useEffect(() => {

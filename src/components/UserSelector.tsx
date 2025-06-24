@@ -1,23 +1,25 @@
 import React from 'react';
-import { Users, User, Crown, Zap, ZapOff, Smartphone, Lock, AlertTriangle } from 'lucide-react';
+import { Users, User, Crown, Zap, ZapOff, Smartphone, Lock, AlertTriangle, CheckSquare, Square } from 'lucide-react';
 import { InstanceData } from '../hooks/useInstanceData';
 
 interface UserSelectorProps {
   members: any[];
-  selectedUser: any;
-  onUserSelect: (user: any) => void;
+  selectedUsers: any[];
+  onUserSelect: (users: any[]) => void;
   currentUser: any;
   instanceData: InstanceData;
   userPiShockStatus: Record<string, any>;
+  multiShockEnabled: boolean;
 }
 
 export function UserSelector({ 
   members, 
-  selectedUser, 
+  selectedUsers, 
   onUserSelect, 
   currentUser, 
   instanceData, 
-  userPiShockStatus 
+  userPiShockStatus,
+  multiShockEnabled
 }: UserSelectorProps) {
   // Safe BigInt conversion with fallback for development mock IDs
   const getDefaultAvatarIndex = (userId: string) => {
@@ -47,7 +49,23 @@ export function UserSelector({
     return member.guildDisplayName || member.displayName || member.global_name || member.username || 'Unknown User';
   };
 
-  const isCurrentUserSelected = selectedUser?.id === currentUser?.id;
+  const handleUserSelect = (member: any) => {
+    if (multiShockEnabled) {
+      // Multi-select mode
+      const isSelected = selectedUsers.some(user => user.id === member.id);
+      if (isSelected) {
+        // Remove from selection
+        onUserSelect(selectedUsers.filter(user => user.id !== member.id));
+      } else {
+        // Add to selection
+        onUserSelect([...selectedUsers, member]);
+      }
+    } else {
+      // Single-select mode
+      onUserSelect([member]);
+    }
+  };
+
   const otherParticipants = members.filter(member => member.id !== currentUser?.id);
 
   return (
@@ -141,7 +159,14 @@ export function UserSelector({
               {/* Other Participants */}
               {otherParticipants.length > 0 && (
                 <div>
-                  <h3 className="text-xs sm:text-sm font-medium text-gray-400 mb-2">Select Target</h3>
+                  <h3 className="text-xs sm:text-sm font-medium text-gray-400 mb-2 flex items-center space-x-2">
+                    <span>{multiShockEnabled ? 'Select Targets' : 'Select Target'}</span>
+                    {multiShockEnabled && (
+                      <span className="px-2 py-1 bg-purple-600/20 border border-purple-500/30 rounded text-xs text-purple-300">
+                        Multi-Shock
+                      </span>
+                    )}
+                  </h3>
                   <div className="space-y-2">
                     {otherParticipants.map((member) => {
                       const userStatus = userPiShockStatus[member.id];
@@ -149,6 +174,7 @@ export function UserSelector({
                       const hasDevice = userStatus?.hasDevice;
                       const hasCredentials = userStatus?.hasCredentials;
                       const isDisabled = !isConnected;
+                      const isSelected = selectedUsers.some(user => user.id === member.id);
                       
                       // Check if current user has banned this participant
                       const currentUserStatus = userPiShockStatus[currentUser?.id];
@@ -158,18 +184,28 @@ export function UserSelector({
                       return (
                         <button
                           key={member.id}
-                          onClick={() => !isDisabled && onUserSelect(member)}
+                          onClick={() => !isDisabled && handleUserSelect(member)}
                           disabled={isDisabled}
                           className={`w-full p-3 rounded-lg border transition-all text-left ${
                             isDisabled
                               ? 'bg-gray-800/30 border-gray-600/30 opacity-60 cursor-not-allowed'
-                              : selectedUser?.id === member.id
+                              : isSelected
                               ? 'bg-purple-600/20 border-purple-500/50 ring-2 ring-purple-500/20'
                               : 'bg-gray-800/50 border-gray-600/50 hover:bg-gray-700/50 hover:border-gray-500/50'
                           }`}
                           title={isDisabled ? `${getDisplayName(member)} needs to configure their PiShock device before receiving commands` : ''}
                         >
                           <div className="flex items-center space-x-2 sm:space-x-3">
+                            {/* Selection Indicator */}
+                            {multiShockEnabled && !isDisabled && (
+                              <div className="flex-shrink-0">
+                                {isSelected ? (
+                                  <CheckSquare className="h-4 w-4 text-purple-400" />
+                                ) : (
+                                  <Square className="h-4 w-4 text-gray-400" />
+                                )}
+                              </div>
+                            )}
                             <img
                               src={getAvatarUrl(member)}
                               alt={`${getDisplayName(member)}'s avatar`}
@@ -258,7 +294,7 @@ export function UserSelector({
                                 )}
                               </div>
                             </div>
-                            {selectedUser?.id === member.id && !isDisabled && (
+                            {isSelected && !isDisabled && !multiShockEnabled && (
                               <div className="w-2 h-2 bg-purple-400 rounded-full flex-shrink-0"></div>
                             )}
                             {isDisabled && (
@@ -299,22 +335,29 @@ export function UserSelector({
         </div>
       </div>
 
-      {selectedUser && (
+      {selectedUsers.length > 0 && (
         <div className="mt-4 p-2 sm:p-3 bg-green-900/20 border border-green-500/30 rounded-lg flex-shrink-0">
-          <div className="flex items-center space-x-3">
-            <img
-              src={getAvatarUrl(selectedUser)}
-              alt={`${getDisplayName(selectedUser)}'s avatar`}
-              className="w-5 h-5 sm:w-6 sm:h-6 rounded-full flex-shrink-0"
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                target.src = `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(selectedUser.id)}.png`;
-              }}
-            />
-            <div className="min-w-0 flex-1">
-              <p className="text-green-300 text-xs sm:text-sm">
-                <span className="font-semibold">Target:</span> {getDisplayName(selectedUser)}
-              </p>
+          <div className="space-y-2">
+            <p className="text-green-300 text-xs sm:text-sm font-semibold">
+              {selectedUsers.length === 1 ? 'Target:' : `Targets (${selectedUsers.length}):`}
+            </p>
+            <div className="space-y-1">
+              {selectedUsers.map((user, index) => (
+                <div key={user.id} className="flex items-center space-x-2">
+                  <img
+                    src={getAvatarUrl(user)}
+                    alt={`${getDisplayName(user)}'s avatar`}
+                    className="w-4 h-4 sm:w-5 sm:h-5 rounded-full flex-shrink-0"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.src = `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(user.id)}.png`;
+                    }}
+                  />
+                  <span className="text-green-200 text-xs truncate">
+                    {getDisplayName(user)}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         </div>

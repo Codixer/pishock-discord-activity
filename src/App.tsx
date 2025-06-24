@@ -90,7 +90,7 @@ function getApiBaseUrl(): string {
 
 function MainApp() {
   const [auth, setAuth] = useState<any>(null);
-  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [selectedUsers, setSelectedUsers] = useState<any[]>([]);
   const [piShockConnected, setPiShockConnected] = useState(false);
   const [safetyAccepted, setSafetyAccepted] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -101,6 +101,8 @@ function MainApp() {
   const [showStorefront, setShowStorefront] = useState(false);
   const [layoutMode, setLayoutMode] = useState<number>(Common.LayoutModeTypeObject.FOCUSED);
   const [isPipMode, setIsPipMode] = useState(false);
+  const [hasMultiShockEntitlement, setHasMultiShockEntitlement] = useState(false);
+  const [hasLimitBypassEntitlement, setHasLimitBypassEntitlement] = useState(false);
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
   
@@ -447,6 +449,37 @@ function MainApp() {
           // Make participants available globally for ban management
           (window as any).discordParticipants = initialParticipants.participants;
 
+          // Fetch user entitlements after successful authentication
+          try {
+            console.log('Fetching user entitlements...');
+            const entitlementData = await discordSdk.commands.getEntitlements();
+            console.log('Entitlements loaded:', entitlementData);
+            
+            const entitlements = entitlementData.entitlements || [];
+            
+            // Check for Multi-Shock entitlement (SKU: 1387037988558606457)
+            const multiShockEntitlement = entitlements.find((e: any) => 
+              e.sku_id === '1387037988558606457' && !e.consumed
+            );
+            setHasMultiShockEntitlement(!!multiShockEntitlement);
+            
+            // Check for Limit Bypass entitlements (SKU: 1387033978053197984)
+            const limitBypassEntitlements = entitlements.filter((e: any) => 
+              e.sku_id === '1387033978053197984' && !e.consumed
+            );
+            setHasLimitBypassEntitlement(limitBypassEntitlements.length > 0);
+            
+            console.log('Entitlement status:', {
+              multiShock: !!multiShockEntitlement,
+              limitBypass: limitBypassEntitlements.length > 0,
+              limitBypassCount: limitBypassEntitlements.length
+            });
+            
+          } catch (entitlementError) {
+            console.warn('Failed to load entitlements (non-critical):', entitlementError);
+            // Don't fail the app if entitlements can't be loaded
+          }
+
           addNotification('success', 'Connected', 'Successfully connected to Discord');
         } else {
           // Development environment - only allow in actual dev mode
@@ -486,6 +519,10 @@ function MainApp() {
           
           // Make participants available globally for ban management
           (window as any).discordParticipants = mockParticipants;
+          
+          // Mock entitlements for development
+          setHasMultiShockEntitlement(true);
+          setHasLimitBypassEntitlement(true);
           
           addNotification('info', 'Development Mode', 'Running in development mode with mock data');
         }
@@ -549,10 +586,10 @@ function MainApp() {
         })
         .then(data => {
           updateInstanceData(data);
-          if (data.selectedUserId) {
-            const selectedParticipant = participants.find(p => p.id === data.selectedUserId);
-            if (selectedParticipant) {
-              setSelectedUser(selectedParticipant);
+          if (data.selectedUserIds && Array.isArray(data.selectedUserIds)) {
+            const selectedParticipants = participants.filter(p => data.selectedUserIds.includes(p.id));
+            if (selectedParticipants.length > 0) {
+              setSelectedUsers(selectedParticipants);
             }
           }
         })
@@ -592,7 +629,7 @@ function MainApp() {
 
   // Save instance data when selectedUser changes
   useEffect(() => {
-    if (instanceId && auth && selectedUser) {
+    if (instanceId && auth && selectedUsers.length > 0) {
       fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
         method: 'PUT',
         headers: {
@@ -600,7 +637,7 @@ function MainApp() {
           'Authorization': `Bearer ${auth.access_token}`,
         },
         body: JSON.stringify({
-          selectedUserId: selectedUser.id,
+          selectedUserIds: selectedUsers.map(user => user.id),
           lastUpdated: new Date().toISOString(),
         }),
       }).catch(error => {
@@ -611,7 +648,6 @@ function MainApp() {
         }
       });
     }
-  }, [instanceId, auth, selectedUser, addNotification]);
 
   if (loading) {
     return (
@@ -698,14 +734,14 @@ function MainApp() {
           </div>
 
           {/* PIP Target Selection */}
-          {participants.length > 1 && (
+          {participants.length > 1 && !hasMultiShockEntitlement && (
             <div className="mt-4 flex-shrink-0">
               <select
-                value={selectedUser?.id || ''}
+                value={selectedUsers.length > 0 ? selectedUsers[0].id : ''}
                 onChange={(e) => {
                   const user = participants.find(p => p.id === e.target.value);
                   if (user && user.id !== auth?.user?.id) {
-                    setSelectedUser(user);
+                    setSelectedUsers([user]);
                   }
                 }}
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
@@ -814,18 +850,19 @@ function MainApp() {
             <div className="lg:col-span-1 flex flex-col min-h-0">
               <UserSelector
                 members={participants}
-                selectedUser={selectedUser}
-                onUserSelect={setSelectedUser}
+                selectedUsers={selectedUsers}
+                onUserSelect={setSelectedUsers}
                 currentUser={auth?.user}
                 instanceData={instanceData}
                 userPiShockStatus={userPiShockStatus}
+                multiShockEnabled={hasMultiShockEntitlement}
               />
             </div>
 
             {/* Main Controller */}
             <div className={`${showActivityLog ? 'lg:col-span-2' : 'lg:col-span-2'} flex flex-col min-h-0 order-1 lg:order-none`}>
               <PiShockController
-                selectedUser={selectedUser}
+                selectedUsers={selectedUsers}
                 onConnectionChange={setPiShockConnected}
                 isConnected={piShockConnected}
                 addNotification={addNotification}
@@ -836,6 +873,8 @@ function MainApp() {
                 isEmbedded={isEmbedded}
                 layoutMode={layoutMode}
                 participants={participants}
+                multiShockEnabled={hasMultiShockEntitlement}
+                hasLimitBypassEntitlement={hasLimitBypassEntitlement}
               />
             </div>
 
