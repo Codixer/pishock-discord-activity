@@ -1106,7 +1106,6 @@ export function PiShockController({
                   <span className={bypassLimitsEnabled ? 'text-yellow-400' : effectiveLimits.maxDuration < 15 ? 'text-yellow-400' : ''}>
                     {bypassLimitsEnabled && selectedUser && (window as any).userPiShockStatus?.[selectedUser.id]?.allowLimitBypass ? '15s (Bypass)' : `${effectiveLimits.maxDuration}s${effectiveLimits.maxDuration < 15 ? ' (Max)' : ''}`}
                   </span>
-                  </span>
                   </div>
                 )}
               </div>
