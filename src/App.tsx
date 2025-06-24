@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { DiscordSDK, Events, Common } from '@discord/embedded-app-sdk';
-import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText } from 'lucide-react';
+import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText, ShoppingCart } from 'lucide-react';
 import { PiShockController } from './components/PiShockController';
 import { SafetyWarning } from './components/SafetyWarning';
 import { UserSelector } from './components/UserSelector';
@@ -10,6 +10,7 @@ import { NotificationSystem } from './components/NotificationSystem';
 import { ActivityLog } from './components/ActivityLog';
 import { PrivacyPolicy } from './components/PrivacyPolicy';
 import { TermsOfService } from './components/TermsOfService';
+import { Storefront } from './components/Storefront';
 import { useNotifications } from './hooks/useNotifications';
 import { useInstanceData } from './hooks/useInstanceData';
 import { useParticipants } from './hooks/useParticipants';
@@ -89,16 +90,20 @@ function getApiBaseUrl(): string {
 
 function MainApp() {
   const [auth, setAuth] = useState<any>(null);
-  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [selectedUsers, setSelectedUsers] = useState<any[]>([]);
   const [piShockConnected, setPiShockConnected] = useState(false);
   const [safetyAccepted, setSafetyAccepted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [instanceId, setInstanceId] = useState<string>('');
   const [showActivityLog, setShowActivityLog] = useState(true);
+  const [showStorefront, setShowStorefront] = useState(false);
   const [userPiShockStatus, setUserPiShockStatus] = useState<Record<string, any>>({});
   const [isInstanceValid, setIsInstanceValid] = useState(true);
   const [layoutMode, setLayoutMode] = useState<number>(Common.LayoutModeTypeObject.FOCUSED);
   const [isPipMode, setIsPipMode] = useState(false);
+  const [entitlements, setEntitlements] = useState<any[]>([]);
+  const [multiShockEnabled, setMultiShockEnabled] = useState(false);
+  const [hasLimitBypassEntitlement, setHasLimitBypassEntitlement] = useState(false);
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
   
@@ -132,6 +137,55 @@ function MainApp() {
     
     console.log('Graceful shutdown completed');
   }, [isEmbedded, updateParticipants, handleLayoutModeUpdate]);
+
+  // Fetch user entitlements and check for premium features
+  const fetchEntitlements = useCallback(async () => {
+    if (!auth || !isEmbedded) return;
+
+    try {
+      console.log('ENTITLEMENTS: Fetching user entitlements...');
+      
+      // Use Discord SDK to get entitlements
+      const entitlementData = await discordSdk.commands.getEntitlements();
+      const userEntitlements = entitlementData.entitlements || [];
+      
+      console.log('ENTITLEMENTS: Found', userEntitlements.length, 'entitlements');
+      setEntitlements(userEntitlements);
+
+      // Check for Multi-Shock subscription (SKU: 1387037988558606457)
+      const multiShockEntitlement = userEntitlements.find((e: any) => 
+        e.sku_id === '1387037988558606457' && !e.consumed
+      );
+      
+      if (multiShockEntitlement) {
+        console.log('ENTITLEMENTS: ✓ User has Multi-Shock subscription');
+        setMultiShockEnabled(true);
+        addNotification('success', 'Premium Feature', 'Multi-Shock subscription active!');
+      } else {
+        console.log('ENTITLEMENTS: ❌ User does not have Multi-Shock subscription');
+        setMultiShockEnabled(false);
+      }
+
+      // Check for Limit Bypass tokens (SKU: 1387033978053197984)
+      const limitBypassTokens = userEntitlements.filter((e: any) => 
+        e.sku_id === '1387033978053197984' && !e.consumed
+      );
+      
+      if (limitBypassTokens.length > 0) {
+        console.log('ENTITLEMENTS: ✓ User has', limitBypassTokens.length, 'Limit Bypass tokens');
+        setHasLimitBypassEntitlement(true);
+      } else {
+        console.log('ENTITLEMENTS: ❌ User has no Limit Bypass tokens');
+        setHasLimitBypassEntitlement(false);
+      }
+
+    } catch (error) {
+      console.error('ENTITLEMENTS: Failed to fetch entitlements:', error);
+      // Don't show error notification as this is not critical for basic functionality
+      setMultiShockEnabled(false);
+      setHasLimitBypassEntitlement(false);
+    }
+  }, [auth, isEmbedded, addNotification]);
 
   // Show Discord-only message for direct visits
   if (isDirectVisit) {
@@ -246,6 +300,7 @@ function MainApp() {
                 isRelay: status.isRelay || false, // Track if using relay account
                 maxIntensity: status.maxIntensity || 100,
                 maxDuration: status.maxDuration || 15,
+                allowLimitBypass: status.allowLimitBypass || false,
                 bannedExecutors: []
               }
             };
@@ -266,6 +321,7 @@ function MainApp() {
             isRelay: false,
             maxIntensity: 100,
             maxDuration: 15,
+            allowLimitBypass: false,
             bannedExecutors: []
           }
         };
@@ -516,6 +572,13 @@ function MainApp() {
     };
   }, [addNotification, updateParticipants, handleLayoutModeUpdate]);
 
+  // Fetch entitlements when auth is available
+  useEffect(() => {
+    if (auth) {
+      fetchEntitlements();
+    }
+  }, [auth, fetchEntitlements]);
+
   // Load instance data when instanceId changes
   useEffect(() => {
     if (instanceId && auth) {
@@ -547,11 +610,9 @@ function MainApp() {
         })
         .then(data => {
           updateInstanceData(data);
-          if (data.selectedUserId) {
-            const selectedParticipant = participants.find(p => p.id === data.selectedUserId);
-            if (selectedParticipant) {
-              setSelectedUser(selectedParticipant);
-            }
+          if (data.selectedUserIds && data.selectedUserIds.length > 0) {
+            const selectedParticipants = participants.filter(p => data.selectedUserIds.includes(p.id));
+            setSelectedUsers(selectedParticipants);
           }
         })
         .catch(error => {
@@ -588,9 +649,9 @@ function MainApp() {
     return () => clearInterval(interval);
   }, [instanceId, auth, participants]);
 
-  // Save instance data when selectedUser changes
+  // Save instance data when selectedUsers changes
   useEffect(() => {
-    if (instanceId && auth && selectedUser) {
+    if (instanceId && auth && selectedUsers.length > 0) {
       fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
         method: 'PUT',
         headers: {
@@ -598,7 +659,7 @@ function MainApp() {
           'Authorization': `Bearer ${auth.access_token}`,
         },
         body: JSON.stringify({
-          selectedUserId: selectedUser.id,
+          selectedUserIds: selectedUsers.map(user => user.id),
           lastUpdated: new Date().toISOString(),
         }),
       }).catch(error => {
@@ -609,7 +670,7 @@ function MainApp() {
         }
       });
     }
-  }, [instanceId, auth, selectedUser, addNotification]);
+  }, [instanceId, auth, selectedUsers, addNotification]);
 
   if (loading) {
     return (
@@ -682,7 +743,7 @@ function MainApp() {
           {/* Minimal Controller */}
           <div className="flex-1 flex flex-col min-h-0">
             <PiShockController
-              selectedUser={selectedUser}
+              selectedUsers={selectedUsers}
               onConnectionChange={setPiShockConnected}
               isConnected={piShockConnected}
               addNotification={addNotification}
@@ -692,6 +753,9 @@ function MainApp() {
               discordSdk={discordSdk}
               isEmbedded={isEmbedded}
               layoutMode={layoutMode}
+              participants={participants}
+              multiShockEnabled={multiShockEnabled}
+              hasLimitBypassEntitlement={hasLimitBypassEntitlement}
             />
           </div>
 
@@ -699,11 +763,11 @@ function MainApp() {
           {participants.length > 1 && (
             <div className="mt-4 flex-shrink-0">
               <select
-                value={selectedUser?.id || ''}
+                value={selectedUsers[0]?.id || ''}
                 onChange={(e) => {
                   const user = participants.find(p => p.id === e.target.value);
                   if (user && user.id !== auth?.user?.id) {
-                    setSelectedUser(user);
+                    setSelectedUsers([user]);
                   }
                 }}
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
@@ -733,6 +797,7 @@ function MainApp() {
       </div>
     );
   }
+
   return (
     <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white overflow-hidden flex flex-col">
       <NotificationSystem 
@@ -756,6 +821,7 @@ function MainApp() {
                 <h1 className="text-lg font-bold">PiShock Controller</h1>
                 <p className="text-xs text-gray-300">
                   Discord Activity • {participants.length} participant{participants.length !== 1 ? 's' : ''}
+                  {multiShockEnabled && <span className="text-purple-400 ml-2">• Premium</span>}
                 </p>
               </div>
             </div>
@@ -765,6 +831,13 @@ function MainApp() {
                   Instance: {instanceId.slice(-8)}
                 </div>
               )}
+              <button
+                onClick={() => setShowStorefront(true)}
+                className="px-2 py-1 rounded-md bg-purple-600 hover:bg-purple-700 text-xs transition-colors flex items-center space-x-1"
+              >
+                <ShoppingCart className="h-3 w-3" />
+                <span className="hidden sm:inline">Store</span>
+              </button>
               <button
                 onClick={() => navigate('/terms')}
                 className="px-2 py-1 rounded-md bg-gray-700 hover:bg-gray-600 text-xs transition-colors flex items-center space-x-1"
@@ -806,18 +879,19 @@ function MainApp() {
             <div className="lg:col-span-1 flex flex-col min-h-0">
               <UserSelector
                 members={participants}
-                selectedUser={selectedUser}
-                onUserSelect={setSelectedUser}
+                selectedUsers={selectedUsers}
+                onUserSelect={setSelectedUsers}
                 currentUser={auth?.user}
                 instanceData={instanceData}
                 userPiShockStatus={userPiShockStatus}
+                multiShockEnabled={multiShockEnabled}
               />
             </div>
 
             {/* Main Controller */}
             <div className={`${showActivityLog ? 'lg:col-span-2' : 'lg:col-span-2'} flex flex-col min-h-0 order-1 lg:order-none`}>
               <PiShockController
-                selectedUser={selectedUser}
+                selectedUsers={selectedUsers}
                 onConnectionChange={setPiShockConnected}
                 isConnected={piShockConnected}
                 addNotification={addNotification}
@@ -828,6 +902,8 @@ function MainApp() {
                 isEmbedded={isEmbedded}
                 layoutMode={layoutMode}
                 participants={participants}
+                multiShockEnabled={multiShockEnabled}
+                hasLimitBypassEntitlement={hasLimitBypassEntitlement}
               />
             </div>
 
@@ -844,6 +920,17 @@ function MainApp() {
           </div>
         </div>
       </div>
+
+      {/* Storefront Modal */}
+      {showStorefront && (
+        <Storefront
+          discordSdk={discordSdk}
+          isEmbedded={isEmbedded}
+          auth={auth}
+          onClose={() => setShowStorefront(false)}
+          addNotification={addNotification}
+        />
+      )}
 
       {/* Footer Safety Information */}
       <div className="flex-shrink-0 bg-red-900/20 border-t border-red-500/30 px-4 sm:px-6 py-2">

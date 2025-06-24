@@ -278,6 +278,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     let hasOwnDevice = userData?.hasOwnDevice || false;
     let encrypted = userData?.credentials;
     
+    let allowLimitBypass = userData?.allowLimitBypass || false;
+    
     let maxIntensity = 100;
     let maxDuration = 15;
     
@@ -334,7 +336,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       lastTested,
       isRelay: false, // Personal accounts are never relay
       maxIntensity,
-      maxDuration
+      maxDuration,
+      allowLimitBypass
     };
     
     console.log('STATUS: Final result for user', userId, ':', result);

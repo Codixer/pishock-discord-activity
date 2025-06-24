@@ -134,7 +134,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   if (!user) return new Response('Invalid token', { status: 401 });
 
   try {
-    const { executorUserId, intensity, duration, operation } = await request.json();
+    const { executorUserId, intensity, duration, operation, bypassLimits = false } = await request.json();
 
     console.log('EXECUTE: Starting PiShock command execution');
     console.log('EXECUTE: Target user:', targetUserId);
@@ -142,6 +142,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     console.log('EXECUTE: Operation:', operation, '(0=shock, 1=vibrate, 2=beep)');
     console.log('EXECUTE: Intensity:', intensity);
     console.log('EXECUTE: Duration:', duration);
+    console.log('EXECUTE: Bypass limits requested:', bypassLimits);
 
     // Validate parameters
     if (!executorUserId || intensity < 1 || intensity > 100 || duration < 1 || duration > 15 || ![0, 1, 2].includes(operation)) {
@@ -314,22 +315,130 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const targetMaxIntensity = creds.maxIntensity || 100;
       const targetMaxDuration = creds.maxDuration || 15;
       
-      console.log('EXECUTE: Target user limits:', { maxIntensity: targetMaxIntensity, maxDuration: targetMaxDuration });
+      // Check if bypass is allowed and requested
+      const allowLimitBypass = userData?.allowLimitBypass || false;
+      console.log('EXECUTE: Target user allowLimitBypass setting:', allowLimitBypass);
       
-      // Validate against target user's limits
-      if (intensity > targetMaxIntensity) {
-        console.error('EXECUTE: Intensity exceeds target user limit:', intensity, '>', targetMaxIntensity);
+      let effectiveMaxIntensity = targetMaxIntensity;
+      let effectiveMaxDuration = targetMaxDuration;
+      
+      // If bypass is requested and allowed by target user, check executor's entitlement
+      if (bypassLimits && allowLimitBypass) {
+        console.log('EXECUTE: Bypass requested and allowed by target user, checking executor entitlement...');
+        
+        // Only consume entitlement for SHOCK operations (operation === 0)
+        if (operation !== 0) {
+          console.log('EXECUTE: Bypass requested for non-shock operation, allowing without consuming entitlement');
+          effectiveMaxIntensity = 100;
+          effectiveMaxDuration = 15;
+        } else {
+          console.log('EXECUTE: Bypass requested for shock operation, verifying and consuming entitlement...');
+        
+          // Verify executor has "Limit Bypass" entitlement (SKU: 1387033978053197984)
+          try {
+            console.log('EXECUTE: Verifying limit bypass entitlement for executor:', executorUserId);
+          
+            // Get API base URL for internal API calls
+            const apiBaseUrl = '/api'; // Use direct internal API calls
+          
+            // Call our entitlements API to verify the executor has the bypass entitlement
+            const entitlementResponse = await fetch(`${apiBaseUrl}/discord/entitlements?user_id=${executorUserId}&sku_id=1387033978053197984`, {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+              },
+            });
+          
+            if (!entitlementResponse.ok) {
+              console.error('EXECUTE: Failed to verify entitlement:', entitlementResponse.status);
+              return jsonResponse({ 
+                success: false, 
+                error: 'Failed to verify limit bypass entitlement' 
+              }, 500);
+            }
+          
+            const entitlementData = await entitlementResponse.json();
+            const validEntitlements = entitlementData.entitlements.filter((e: any) => 
+              e.sku_id === '1387033978053197984' && 
+              !e.consumed && 
+              e.is_active
+            );
+          
+            console.log('EXECUTE: Found', validEntitlements.length, 'valid limit bypass entitlements');
+          
+            if (validEntitlements.length > 0) {
+              console.log('EXECUTE: ✓ Executor has valid limit bypass entitlement, allowing bypass');
+              effectiveMaxIntensity = 100; // Allow full intensity
+              effectiveMaxDuration = 15;   // Allow full duration
+            
+              // Mark the first available entitlement as consumed (only for shock operations)
+              const entitlementToConsume = validEntitlements[0];
+              console.log('EXECUTE: Consuming entitlement for shock operation:', entitlementToConsume.id);
+            
+              const consumeResponse = await fetch(`${apiBaseUrl}/discord/entitlements`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  entitlement_id: entitlementToConsume.id
+                }),
+              });
+            
+              if (!consumeResponse.ok) {
+                console.warn('EXECUTE: Failed to consume entitlement, but allowing bypass anyway');
+              } else {
+                const consumeResult = await consumeResponse.json();
+                console.log('EXECUTE: ✓ Entitlement consumed successfully:', consumeResult);
+              }
+            
+            } else {
+              console.log('EXECUTE: ❌ Executor does not have valid limit bypass entitlement');
+              return jsonResponse({ 
+                success: false, 
+                error: 'You need a "Limit Bypass" purchase to exceed this user\'s limits. Visit the Premium Store to purchase bypass tokens.' 
+              }, 403);
+            }
+          
+          } catch (entitlementError) {
+            console.error('EXECUTE: Failed to verify limit bypass entitlement:', entitlementError);
+            return jsonResponse({ 
+              success: false, 
+              error: 'Failed to verify limit bypass entitlement' 
+            }, 500);
+          }
+        }
+      } else if (bypassLimits && !allowLimitBypass) {
+        console.log('EXECUTE: Bypass requested but target user does not allow bypass');
         return jsonResponse({ 
           success: false, 
-          error: `Intensity ${intensity}% exceeds target user's maximum of ${targetMaxIntensity}%` 
+          error: 'Target user does not allow limit bypass. Only their configured safety limits can be used.' 
+        }, 403);
+      }
+      
+      console.log('EXECUTE: Effective limits after bypass check:', { 
+        maxIntensity: effectiveMaxIntensity, 
+        maxDuration: effectiveMaxDuration,
+        originalLimits: { maxIntensity: targetMaxIntensity, maxDuration: targetMaxDuration },
+        bypassActive: bypassLimits && allowLimitBypass,
+        operationType: ['shock', 'vibrate', 'beep'][operation],
+        entitlementConsumed: bypassLimits && allowLimitBypass && operation === 0
+      });
+      
+      // Validate against target user's limits
+      if (intensity > effectiveMaxIntensity) {
+        console.error('EXECUTE: Intensity exceeds effective limit:', intensity, '>', effectiveMaxIntensity);
+        return jsonResponse({ 
+          success: false, 
+          error: `Intensity ${intensity}% exceeds ${bypassLimits && allowLimitBypass ? 'maximum allowed' : 'target user\'s maximum'} of ${effectiveMaxIntensity}%` 
         });
       }
       
-      if (duration > targetMaxDuration) {
-        console.error('EXECUTE: Duration exceeds target user limit:', duration, '>', targetMaxDuration);
+      if (duration > effectiveMaxDuration) {
+        console.error('EXECUTE: Duration exceeds effective limit:', duration, '>', effectiveMaxDuration);
         return jsonResponse({ 
           success: false, 
-          error: `Duration ${duration}s exceeds target user's maximum of ${targetMaxDuration}s` 
+          error: `Duration ${duration}s exceeds ${bypassLimits && allowLimitBypass ? 'maximum allowed' : 'target user\'s maximum'} of ${effectiveMaxDuration}s` 
         });
       }
       
@@ -420,7 +529,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       };
 
       // Store activity log entry
-      // Store activity log entry (blocking to ensure logging works)
       try {
         console.log('EXECUTE: Logging activity entry with ID:', logEntry.id);
         await addToActivityBatch(env.PISHOCK_KV, logEntry);
