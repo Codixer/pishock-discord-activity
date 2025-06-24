@@ -1,6 +1,675 @@
-Here's the fixed version with all missing closing brackets added:
+import React, { useState, useEffect, useCallback } from 'react';
+import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { DiscordSDK, Events, Common } from '@discord/embedded-app-sdk';
+import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText, ShoppingCart } from 'lucide-react';
+import { PiShockController } from './components/PiShockController';
+import { SafetyWarning } from './components/SafetyWarning';
+import { UserSelector } from './components/UserSelector';
+import { ConnectionStatus } from './components/ConnectionStatus';
+import { NotificationSystem } from './components/NotificationSystem';
+import { ActivityLog } from './components/ActivityLog';
+import { PrivacyPolicy } from './components/PrivacyPolicy';
+import { TermsOfService } from './components/TermsOfService';
+import { Storefront } from './components/Storefront';
+import { useNotifications } from './hooks/useNotifications';
+import { useInstanceData } from './hooks/useInstanceData';
+import { useParticipants } from './hooks/useParticipants';
 
-```javascript
+// Global function to refresh user statuses
+declare global {
+  interface Window {
+    refreshAllUserStatuses?: () => void;
+  }
+}
+
+// Check if we're running in Discord's embedded environment
+const urlParams = new URLSearchParams(window.location.search);
+const isEmbedded = urlParams.has('frame_id');
+
+// Check if we're in actual development environment
+const isDevelopment = import.meta.env.DEV || 
+                     window.location.hostname === 'localhost' || 
+                     window.location.hostname === '127.0.0.1' ||
+                     window.location.hostname.includes('bolt.new');
+
+// If not embedded and not in development, user is visiting directly
+const isDirectVisit = !isEmbedded && !isDevelopment;
+
+// Debug environment variables
+const envCheck = {
+  client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
+  is_placeholder: import.meta.env.VITE_DISCORD_CLIENT_ID === 'YOUR_DISCORD_CLIENT_ID_HERE',
+  dev_mode: import.meta.env.DEV,
+  env_keys: Object.keys(import.meta.env).filter(key => key.startsWith('VITE_')),
+};
+console.log('Environment check:', envCheck);
+
+// Initialize Discord SDK with dummy parameters if not embedded
+let discordSdk: DiscordSDK;
+
+if (isEmbedded) {
+  const clientId = import.meta.env.VITE_DISCORD_CLIENT_ID;
+  if (!clientId || clientId === 'YOUR_DISCORD_CLIENT_ID_HERE') {
+    console.error('❌ VITE_DISCORD_CLIENT_ID is not set or still using placeholder value');
+    console.error('💡 Solution: Set VITE_DISCORD_CLIENT_ID in Cloudflare Pages Dashboard → Settings → Environment variables');
+    throw new Error('Discord Client ID is required. Please set VITE_DISCORD_CLIENT_ID in Cloudflare Pages Dashboard');
+  }
+  discordSdk = new DiscordSDK(clientId, {disableConsoleLogOverride: true});
+} else {
+  // Add dummy query parameters for development
+  const dummyParams = new URLSearchParams({
+    frame_id: 'dummy_frame_id',
+    instance_id: 'dummy_instance_id',
+    platform: 'desktop',
+    sdk_version: '1.0.0'
+  });
+  
+  // Temporarily modify the URL for SDK initialization
+  const originalSearch = window.location.search;
+  const newUrl = `${window.location.pathname}?${dummyParams.toString()}`;
+  window.history.replaceState({}, '', newUrl);
+  
+  // For development, use a dummy client ID if not set
+  const clientId = import.meta.env.VITE_DISCORD_CLIENT_ID || 'dev_dummy_client_id';
+  discordSdk = new DiscordSDK(clientId, {disableConsoleLogOverride: true});
+  
+  // Restore original URL
+  window.history.replaceState({}, '', `${window.location.pathname}${originalSearch}`);
+}
+
+// Helper function to get the correct API base URL
+function getApiBaseUrl(): string {
+  if (isEmbedded) {
+    // Use Discord's proxy for embedded environment
+    return '/.proxy/api';
+  } else {
+    // Use direct API calls for development
+    return '/api';
+  }
+}
+
+function MainApp() {
+  const [auth, setAuth] = useState<any>(null);
+  const [selectedUsers, setSelectedUsers] = useState<any[]>([]);
+  const [piShockConnected, setPiShockConnected] = useState(false);
+  const [safetyAccepted, setSafetyAccepted] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [instanceId, setInstanceId] = useState<string>('');
+  const [showActivityLog, setShowActivityLog] = useState(true);
+  const [showStorefront, setShowStorefront] = useState(false);
+  const [userPiShockStatus, setUserPiShockStatus] = useState<Record<string, any>>({});
+  const [isInstanceValid, setIsInstanceValid] = useState(true);
+  const [layoutMode, setLayoutMode] = useState<number>(Common.LayoutModeTypeObject.FOCUSED);
+  const [isPipMode, setIsPipMode] = useState(false);
+  const [entitlements, setEntitlements] = useState<any[]>([]);
+  const [multiShockEnabled, setMultiShockEnabled] = useState(false);
+  const [hasLimitBypassEntitlement, setHasLimitBypassEntitlement] = useState(false);
+  const { notifications, addNotification, dismissNotification } = useNotifications();
+  const navigate = useNavigate();
+  
+  // Get current version from build
+  const currentVersion = __BUILD_VERSION__;
+  
+  // Custom hooks for managing instance data and participants
+  const { instanceData, updateInstanceData } = useInstanceData(instanceId);
+  const { participants, updateParticipants } = useParticipants(discordSdk, isEmbedded);
+
+  // Handle layout mode updates
+  const handleLayoutModeUpdate = useCallback((update: { layout_mode: number }) => {
+    console.log('Layout mode update:', update);
+    setLayoutMode(update.layout_mode);
+    setIsPipMode(update.layout_mode === Common.LayoutModeTypeObject.PIP);
+  }, []);
+
+  // Graceful shutdown handler
+  const handleGracefulShutdown = useCallback(() => {
+    console.log('Starting graceful shutdown...');
+    
+    // Clean up Discord SDK subscriptions
+    if (isEmbedded && discordSdk) {
+      try {
+        discordSdk.unsubscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
+        discordSdk.unsubscribeFromLayoutModeUpdatesCompat(handleLayoutModeUpdate);
+      } catch (error) {
+        console.warn('Error unsubscribing from Discord events:', error);
+      }
+    }
+    
+    console.log('Graceful shutdown completed');
+  }, [isEmbedded, updateParticipants, handleLayoutModeUpdate]);
+
+  // Fetch user entitlements and check for premium features
+  const fetchEntitlements = useCallback(async () => {
+    if (!auth || !isEmbedded) return;
+
+    try {
+      console.log('ENTITLEMENTS: Fetching user entitlements...');
+      
+      // Use Discord SDK to get entitlements
+      const entitlementData = await discordSdk.commands.getEntitlements();
+      const userEntitlements = entitlementData.entitlements || [];
+      
+      console.log('ENTITLEMENTS: Found', userEntitlements.length, 'entitlements');
+      setEntitlements(userEntitlements);
+
+      // Check for Multi-Shock subscription (SKU: 1387037988558606457)
+      const multiShockEntitlement = userEntitlements.find((e: any) => 
+        e.sku_id === '1387037988558606457' && !e.consumed
+      );
+      
+      if (multiShockEntitlement) {
+        console.log('ENTITLEMENTS: ✓ User has Multi-Shock subscription');
+        setMultiShockEnabled(true);
+        addNotification('success', 'Premium Feature', 'Multi-Shock subscription active!');
+      } else {
+        console.log('ENTITLEMENTS: ❌ User does not have Multi-Shock subscription');
+        setMultiShockEnabled(false);
+      }
+
+      // Check for Limit Bypass tokens (SKU: 1387033978053197984)
+      const limitBypassTokens = userEntitlements.filter((e: any) => 
+        e.sku_id === '1387033978053197984' && !e.consumed
+      );
+      
+      if (limitBypassTokens.length > 0) {
+        console.log('ENTITLEMENTS: ✓ User has', limitBypassTokens.length, 'Limit Bypass tokens');
+        setHasLimitBypassEntitlement(true);
+      } else {
+        console.log('ENTITLEMENTS: ❌ User has no Limit Bypass tokens');
+        setHasLimitBypassEntitlement(false);
+      }
+
+    } catch (error) {
+      console.error('ENTITLEMENTS: Failed to fetch entitlements:', error);
+      // Don't show error notification as this is not critical for basic functionality
+      setMultiShockEnabled(false);
+      setHasLimitBypassEntitlement(false);
+    }
+  }, [auth, isEmbedded, addNotification]);
+
+  // Show Discord-only message for direct visits
+  if (isDirectVisit) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-900 via-indigo-900 to-purple-900 text-white flex items-center justify-center p-4">
+        <div className="max-w-2xl w-full text-center">
+          <div className="mb-8">
+            <div className="mx-auto w-20 h-20 bg-blue-500/20 rounded-full flex items-center justify-center mb-6">
+              <img 
+                src="/kVApvT6y_400x400 copy.jpg" 
+                alt="PiShock Controller Logo" 
+                className="w-12 h-12 object-contain"
+              />
+            </div>
+            <h1 className="text-4xl font-bold mb-4">PiShock Controller</h1>
+            <p className="text-xl text-blue-200 mb-8">Discord Activity Application</p>
+          </div>
+
+          <div className="bg-black/20 backdrop-blur-sm rounded-2xl border border-white/10 p-8 mb-8">
+            <div className="flex items-center justify-center mb-6">
+              <div className="bg-blue-500/20 rounded-full p-4">
+                <svg className="w-12 h-12 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
+                </svg>
+              </div>
+            </div>
+            
+            <h2 className="text-2xl font-bold mb-4 text-white">Discord Activity Only</h2>
+            <p className="text-gray-300 mb-6 leading-relaxed">
+              PiShock Controller is a <strong>Discord Activity</strong> that only works inside Discord. 
+              You cannot use this application directly from a web browser.
+            </p>
+            
+            <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 mb-6">
+              <h3 className="text-lg font-semibold text-blue-300 mb-2">How to Use:</h3>
+              <ol className="text-left text-sm text-blue-200 space-y-2">
+                <li>1. Join a Discord voice channel or start a DM</li>
+                <li>2. Click the Activities button (rocket ship icon)</li>
+                <li>3. Find and launch "PiShock Controller"</li>
+                <li>4. Configure your PiShock credentials safely</li>
+              </ol>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <a
+              href="https://discord.com/oauth2/authorize?client_id=1386335035522809937"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center space-x-3 w-full py-4 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-xl font-semibold text-lg transition-all transform hover:scale-105 shadow-lg"
+            >
+              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
+              </svg>
+              <span>Open Discord & Add to Server</span>
+            </a>
+            
+            <p className="text-sm text-gray-400">
+              Don't have Discord? <a href="https://discord.com/download" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">Download it here</a>
+            </p>
+          </div>
+
+          <div className="mt-12 pt-8 border-t border-white/10">
+            <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4">
+              <div className="flex items-center justify-center space-x-2 mb-2">
+                <svg className="w-5 h-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <span className="text-red-300 text-sm font-semibold">Safety Notice</span>
+              </div>
+              <p className="text-red-200 text-xs">
+                This application controls electrical shock devices. Only use with explicit consent, 
+                proper safety measures, and in compliance with all applicable laws.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Function to check PiShock status for all participants
+  const checkAllUserPiShockStatus = async () => {
+    // Don't check PiShock status in development mode
+    if (!isEmbedded) return;
+    
+    if (!instanceId || !auth || participants.length === 0) return;
+
+    console.log('Checking PiShock status for participants:', participants.map(p => ({ id: p.id, username: p.username })));
+
+    try {
+      const statusPromises = participants.map(async (participant) => {
+        try {
+          console.log(`Checking status for ${participant.username} (${participant.id})`);
+          const response = await fetch(`${getApiBaseUrl()}/users/${participant.id}/pishock-status`, {
+            headers: {
+              'Authorization': `Bearer ${auth.access_token}`,
+            },
+          });
+          
+          if (response.ok) {
+            const status = await response.json();
+            console.log(`Status for ${participant.username}:`, status);
+            return { 
+              userId: participant.id, 
+              status: {
+                isConnected: status.isConnected,
+                hasDevice: status.hasDevice,
+                hasCredentials: status.hasCredentials,
+                deviceCount: status.deviceCount || 0,
+                piShockUserId: status.piShockUserId,
+                isRelay: status.isRelay || false, // Track if using relay account
+                maxIntensity: status.maxIntensity || 100,
+                maxDuration: status.maxDuration || 15,
+                allowLimitBypass: status.allowLimitBypass || false,
+                bannedExecutors: []
+              }
+            };
+          } else {
+            console.warn(`Failed to check status for ${participant.username}: ${response.status} ${response.statusText}`);
+          }
+        } catch (error) {
+          console.error(`Failed to check PiShock status for ${participant.username}:`, error);
+        }
+        return { 
+          userId: participant.id, 
+          status: {
+            isConnected: false,
+            hasDevice: false,
+            hasCredentials: false,
+            deviceCount: 0,
+            piShockUserId: null,
+            isRelay: false,
+            maxIntensity: 100,
+            maxDuration: 15,
+            allowLimitBypass: false,
+            bannedExecutors: []
+          }
+        };
+      });
+
+      const statuses = await Promise.all(statusPromises);
+      const statusMap: Record<string, any> = {};
+      statuses.forEach(({ userId, status }) => {
+        statusMap[userId] = status;
+      });
+      
+      console.log('Final status map:', statusMap);
+      
+      setUserPiShockStatus(prevStatus => {
+        // Only update if there are actual changes
+        const hasChanges = Object.keys(statusMap).some(userId => 
+          !prevStatus[userId] || 
+          prevStatus[userId].isConnected !== statusMap[userId].isConnected ||
+          prevStatus[userId].hasDevice !== statusMap[userId].hasDevice ||
+          prevStatus[userId].hasCredentials !== statusMap[userId].hasCredentials ||
+          prevStatus[userId].maxIntensity !== statusMap[userId].maxIntensity ||
+          prevStatus[userId].maxDuration !== statusMap[userId].maxDuration
+        );
+        
+        if (hasChanges) {
+          console.log('PiShock status updated:', statusMap);
+        }
+        
+        return statusMap;
+      });
+    } catch (error) {
+      console.error('Failed to check user PiShock statuses:', error);
+    }
+  };
+
+  // Load ban lists for current user (who can be banned from shocking them)
+  const loadCurrentUserBanList = async () => {
+    if (!auth?.user?.id) return;
+
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/users/${auth.user.id}/pishock-settings`, {
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.bannedExecutors) {
+          // Update the current user's banned executors in the status map
+          setUserPiShockStatus(prevStatus => ({
+            ...prevStatus,
+            [auth.user.id]: {
+              ...prevStatus[auth.user.id],
+              bannedExecutors: result.bannedExecutors
+            }
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load ban list:', error);
+    }
+  };
+
+  // Make the refresh function available globally
+  window.refreshAllUserStatuses = checkAllUserPiShockStatus;
+  
+  // Load ban list when auth changes
+  useEffect(() => {
+    if (auth?.user?.id) {
+      loadCurrentUserBanList();
+    }
+  }, [auth?.user?.id]);
+  
+  // Make user status available globally for PiShockController
+  (window as any).userPiShockStatus = userPiShockStatus;
+
+  useEffect(() => {
+    const initializeDiscord = async () => {
+      try {
+        if (isEmbedded) {
+          await discordSdk.ready();
+          
+          // Configure orientation for PIP mode
+          try {
+            await discordSdk.commands.setOrientationLockState({
+              lock_state: Common.OrientationLockStateTypeObject.UNLOCKED,
+              picture_in_picture_lock_state: Common.OrientationLockStateTypeObject.LANDSCAPE,
+              grid_lock_state: Common.OrientationLockStateTypeObject.LANDSCAPE,
+            });
+            console.log('✓ Orientation lock state configured for PIP mode');
+          } catch (orientationError) {
+            console.warn('Failed to set orientation lock state:', orientationError);
+          }
+
+          // Subscribe to layout mode updates
+          try {
+            discordSdk.subscribeToLayoutModeUpdatesCompat(handleLayoutModeUpdate);
+            console.log('✓ Subscribed to layout mode updates');
+          } catch (layoutError) {
+            console.warn('Failed to subscribe to layout mode updates:', layoutError);
+          }
+
+          // Get instance ID immediately after SDK construction
+          const currentInstanceId = discordSdk.instanceId;
+          setInstanceId(currentInstanceId);
+
+          // Verify instance with Discord's API before proceeding
+          console.log('Verifying Discord instance:', currentInstanceId);
+          const verifyResponse = await fetch(`${getApiBaseUrl()}/verify-instance?application_id=${import.meta.env.VITE_DISCORD_CLIENT_ID}&instance_id=${currentInstanceId}`);
+          
+          if (!verifyResponse.ok) {
+            console.error('Instance verification failed:', verifyResponse.status);
+            setIsInstanceValid(false);
+            setLoading(false);
+            addNotification('error', 'Invalid Session', 'This Discord Activity session is not valid or has expired.');
+            return;
+          }
+
+          const verifyData = await verifyResponse.json();
+          if (!verifyData.valid) {
+            console.error('Instance not valid:', verifyData.error);
+            setIsInstanceValid(false);
+            setLoading(false);
+            addNotification('error', 'Invalid Session', verifyData.error || 'This Discord Activity session is not valid.');
+            return;
+          }
+
+          // Authenticate with Discord
+          const { code } = await discordSdk.commands.authorize({
+            client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
+            response_type: 'code',
+            state: '',
+            prompt: 'none',
+            scope: [
+              'identify',
+              'guilds',
+              'guilds.members.read',
+              'rpc.activities.write',
+            ],
+          });
+
+          // Exchange code for access token via backend using proxy
+          const response = await fetch(`${getApiBaseUrl()}/auth/discord`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              code,
+              instanceId: currentInstanceId,
+            }),
+          });
+
+          const { access_token, user } = await response.json();
+          
+          const authResult = await discordSdk.commands.authenticate({
+            access_token,
+          });
+
+          setAuth(authResult);
+
+          // Subscribe to participant updates
+          discordSdk.subscribe(
+            Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE,
+            (data: any) => {
+              updateParticipants(data.participants);
+              // Update global participants for ban management
+              (window as any).discordParticipants = data.participants;
+            }
+          );
+
+          // Get initial participants
+          const initialParticipants = await discordSdk.commands.getInstanceConnectedParticipants();
+          updateParticipants(initialParticipants.participants);
+
+          // Make participants available globally for ban management
+          (window as any).discordParticipants = initialParticipants.participants;
+
+          addNotification('success', 'Connected', 'Successfully connected to Discord');
+        } else {
+          // Development environment - only allow in actual dev mode
+          console.log('Development mode: Using mock Discord data');
+          const mockInstanceId = 'dev_instance_123';
+          setInstanceId(mockInstanceId);
+          
+          const mockAuth = {
+            user: {
+              id: 'dev_user_123',
+              username: 'DevUser',
+              discriminator: '0001',
+              avatar: null,
+              global_name: 'Development User'
+            }
+          };
+          
+          const mockParticipants = [
+            {
+              id: 'dev_user_123',
+              username: 'DevUser',
+              discriminator: '0001',
+              avatar: null,
+              global_name: 'Development User'
+            },
+            {
+              id: 'test_user_456',
+              username: 'TestUser',
+              discriminator: '0002',
+              avatar: null,
+              global_name: 'Test User'
+            }
+          ];
+
+          setAuth(mockAuth);
+          updateParticipants(mockParticipants);
+          
+          // Make participants available globally for ban management
+          (window as any).discordParticipants = mockParticipants;
+          
+          addNotification('info', 'Development Mode', 'Running in development mode with mock data');
+        }
+
+        setLoading(false);
+      } catch (error) {
+        console.error('Discord initialization error:', error);
+        // Silently ignore BigInt conversion errors in development mode
+        if (!isEmbedded && error instanceof Error && error.message.includes('Cannot convert')) {
+          console.warn('Ignoring BigInt conversion error in development mode:', error.message);
+          setLoading(false);
+          return;
+        }
+        addNotification('error', 'Connection Failed', 'Failed to connect to Discord. Please try again.');
+        setLoading(false);
+      }
+    };
+
+    initializeDiscord();
+
+    // Cleanup subscriptions on unmount
+    return () => {
+      if (isEmbedded && discordSdk) {
+        discordSdk.unsubscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
+        // Layout mode cleanup - check if method exists before calling
+        if (typeof discordSdk.unsubscribeFromLayoutModeUpdatesCompat === 'function') {
+          discordSdk.unsubscribeFromLayoutModeUpdatesCompat(handleLayoutModeUpdate);
+        }
+      }
+    };
+  }, [addNotification, updateParticipants, handleLayoutModeUpdate]);
+
+  // Fetch entitlements when auth is available
+  useEffect(() => {
+    if (auth) {
+      fetchEntitlements();
+    }
+  }, [auth, fetchEntitlements]);
+
+  // Load instance data when instanceId changes
+  useEffect(() => {
+    if (instanceId && auth) {
+      // Load instance-specific data from backend using proxy
+      fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+      })
+        .then(async response => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          
+          // Check if response is actually JSON
+          const contentType = response.headers.get('content-type');
+          if (!contentType || !contentType.includes('application/json')) {
+            const responseText = await response.text();
+            console.warn('Expected JSON response but received:', responseText.substring(0, 200));
+            // Silently ignore non-JSON responses in development mode
+            if (!isEmbedded) {
+              console.warn('Ignoring non-JSON response in development mode');
+              return {};
+            }
+            throw new Error('Response is not JSON');
+          }
+          
+          return response.json();
+        })
+        .then(data => {
+          updateInstanceData(data);
+          if (data.selectedUserIds && data.selectedUserIds.length > 0) {
+            const selectedParticipants = participants.filter(p => data.selectedUserIds.includes(p.id));
+            setSelectedUsers(selectedParticipants);
+          }
+        })
+        .catch(error => {
+          console.error('Failed to load instance data:', error);
+          // Silently ignore JSON parsing errors in development mode
+          if (!isEmbedded && (error.message.includes('Unexpected token') || error.message.includes('not valid JSON'))) {
+            console.warn('Ignoring JSON parsing error in development mode:', error.message);
+            return;
+          }
+          // Only show notification for non-development errors
+          if (isEmbedded) {
+            addNotification('warning', 'Data Load Failed', 'Could not load instance data');
+          }
+        });
+    }
+  }, [instanceId, auth, participants, updateInstanceData, addNotification]);
+
+  // Check PiShock status for all participants
+  useEffect(() => {
+    if (instanceId && auth && participants.length > 0) {
+      checkAllUserPiShockStatus();
+    }
+  }, [instanceId, auth, participants]);
+
+  // Set up periodic status checking for real-time updates
+  useEffect(() => {
+    if (!instanceId || !auth || participants.length === 0) return;
+
+    // Optimized frequency: Check status every 2 minutes to align with backend cache TTL (120 seconds)
+    const interval = setInterval(() => {
+      checkAllUserPiShockStatus();
+    }, 120000); // 2 minutes - matches backend cache duration
+
+    return () => clearInterval(interval);
+  }, [instanceId, auth, participants]);
+
+  // Save instance data when selectedUsers changes
+  useEffect(() => {
+    if (instanceId && auth && selectedUsers.length > 0) {
+      fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({
+          selectedUserIds: selectedUsers.map(user => user.id),
+          lastUpdated: new Date().toISOString(),
+        }),
+      }).catch(error => {
+        console.error('Failed to save instance data:', error);
+        // Silently ignore save errors in development mode
+        if (isEmbedded) {
+          addNotification('warning', 'Save Failed', 'Could not save instance data');
+        }
+      });
+    }
   }, [instanceId, auth, selectedUsers, addNotification]);
 
   if (loading) {
@@ -49,13 +718,272 @@ Here's the fixed version with all missing closing brackets added:
     );
   }
 
-  // Rest of the component code...
+  // Render minimal PIP interface
+  if (isPipMode) {
+    console.log('Rendering PIP mode interface');
+    return (
+      <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white overflow-hidden flex items-center justify-center">
+        <NotificationSystem 
+          notifications={notifications} 
+          onDismiss={dismissNotification} 
+        />
+        
+        <div className="w-full h-full max-w-sm mx-auto p-4 flex flex-col">
+          {/* PIP Header */}
+          <div className="text-center mb-4 flex-shrink-0">
+            <div className="w-12 h-12 mx-auto bg-purple-500/20 rounded-full flex items-center justify-center mb-2">
+              <Zap className="h-6 w-6 text-purple-400" />
+            </div>
+            <h1 className="text-lg font-bold">PiShock Controller</h1>
+            <p className="text-xs text-gray-300">
+              {participants.length} participant{participants.length !== 1 ? 's' : ''}
+            </p>
+          </div>
+
+          {/* Minimal Controller */}
+          <div className="flex-1 flex flex-col min-h-0">
+            <PiShockController
+              selectedUsers={selectedUsers}
+              onConnectionChange={setPiShockConnected}
+              isConnected={piShockConnected}
+              addNotification={addNotification}
+              instanceId={instanceId}
+              auth={auth}
+              currentUser={auth?.user}
+              discordSdk={discordSdk}
+              isEmbedded={isEmbedded}
+              layoutMode={layoutMode}
+              participants={participants}
+              multiShockEnabled={multiShockEnabled}
+              hasLimitBypassEntitlement={hasLimitBypassEntitlement}
+            />
+          </div>
+
+          {/* PIP Target Selection */}
+          {participants.length > 1 && (
+            <div className="mt-4 flex-shrink-0">
+              <select
+                value={selectedUsers[0]?.id || ''}
+                onChange={(e) => {
+                  const user = participants.find(p => p.id === e.target.value);
+                  if (user && user.id !== auth?.user?.id) {
+                    setSelectedUsers([user]);
+                  }
+                }}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              >
+                <option value="">Select target...</option>
+                {participants
+                  .filter(p => p.id !== auth?.user?.id)
+                  .map(participant => {
+                    const userStatus = userPiShockStatus[participant.id];
+                    const isConnected = userStatus?.isConnected;
+                    const displayName = participant.guildDisplayName || participant.displayName || participant.global_name || participant.username;
+                    
+                    return (
+                      <option 
+                        key={participant.id} 
+                        value={participant.id}
+                        disabled={!isConnected}
+                      >
+                        {displayName} {isConnected ? '⚡' : '🚫'}
+                      </option>
+                    );
+                  })}
+              </select>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white overflow-hidden flex flex-col">
+      <NotificationSystem 
+        notifications={notifications} 
+        onDismiss={dismissNotification} 
+      />
+      
+      {/* Header */}
+      <div className="bg-black/20 backdrop-blur-sm border-b border-white/10 flex-shrink-0">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-lg overflow-hidden bg-black/20 flex items-center justify-center">
+                <img 
+                  src="/kVApvT6y_400x400 copy.jpg" 
+                  alt="PiShock Controller Logo" 
+                  className="w-8 h-8 object-contain"
+                />
+              </div>
+              <div>
+                <h1 className="text-lg font-bold">PiShock Controller</h1>
+                <p className="text-xs text-gray-300">
+                  Discord Activity • {participants.length} participant{participants.length !== 1 ? 's' : ''}
+                  {multiShockEnabled && <span className="text-purple-400 ml-2">• Premium</span>}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-4">
+              {instanceId && (
+                <div className="text-xs text-gray-400">
+                  Instance: {instanceId.slice(-8)}
+                </div>
+              )}
+              <button
+                onClick={() => setShowStorefront(true)}
+                className="px-2 py-1 rounded-md bg-purple-600 hover:bg-purple-700 text-xs transition-colors flex items-center space-x-1"
+              >
+                <ShoppingCart className="h-3 w-3" />
+                <span className="hidden sm:inline">Store</span>
+              </button>
+              <button
+                onClick={() => navigate('/terms')}
+                className="px-2 py-1 rounded-md bg-gray-700 hover:bg-gray-600 text-xs transition-colors flex items-center space-x-1"
+              >
+                <FileText className="h-3 w-3" />
+                <span className="hidden sm:inline">Terms</span>
+              </button>
+              <button
+                onClick={() => navigate('/privacy')}
+                className="px-2 py-1 rounded-md bg-gray-700 hover:bg-gray-600 text-xs transition-colors flex items-center space-x-1"
+              >
+                <Shield className="h-3 w-3" />
+                <span className="hidden sm:inline">Privacy</span>
+              </button>
+              <button
+                onClick={() => setShowActivityLog(!showActivityLog)}
+                className={`px-3 py-1 rounded-md text-sm transition-colors ${
+                  showActivityLog 
+                    ? 'bg-purple-600 hover:bg-purple-700 text-white' 
+                    : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                }`}
+              >
+                Activity Log
+              </button>
+              <ConnectionStatus 
+                discordConnected={!!auth} 
+                piShockConnected={piShockConnected}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 overflow-hidden">
+        <div className="h-full max-w-7xl mx-auto px-4 sm:px-6 py-4">
+          <div className={`h-full grid gap-2 sm:gap-4 ${showActivityLog ? 'grid-cols-1 lg:grid-cols-4' : 'grid-cols-1 lg:grid-cols-3'}`}>
+            {/* User Selection */}
+            <div className="lg:col-span-1 flex flex-col min-h-0">
+              <UserSelector
+                members={participants}
+                selectedUsers={selectedUsers}
+                onUserSelect={setSelectedUsers}
+                currentUser={auth?.user}
+                instanceData={instanceData}
+                userPiShockStatus={userPiShockStatus}
+                multiShockEnabled={multiShockEnabled}
+              />
+            </div>
+
+            {/* Main Controller */}
+            <div className={`${showActivityLog ? 'lg:col-span-2' : 'lg:col-span-2'} flex flex-col min-h-0 order-1 lg:order-none`}>
+              <PiShockController
+                selectedUsers={selectedUsers}
+                onConnectionChange={setPiShockConnected}
+                isConnected={piShockConnected}
+                addNotification={addNotification}
+                instanceId={instanceId}
+                auth={auth}
+                currentUser={auth?.user}
+                discordSdk={discordSdk}
+                isEmbedded={isEmbedded}
+                layoutMode={layoutMode}
+                participants={participants}
+                multiShockEnabled={multiShockEnabled}
+                hasLimitBypassEntitlement={hasLimitBypassEntitlement}
+              />
+            </div>
+
+            {/* Activity Log */}
+            {showActivityLog && (
+              <div className="lg:col-span-1 flex flex-col min-h-0 order-2 lg:order-none">
+                <ActivityLog
+                  instanceId={instanceId}
+                  auth={auth}
+                  addNotification={addNotification}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Storefront Modal */}
+      {showStorefront && (
+        <Storefront
+          discordSdk={discordSdk}
+          isEmbedded={isEmbedded}
+          auth={auth}
+          onClose={() => setShowStorefront(false)}
+          addNotification={addNotification}
+        />
+      )}
+
+      {/* Footer Safety Information */}
+      <div className="flex-shrink-0 bg-red-900/20 border-t border-red-500/30 px-4 sm:px-6 py-2">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-between">
+            <div className="flex items-start space-x-3 flex-1">
+            <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-red-300 mb-1">Safety Reminders</h3>
+              <div className="text-xs text-red-200 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1">
+                <span>• Always ensure explicit consent</span>
+                <span>• Start with lowest intensity</span>
+                <span>• Have emergency procedures ready</span>
+                <span>• All actions are publicly logged</span>
+              </div>
+            </div>
+            </div>
+            
+          </div>
+        </div>
+      </div>
+      
+      {/* Version Indicator - Bottom Right */}
+      <div className="fixed bottom-4 right-4 z-40 flex items-center space-x-2 bg-black/40 backdrop-blur-sm border border-white/10 rounded-lg px-3 py-2 text-xs">
+        <div className="flex items-center space-x-2">
+          <div className="w-2 h-2 rounded-full bg-green-400"></div>
+          <span className="text-gray-300 font-medium">
+            {import.meta.env.DEV ? 'dev' : `v${currentVersion.slice(-8)}`}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
 }
-```
 
-The main issues were:
+function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
 
-1. Missing closing bracket for the `useEffect` hook that saves instance data
-2. Missing closing bracket for the `MainApp` component function
+  // Handle navigation back to main app
+  const handleBackToApp = () => {
+    navigate('/');
+  };
 
-I've added these closing brackets in the appropriate places while maintaining the existing code structure and functionality.
+  return (
+    <Routes>
+      <Route path="/" element={<MainApp />} />
+      <Route path="/privacy" element={<PrivacyPolicy onBack={handleBackToApp} />} />
+      <Route path="/terms" element={<TermsOfService onBack={handleBackToApp} />} />
+      {/* Fallback route for any unmatched paths */}
+      <Route path="*" element={<MainApp />} />
+    </Routes>
+  );
+}
+
+export default App;
