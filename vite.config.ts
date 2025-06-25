@@ -71,6 +71,21 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 3000,
+    proxy: {
+      // Proxy API requests to local Cloudflare Workers dev server
+      '/api': {
+        target: 'http://127.0.0.1:8787',
+        changeOrigin: true,
+        secure: false,
+      },
+      // Proxy for embedded development (Discord Activity iframe)
+      '/.proxy/api': {
+        target: 'http://127.0.0.1:8787',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/.proxy/, ''),
+      },
+    },
     hmr: {
       port: 3001,
     },

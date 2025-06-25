@@ -124,6 +124,13 @@ export function useEntitlements({
 
   // Primary entitlement loading function
   const loadEntitlements = useCallback(async () => {
+    // Skip entitlement loading in development mode when not embedded
+    if (import.meta.env.DEV && !isEmbedded) {
+      console.log('ENTITLEMENTS: Skipping in development mode (not embedded)');
+      setLoading(false);
+      return [];
+    }
+
     setLoading(true);
     try {
       let loadedEntitlements: Entitlement[] = [];
@@ -133,8 +140,8 @@ export function useEntitlements({
         loadedEntitlements = await loadEntitlementsFromSDK();
       }
 
-      // Fallback to HTTP API if SDK fails or unavailable
-      if (loadedEntitlements.length === 0 && auth) {
+      // Fallback to HTTP API if SDK fails or unavailable (only in embedded mode)
+      if (loadedEntitlements.length === 0 && auth && isEmbedded) {
         loadedEntitlements = await loadEntitlementsFromAPI();
       }
 
@@ -195,7 +202,8 @@ export function useEntitlements({
 
   // Auto-load entitlements when dependencies change
   useEffect(() => {
-    if ((isEmbedded && discordSdk) || auth) {
+    // Only auto-load in embedded mode or when explicitly requested
+    if (isEmbedded && ((discordSdk) || auth)) {
       loadEntitlements();
     }
   }, [isEmbedded, discordSdk, auth, loadEntitlements]);
