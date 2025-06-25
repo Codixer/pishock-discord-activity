@@ -33,35 +33,10 @@ function jsonResponse(body: any, status = 200) {
   });
 }
 
-import { getValidToken, getUserInfoOptimized } from '../../utils/tokenManager';
-
-async function requireAuth(request: Request, env: Env, userId?: string): Promise<{ token: string; user: any } | null> {
+async function requireAuth(request: Request): Promise<string | null> {
   const auth = request.headers.get('authorization');
-  if (!auth || !auth.startsWith('Bearer ')) {
-    // If no auth header but we have a userId, try to get stored token
-    if (userId) {
-      console.log('AUTH: No bearer token, trying stored token for user:', userId);
-      return await getValidToken(userId, env);
-    }
-    return null;
-  }
-  
-  const token = auth.slice(7);
-  
-  // If we have a userId, verify this token belongs to that user
-  if (userId) {
-    const storedTokenResult = await getValidToken(userId, env);
-    if (storedTokenResult && storedTokenResult.token === token) {
-      console.log('AUTH: Token matches stored token for user:', userId);
-      return storedTokenResult;
-    }
-  }
-  
-  // Validate the provided token
-  const user = await validateDiscordToken(token, env.PISHOCK_KV);
-  if (!user) return null;
-  
-  return { token, user };
+  if (!auth || !auth.startsWith('Bearer ')) return null;
+  return auth.slice(7);
 }
 
 async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
@@ -105,6 +80,48 @@ async function decrypt(encryptedData: string): Promise<any> {
   } catch (error) {
     throw new Error('Failed to decrypt data');
   }
+}
+
+async function getUserInfo(kv: KVNamespace, userId: string, token: string): Promise<{ username: string; avatar?: string } | null> {
+  try {
+    // First try to get from KV cache
+    const cachedData = await kv.get(`discord_user:${userId}`);
+    if (cachedData) {
+      const user = JSON.parse(cachedData);
+      return {
+        username: user.global_name || user.username || 'Unknown User',
+        avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${userId}/${user.avatar}.png` : undefined
+      };
+    }
+    
+    // If not in cache, fetch from Discord API
+    console.log('USER_INFO: Fetching user data from Discord API for:', userId);
+    const response = await fetch(`https://discord.com/api/users/${userId}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    
+    if (response.ok) {
+      const user = await response.json();
+      
+      // Cache the user data for 24 hours (longer than original 1 hour)
+      await kv.put(`discord_user:${userId}`, JSON.stringify(user), {
+        expirationTtl: 86400 // 24 hours
+      });
+      
+      console.log('USER_INFO: ✓ Fetched and cached user data for:', user.username || user.global_name);
+      
+      return {
+        username: user.global_name || user.username || 'Unknown User',
+        avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${userId}/${user.avatar}.png` : undefined
+      };
+    } else {
+      console.warn('USER_INFO: Failed to fetch user from Discord API:', response.status, response.statusText);
+    }
+  } catch (error) {
+    console.error('USER_INFO: Error fetching user info:', error);
+  }
+  
+  return null;
 }
 
 async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
@@ -170,10 +187,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     return new Response('Method not allowed', { status: 405 });
   }
 
-  const authResult = await requireAuth(request, env, targetUserId);
-  if (!authResult) return new Response('Unauthorized', { status: 401 });
-  
-  const { token, user } = authResult;
+  const token = await requireAuth(request);
+  if (!token) return new Response('Unauthorized', { status: 401 });
+
+  const user = await validateDiscordToken(token, env.PISHOCK_KV);
+  if (!user) return new Response('Invalid token', { status: 401 });
 
   try {
     const { executorUserId, intensity, duration, operation } = await request.json();
@@ -440,8 +458,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       // Get user info for logging with fallback to Discord API
       console.log('EXECUTE: Getting user info for activity log...');
-      const executorInfo = await getUserInfoOptimized(executorUserId, env.PISHOCK_KV, token);
-      const targetInfo = await getUserInfoOptimized(targetUserId, env.PISHOCK_KV, token);
+      const executorInfo = await getUserInfo(env.PISHOCK_KV, executorUserId, token);
+      const targetInfo = await getUserInfo(env.PISHOCK_KV, targetUserId, token);
 
       // Create activity log entry
       const logEntry: ActivityLogEntry = {
