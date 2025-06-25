@@ -392,7 +392,7 @@ function MainApp() {
             maxIntensity: 100,
             maxDuration: 15,
             bannedExecutors: [],
-            hasControllerPlus: false
+            hasControllerPlus: false,
             hasControllerPlus: status.hasControllerPlus || false
           }
         };
