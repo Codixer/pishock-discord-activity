@@ -134,11 +134,20 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
                         entitlement.sku_id?.includes('controller_plus') ||
                         entitlement.sku_id?.includes('multishock');
       
-      const isActive = !entitlement.deleted && 
-                      (!entitlement.ends_at || new Date(entitlement.ends_at) > new Date());
+      // Comprehensive validation according to Discord docs
+      const isNotDeleted = !entitlement.deleted;
+      const isNotExpired = !entitlement.ends_at || new Date(entitlement.ends_at) > new Date();
+      const isStarted = !entitlement.starts_at || new Date(entitlement.starts_at) <= new Date();
+      const isValidType = [1, 3, 4, 5, 7, 8].includes(entitlement.type); // Valid entitlement types
+      
+      const isActive = isNotDeleted && isNotExpired && isStarted && isValidType;
       
       if (matchesSku) {
-        console.log('ENTITLEMENT: Found matching SKU:', entitlement.sku_id, 'Active:', isActive);
+        console.log('ENTITLEMENT: Found matching SKU:', entitlement.sku_id, 
+                   'Active:', isActive, 
+                   'Deleted:', entitlement.deleted,
+                   'Ends:', entitlement.ends_at || 'never',
+                   'Type:', entitlement.type);
       }
       
       return matchesSku && isActive;

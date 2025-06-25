@@ -229,10 +229,6 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
       
       const isActive = isNotDeleted && isNotExpired && isStarted && isValidType;
       
-      // Old simple check for comparison
-      const isActive = !entitlement.deleted && 
-                      (!entitlement.ends_at || new Date(entitlement.ends_at) > new Date());
-      
       if (matchesSku) {
         console.log('ENTITLEMENT_CHECK: Found matching SKU:', entitlement.sku_id, 
                    'Active:', isActive, 
