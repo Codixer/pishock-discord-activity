@@ -61,9 +61,9 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
 }
 
 // Streamlined entitlement check
-async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: string, userId?: string): Promise<boolean> {
+async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: string, userId?: string): Promise<{ hasEntitlement: boolean; entitlements?: any[] }> {
   if (!skuId) {
-    return false; // In production, require proper SKU configuration
+    return { hasEntitlement: false }; // In production, require proper SKU configuration
   }
 
   try {
@@ -75,27 +75,31 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
       });
       
       if (!userResponse.ok) {
-        return false;
+        return { hasEntitlement: false };
       }
       
       const userData = await userResponse.json();
       finalUserId = userData.id;
     }
     
+    // Use shorter cache key to prevent accumulation
     const cacheKey = `ent:${finalUserId}`;
     const cached = await kv.get(cacheKey);
     if (cached) {
       const cachedResult = JSON.parse(cached);
       const cacheAge = Date.now() - new Date(cachedResult.checkedAt).getTime();
-      if (cacheAge < 30000) { // 30 seconds
-        return cachedResult.hasEntitlement;
+      if (cacheAge < 60000) { // 1 minute cache
+        return { 
+          hasEntitlement: cachedResult.hasEntitlement,
+          entitlements: cachedResult.entitlements 
+        };
       }
     }
 
-    // Fetch entitlements from Discord
+    // Fetch entitlements from Discord (using proper endpoint)
     const entitlementsUrl = new URL('https://discord.com/api/users/@me/entitlements');
-    entitlementsUrl.searchParams.set('exclude_ended', 'true');
-    entitlementsUrl.searchParams.set('exclude_deleted', 'true');
+    entitlementsUrl.searchParams.set('exclude_ended', 'true'); // Only active entitlements
+    entitlementsUrl.searchParams.set('exclude_deleted', 'true'); // Exclude deleted entitlements
     
     const response = await fetch(entitlementsUrl.toString(), {
       headers: {
@@ -108,41 +112,66 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
       if (cached) {
         const cachedResult = JSON.parse(cached);
         console.log('ENTITLEMENT: Using stale cache due to API error:', cachedResult.hasEntitlement);
-        return cachedResult.hasEntitlement;
+        return { 
+          hasEntitlement: cachedResult.hasEntitlement,
+          entitlements: cachedResult.entitlements 
+        };
       }
-      return false;
+      return { hasEntitlement: false };
     }
 
     const entitlements = await response.json();
 
-    // Check if user has the Controller+ SKU
+    // Check if user has the Controller+ SKU with proper validation
+    const now = new Date();
     const hasEntitlement = entitlements.some((entitlement: any) => {
+      // Check SKU match
       const matchesSku = entitlement.sku_id === skuId || 
                         entitlement.sku_id?.includes('controller_plus') ||
                         entitlement.sku_id?.includes('multishock');
       
-      // Comprehensive validation according to Discord docs
+      if (!matchesSku) return false;
+
+      // Comprehensive validation according to Discord entitlement docs
       const isNotDeleted = !entitlement.deleted;
-      const isNotExpired = !entitlement.ends_at || new Date(entitlement.ends_at) > new Date();
-      const isStarted = !entitlement.starts_at || new Date(entitlement.starts_at) <= new Date();
+      const isNotExpired = !entitlement.ends_at || new Date(entitlement.ends_at) > now;
+      const isStarted = !entitlement.starts_at || new Date(entitlement.starts_at) <= now;
       const isValidType = [1, 3, 4, 5, 7, 8].includes(entitlement.type); // Valid entitlement types
       
       const isActive = isNotDeleted && isNotExpired && isStarted && isValidType;
+      
+      console.log('ENTITLEMENT: Checking entitlement:', {
+        id: entitlement.id,
+        sku_id: entitlement.sku_id,
+        type: entitlement.type,
+        deleted: entitlement.deleted,
+        starts_at: entitlement.starts_at,
+        ends_at: entitlement.ends_at,
+        matchesSku,
+        isActive
+      });
+      
       return matchesSku && isActive;
     });
 
-    // Minimal cache
+    // Cache the result with entitlements data
     const cacheData = {
       hasEntitlement,
+      entitlements: entitlements.filter((e: any) => !e.deleted), // Only store non-deleted entitlements
       checkedAt: new Date().toISOString(),
       entitlementCount: entitlements.length
     };
     
-    await kv.put(cacheKey, JSON.stringify(cacheData), {
-      expirationTtl: 30
+    // Cache for 1 minute to balance freshness with performance
+    await kv.put(cacheKey, JSON.stringify(cacheData), { 
+      expirationTtl: 60 
     });
 
-    return hasEntitlement;
+    console.log('ENTITLEMENT: Final result:', { 
+      hasEntitlement, 
+      entitlementCount: entitlements.length,
+      activeEntitlements: entitlements.filter((e: any) => !e.deleted && (!e.ends_at || new Date(e.ends_at) > now)).length
+    });
   } catch (error) {
     return false;
   }
@@ -272,13 +301,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     // Check if user has Controller+ entitlement
-    const hasControllerPlus = await checkDiscordEntitlement(token, env.PISHOCK_KV, env.CONTROLLER_PLUS_SKU_ID, user.id);
+    const entitlementCheck = await checkDiscordEntitlement(token, env.PISHOCK_KV, env.CONTROLLER_PLUS_SKU_ID, user.id);
+    const hasControllerPlus = entitlementCheck.hasEntitlement;
     
     if (!hasControllerPlus) {
       return jsonResponse({ 
         success: false, 
         error: 'Controller+ subscription required for multishock commands',
-        requiresControllerPlus: true
+        requiresControllerPlus: true,
+        entitlementInfo: {
+          skuId: env.CONTROLLER_PLUS_SKU_ID,
+          entitlementCount: entitlementCheck.entitlements?.length || 0,
+          message: 'Upgrade to Controller+ to use multishock commands'
+        }
       }, 403);
     }
 
@@ -430,11 +465,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       summary: `${operationName} sent to ${successfulTargets.length}/${targetUserIds.length} targets`
     });
 
+    return { hasEntitlement, entitlements };
   } catch (error) {
+    console.error('ENTITLEMENT: Check failed:', error);
     console.error('MULTISHOCK: General error:', error);
     return jsonResponse({ 
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error'
-    }, 500);
+    }
+    )
+    return { hasEntitlement: false };
   }
 };

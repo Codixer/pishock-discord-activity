@@ -14,6 +14,7 @@ import { ControllerPlusPurchaseModal } from './components/ControllerPlusPurchase
 import { MultishockController } from './components/MultishockController';
 import { useNotifications } from './hooks/useNotifications';
 import { useInstanceData } from './hooks/useInstanceData';
+import { useEntitlements } from './hooks/useEntitlements';
 import { useParticipants } from './hooks/useParticipants';
 import { useUserStatusCache } from './hooks/useUserStatusCache';
 
@@ -117,11 +118,22 @@ function MainApp() {
   
   // Custom hooks for managing instance data and participants
   const { instanceData, updateInstanceData } = useInstanceData(instanceId);
+  const { 
+    hasControllerPlus, 
+    refreshEntitlements,
+    purchaseControllerPlus,
+    lastChecked: entitlementsLastChecked 
+  } = useEntitlements({
+    discordSdk,
+    isEmbedded,
+    auth,
+    controllerPlusSkuId: import.meta.env.VITE_CONTROLLER_PLUS_SKU_ID
+  });
   const { participants, updateParticipants } = useParticipants(discordSdk, isEmbedded);
 
   // Toggle multi-select mode
   const handleToggleMultiSelect = () => {
-    if (!isMultiSelectMode && !currentUserHasControllerPlus) {
+    if (!isMultiSelectMode && !hasControllerPlus) {
       setShowControllerPlusPurchase(true);
       return;
     }
@@ -150,6 +162,11 @@ function MainApp() {
   // Handle multishock execution
   const handleMultishock = async (operation: number) => {
     if (!auth || selectedUsers.length === 0) return;
+
+    if (!hasControllerPlus) {
+      setShowControllerPlusPurchase(true);
+      return;
+    }
 
     try {
       const operationNames = ['shock', 'vibrate', 'beep'];
@@ -211,23 +228,22 @@ function MainApp() {
     }
   };
 
-  // Handle Controller+ purchase attempt
-  const handleControllerPlusPurchase = (skuId: string) => {
-    if (!skuId || !isEmbedded) {
-      addNotification(
-        'info',
-        'Coming Soon',
-        'Controller+ purchases will be available soon! Check back for updates.'
-      );
-    } else {
-      addNotification(
-        'info',
-        'Purchase Initiated',
-        'Discord purchase flow opened. Complete the purchase to unlock Controller+ features.'
-      );
-    }
+  // Handle Controller+ purchase completion
+  const handleControllerPlusPurchaseComplete = useCallback(async () => {
+    console.log('PURCHASE: Controller+ purchase completed');
+    await refreshEntitlements();
+    addNotification('success', 'Purchase Complete', 'Controller+ activated! You can now use multishock commands.');
     setShowControllerPlusPurchase(false);
-  };
+  }, [refreshEntitlements, addNotification]);
+
+  // Handle when user tries to use multishock without Controller+
+  const handleMultishockUpgradePrompt = useCallback(() => {
+    if (!hasControllerPlus) {
+      setShowControllerPlusPurchase(true);
+      return true; // Indicates upgrade prompt was shown
+    }
+    return false; // User has access, no prompt needed
+  }, [hasControllerPlus]);
 
   // Handle entitlement creation (when purchase is completed)
   const handleEntitlementCreate = useCallback((data: any) => {
@@ -824,6 +840,13 @@ function MainApp() {
     }
   }, [instanceId, auth, selectedUser, addNotification]);
 
+  // Check Controller+ entitlement when auth changes
+  useEffect(() => {
+    if (auth && entitlementsLastChecked) {
+      console.log('ENTITLEMENTS: Controller+ status:', { hasControllerPlus, lastChecked: entitlementsLastChecked });
+    }
+  }, [auth, hasControllerPlus, entitlementsLastChecked]);
+
   if (loading) {
     return (
       <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center overflow-hidden">
@@ -957,9 +980,10 @@ function MainApp() {
       <ControllerPlusPurchaseModal
         isOpen={showControllerPlusPurchase}
         onClose={() => setShowControllerPlusPurchase(false)}
-        onPurchase={handleControllerPlusPurchase}
+        onPurchaseComplete={handleControllerPlusPurchaseComplete}
         discordSdk={discordSdk}
         isEmbedded={isEmbedded}
+        auth={auth}
       />
       
       {/* Header */}
@@ -996,7 +1020,7 @@ function MainApp() {
                     <Users className="h-4 w-4" />
                     <span className="hidden sm:inline">Multi-Select</span>
                     <div className="flex items-center space-x-1">
-                      {currentUserHasControllerPlus ? (
+                      {hasControllerPlus ? (
                         <Crown className="h-3 w-3 text-yellow-400" />
                       ) : (
                         <Crown className="h-3 w-3 text-gray-400" />
@@ -1066,7 +1090,7 @@ function MainApp() {
                 selectedUsers={selectedUsers}
                 onToggleMultiSelect={handleToggleMultiSelect}
                 onParticipantClick={handleParticipantClick}
-                hasControllerPlus={currentUserHasControllerPlus}
+                hasControllerPlus={hasControllerPlus}
               />
             </div>
 
@@ -1076,7 +1100,7 @@ function MainApp() {
                 <div className="space-y-4 h-full flex flex-col">
                   <MultishockController
                     selectedUsers={selectedUsers}
-                    hasControllerPlus={currentUserHasControllerPlus}
+                    hasControllerPlus={hasControllerPlus}
                     effectiveLimits={{
                       maxIntensity: selectedUsers.length > 0 
                         ? Math.min(...selectedUsers.map(u => userPiShockStatus[u.id]?.maxIntensity || 100))
@@ -1102,8 +1126,9 @@ function MainApp() {
                     participants={participants}
                     isMultiSelectMode={isMultiSelectMode}
                     selectedUsers={selectedUsers}
-                    hasControllerPlus={currentUserHasControllerPlus}
+                    hasControllerPlus={hasControllerPlus}
                     onMultishock={handleMultishock}
+                    onUpgradePrompt={handleMultishockUpgradePrompt}
                   />
                 </div>
               ) : (
@@ -1121,8 +1146,9 @@ function MainApp() {
                   participants={participants}
                   isMultiSelectMode={isMultiSelectMode}
                   selectedUsers={selectedUsers}
-                  hasControllerPlus={currentUserHasControllerPlus}
+                  hasControllerPlus={hasControllerPlus}
                   onMultishock={handleMultishock}
+                  onUpgradePrompt={handleMultishockUpgradePrompt}
                 />
               )}
             </div>

@@ -7,6 +7,7 @@ interface MultishockControllerProps {
   effectiveLimits: { maxIntensity: number; maxDuration: number };
   isExecuting: boolean;
   onMultishock: (operation: number) => void;
+  onUpgradePrompt?: () => boolean;
 }
 
 export function MultishockController({ 
@@ -14,12 +15,20 @@ export function MultishockController({
   hasControllerPlus, 
   effectiveLimits,
   isExecuting,
-  onMultishock
+  onMultishock,
+  onUpgradePrompt
 }: MultishockControllerProps) {
   const getDisplayName = (user: any) => {
     return user?.guildDisplayName || user?.displayName || user?.global_name || user?.username || 'Unknown User';
   };
 
+  const handleActionClick = (operation: number) => {
+    if (!hasControllerPlus && onUpgradePrompt) {
+      const promptShown = onUpgradePrompt();
+      if (promptShown) return; // Don't proceed if upgrade prompt was shown
+    }
+    onMultishock(operation);
+  };
   if (!hasControllerPlus) {
     return (
       <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-xl p-6 text-center">
@@ -30,6 +39,12 @@ export function MultishockController({
         <p className="text-yellow-200 text-sm">
           Upgrade to Controller+ to send commands to multiple participants simultaneously.
         </p>
+        <button
+          onClick={() => onUpgradePrompt?.()}
+          className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded-lg font-medium transition-colors"
+        >
+          Learn More & Upgrade
+        </button>
       </div>
     );
   }
@@ -103,7 +118,7 @@ export function MultishockController({
       {/* Action Buttons */}
       <div className="grid grid-cols-3 gap-3">
         <button
-          onClick={() => onMultishock(0)}
+          onClick={() => handleActionClick(0)}
           disabled={isExecuting || selectedUsers.length === 0}
           className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed text-white py-3 px-4 rounded-lg font-semibold flex flex-col items-center space-y-1 transition-all"
         >
@@ -112,7 +127,7 @@ export function MultishockController({
         </button>
 
         <button
-          onClick={() => onMultishock(1)}
+          onClick={() => handleActionClick(1)}
           disabled={isExecuting || selectedUsers.length === 0}
           className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed text-white py-3 px-4 rounded-lg font-semibold flex flex-col items-center space-y-1 transition-all"
         >
@@ -121,7 +136,7 @@ export function MultishockController({
         </button>
 
         <button
-          onClick={() => onMultishock(2)}
+          onClick={() => handleActionClick(2)}
           disabled={isExecuting || selectedUsers.length === 0}
           className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed text-white py-3 px-4 rounded-lg font-semibold flex flex-col items-center space-y-1 transition-all"
         >
