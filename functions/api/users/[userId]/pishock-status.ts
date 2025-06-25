@@ -281,11 +281,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const user = await validateDiscordToken(token, env.PISHOCK_KV);
   if (!user) return new Response('Invalid token', { status: 401 });
   
-  // Only validate if this user is checking their own status  
-  if (user.id !== userId) {
-    return new Response('Forbidden - can only check own status', { status: 403 });
-  }
-
   try {
     console.log('STATUS API: Checking status for user:', userId);
     
