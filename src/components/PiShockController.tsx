@@ -286,44 +286,8 @@ export function PiShockController({
           </div>
         ) : (
           <div className="flex-1 flex flex-col space-y-6 min-h-0">
-            {/* Target User */}
-            <div className={`p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg flex-shrink-0 ${isPipMode ? 'p-2' : ''}`}>
-              <div className="flex items-center space-x-3">
-                <img
-                  src={selectedUser.guildAvatarUrl || selectedUser.avatarUrl || `https://cdn.discordapp.com/embed/avatars/0.png`}
-                  alt={`${getDisplayName(selectedUser)}'s avatar`}
-                  className={`rounded-full flex-shrink-0 ${isPipMode ? 'w-6 h-6' : 'w-10 h-10'}`}
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.src = `https://cdn.discordapp.com/embed/avatars/0.png`;
-                  }}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className={`text-blue-300 font-medium ${isPipMode ? 'text-xs' : 'text-base'}`}>
-                    <span className="font-semibold">Target:</span> {getDisplayName(selectedUser)}
-                  </p>
-                  {!isPipMode && (
-                    <p className="text-sm text-blue-400 mt-1">
-                    {(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected 
-                      ? 'Commands will be sent through their PiShock account'
-                      : 'User needs to configure PiShock first'
-                    }
-                    </p>
-                  )}
-                </div>
-                {/* Status indicator */}
-                <div className="flex-shrink-0">
-                  {(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected ? (
-                    <div className="w-3 h-3 bg-green-400 rounded-full"></div>
-                  ) : (
-                    <div className="w-3 h-3 bg-red-400 rounded-full"></div>
-                  )}
-                </div>
-              </div>
-            </div>
-
             {/* Controls Container */}
-            <div className="flex-1 flex flex-col space-y-6 min-h-0">
+            <div className="flex-1 flex flex-col space-y-4 min-h-0">
               {/* Intensity Control */}
               <div>
                 <label className={`block font-medium text-gray-300 mb-3 ${isPipMode ? 'text-xs' : 'text-sm sm:text-base'}`}>
@@ -393,7 +357,7 @@ export function PiShockController({
               </div>
 
               {/* Action Buttons */}
-              <div className={`grid gap-4 flex-shrink-0 ${isPipMode ? 'grid-cols-3 gap-2' : 'grid-cols-1 sm:grid-cols-3 sm:gap-4'}`}>
+              <div className={`grid gap-3 flex-shrink-0 ${isPipMode ? 'grid-cols-3 gap-2' : 'grid-cols-1 sm:grid-cols-3 sm:gap-3'}`}>
                 <button
                   onClick={() => handleShock(0)}
                   disabled={isShocking}
@@ -436,24 +400,24 @@ export function PiShockController({
 
               {/* No PiShock Device Warning */}
               {!isPipMode && selectedUser && !(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected && (
-                <div className="p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex-shrink-0">
+                <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex-shrink-0">
                   <div className="flex items-start space-x-3">
                     <AlertTriangle className="h-5 w-5 text-yellow-400 flex-shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-base font-medium text-yellow-300 mb-2">No PiShock Device</p>
+                      <p className="text-sm font-medium text-yellow-300 mb-2">No PiShock Device</p>
                       <p className="text-sm text-yellow-200 mb-3">
                         {getDisplayName(selectedUser)} hasn't configured their PiShock device yet. 
                         Commands cannot be sent until they set up their credentials.
                       </p>
                       <p className="text-sm text-yellow-200">
-                        They should click the "PiShock Settings" button to configure their device.
+                        They need to click the "PiShock Settings" button to configure their device.
                       </p>
                     </div>
                   </div>
                 </div>
               )}
               {isShocking && (
-                <div className={`text-center flex-shrink-0 ${isPipMode ? 'mt-2' : 'mt-4'}`}>
+                <div className={`text-center flex-shrink-0 ${isPipMode ? 'mt-1' : 'mt-2'}`}>
                   <div className={`inline-flex items-center space-x-3 text-yellow-400 ${isPipMode ? 'text-xs' : 'text-base'}`}>
                     <div className={`animate-spin rounded-full border-b-2 border-yellow-400 ${isPipMode ? 'h-4 w-4' : 'h-6 w-6'}`}></div>
                     <span>Executing command...</span>
