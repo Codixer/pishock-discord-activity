@@ -98,7 +98,7 @@ export function UserSelector({
       </div>
 
       {/* Multi-Select Toggle */}
-      {otherParticipants.length > 1 && onToggleMultiSelect && (
+      {otherParticipants.length > 0 && onToggleMultiSelect && (
         <div className="mb-4 flex-shrink-0">
           <button
             onClick={onToggleMultiSelect}
