@@ -161,14 +161,7 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
   }
 }
 
-async function decrypt(encryptedData: string): Promise<any> {
-  try {
-    const dataString = atob(encryptedData);
-    return JSON.parse(dataString);
-  } catch (error) {
-    throw new Error('Failed to decrypt data');
-  }
-}
+import { decrypt } from '../lib/pishock-api';
 
 async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
   try {

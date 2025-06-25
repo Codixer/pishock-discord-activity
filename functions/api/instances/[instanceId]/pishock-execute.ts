@@ -41,14 +41,7 @@ async function requireAuth(request: Request): Promise<string | null> {
   return auth.slice(7);
 }
 
-async function decrypt(encryptedData: string): Promise<any> {
-  try {
-    const dataString = atob(encryptedData);
-    return JSON.parse(dataString);
-  } catch (error) {
-    throw new Error('Failed to decrypt data');
-  }
-}
+import { decrypt } from '../../../lib/pishock-api';
 
 async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
   try {

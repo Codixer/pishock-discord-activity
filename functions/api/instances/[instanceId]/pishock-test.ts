@@ -2,6 +2,9 @@ interface Env {
   PISHOCK_KV: KVNamespace;
 }
 
+import { validateDiscordToken } from '../../../lib/discord-auth';
+import { decrypt, testPiShockOperation } from '../../../lib/pishock-api';
+
 function jsonResponse(body: any, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -18,66 +21,6 @@ async function requireAuth(request: Request): Promise<string | null> {
   const auth = request.headers.get('authorization');
   if (!auth || !auth.startsWith('Bearer ')) return null;
   return auth.slice(7);
-}
-
-async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
-  try {
-    console.log('TOKEN_VALIDATION: Validating Discord token');
-    const response = await fetch('https://discord.com/api/users/@me', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    
-    if (!response.ok) {
-      console.log('TOKEN_VALIDATION: Token validation failed:', response.status);
-      throw new Error('Invalid Discord token');
-    }
-    
-    const userData = await response.json();
-    console.log('TOKEN_VALIDATION: ✓ Token validation successful for user:', userData.id);
-    
-    return userData;
-  } catch (error) {
-    console.error('TOKEN_VALIDATION: Error validating token:', error);
-    return null;
-  }
-}
-
-async function decrypt(encryptedData: string): Promise<any> {
-  try {
-    const dataString = atob(encryptedData);
-    return JSON.parse(dataString);
-  } catch (error) {
-    throw new Error('Failed to decrypt data');
-  }
-}
-
-async function testPiShockConnection(apiKey: string, username: string, sharecode: string): Promise<boolean> {
-  try {
-    // Use V3 API Operate endpoint with minimal test command (1% beep for 1 second)
-    const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        username: username,
-        apikey: apiKey,
-        code: sharecode,
-        intensity: 1,
-        duration: 1,
-        op: 2, // 2 = beep (least intrusive test)
-        name: 'DiscordActivityConnectionTest',
-      }),
-    });
-    
-    if (!response.ok) {
-      return false;
-    }
-    
-    const responseText = await response.text();
-    // Check for success response from V3 API
-    return responseText.includes('Operation Succeeded') || response.status === 200;
-  } catch (error) {
-    return false;
-  }
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {
@@ -120,7 +63,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     try {
       const creds = await decrypt(encrypted);
-      const isConnected = await testPiShockConnection(creds.apiKey, creds.username, creds.sharecode);
+      const connectionTest = await testPiShockOperation(creds.apiKey, creds.username, creds.sharecode);
+      const isConnected = connectionTest.success;
       const lastTested = new Date().toISOString();
       
       await env.PISHOCK_KV.put(`instance:${instanceId}:pishock:lastTested`, lastTested, { expirationTtl: 21600 }); // 6 hours
@@ -128,7 +72,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return jsonResponse({ 
         success: isConnected, 
         isConnected, 
-        lastTested 
+        lastTested,
+        error: isConnected ? undefined : connectionTest.error
       });
     } catch (error) {
       console.error('Connection test failed:', error);

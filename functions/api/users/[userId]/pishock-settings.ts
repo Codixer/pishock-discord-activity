@@ -3,6 +3,9 @@ interface Env {
   CONTROLLER_PLUS_SKU_ID?: string;
 }
 
+import { validateDiscordToken } from '../../../lib/discord-auth';
+import { encrypt, testPiShockOperation, validatePiShockCredentials, checkUserDevices } from '../../../lib/pishock-api';
+
 function jsonResponse(body: any, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -23,39 +26,6 @@ async function requireAuth(request: Request): Promise<string | null> {
   const auth = request.headers.get('authorization');
   if (!auth || !auth.startsWith('Bearer ')) return null;
   return auth.slice(7);
-}
-
-// Optimized token validation without excessive caching
-async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
-  try {
-    console.log('TOKEN_VALIDATION: Validating Discord token');
-    const response = await fetch('https://discord.com/api/users/@me', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    
-    if (!response.ok) {
-      console.log('TOKEN_VALIDATION: Token validation failed:', response.status);
-      throw new Error('Invalid Discord token');
-    }
-    
-    const userData = await response.json();
-    console.log('TOKEN_VALIDATION: ✓ Token validation successful for user:', userData.id);
-    
-    return userData;
-  } catch (error) {
-    console.error('TOKEN_VALIDATION: Error validating token:', error);
-    return null;
-  }
-}
-
-async function encrypt(data: any): Promise<string> {
-  // Simple base64 encoding for now - in production, use proper encryption
-  return btoa(JSON.stringify(data));
-}
-
-async function decrypt(data: string): Promise<any> {
-  // Simple base64 decoding for now - in production, use proper decryption
-  return JSON.parse(atob(data));
 }
 
 // Simplified entitlement check
@@ -137,263 +107,6 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
     return hasEntitlement;
   } catch (error) {
     return false;
-  }
-}
-
-async function validatePiShockCredentials(apiKey: string, username: string): Promise<{ valid: boolean; userId?: string; error?: string; debugInfo?: any }> {
-  try {
-    console.log('=== PiShock Legacy API Validation ===');
-    console.log('Username:', username);
-    console.log('API Key length:', apiKey.length);
-
-    // Use the exact endpoint from Legacy API documentation
-    const url = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
-    console.log('Making request to:', url);
-
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'PiShock-Discord-Activity/1.0',
-        'Accept': 'application/json, text/plain, */*'
-      }
-    });
-
-    console.log('Response status:', response.status);
-    console.log('Response headers:', Object.fromEntries(response.headers.entries()));
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.log('Error response:', errorText);
-      return { 
-        valid: false, 
-        error: `Authentication failed: HTTP ${response.status}`,
-        debugInfo: { status: response.status, error: errorText }
-      };
-    }
-
-    const responseText = await response.text();
-    console.log('Raw response text:', responseText);
-
-    // Parse the response
-    let authData;
-    try {
-      authData = JSON.parse(responseText);
-      console.log('Parsed JSON response:', authData);
-    } catch (parseError) {
-      console.log('Failed to parse as JSON, trying as plain text');
-      
-      // Sometimes the API returns just a plain number (user ID)
-      if (/^\d+$/.test(responseText.trim())) {
-        const userId = responseText.trim();
-        console.log('Found plain text user ID:', userId);
-        return { 
-          valid: true, 
-          userId,
-          debugInfo: { type: 'plain_text', value: userId }
-        };
-      }
-      
-      return { 
-        valid: false, 
-        error: 'Invalid response format - not JSON or plain number',
-        debugInfo: { parseError: parseError.message, responseText: responseText.substring(0, 200) }
-      };
-    }
-
-    // Look for UserID field as specified in documentation
-    let userId = null;
-    
-    // Check for UserID field variations (the API actually returns "UserId")
-    if (authData.UserId !== undefined && authData.UserId !== null) {
-      userId = authData.UserId.toString();
-      console.log('Found UserId in response:', userId);
-    }
-    // Check for UserID field (exact field name from documentation)
-    else if (authData.UserID !== undefined && authData.UserID !== null) {
-      userId = authData.UserID.toString();
-      console.log('Found UserID in response:', userId);
-    }
-    // Fallback checks for common variations
-    else if (authData.userId !== undefined && authData.userId !== null) {
-      userId = authData.userId.toString();
-      console.log('Found userId in response:', userId);
-    }
-    else if (authData.id !== undefined && authData.id !== null) {
-      userId = authData.id.toString();
-      console.log('Found id in response:', userId);
-    }
-    // Check if the response itself is just a number
-    else if (typeof authData === 'number') {
-      userId = authData.toString();
-      console.log('Response is a number:', userId);
-    }
-
-    if (userId && /^\d+$/.test(userId)) {
-      console.log('✓ Successfully validated PiShock credentials');
-      return { 
-        valid: true, 
-        userId,
-        debugInfo: { authData, foundUserId: userId }
-      };
-    }
-
-    console.log('No valid UserID found in response');
-    return { 
-      valid: false, 
-      error: 'No UserID found in API response',
-      debugInfo: { authData, availableFields: Object.keys(authData || {}) }
-    };
-
-  } catch (error) {
-    console.error('PiShock credential validation error:', error);
-    return { 
-      valid: false, 
-      error: `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      debugInfo: { networkError: error instanceof Error ? error.message : 'Unknown error' }
-    };
-  }
-}
-
-async function checkUserDevices(userId: string, apiKey: string): Promise<{ hasDevices: boolean; devices?: any[]; error?: string; debugInfo?: any }> {
-  try {
-    console.log('=== Checking user devices (Legacy API) ===');
-    console.log('User ID:', userId);
-    
-    // Use exact endpoint from Legacy API documentation
-    const url = `https://ps.pishock.com/PiShock/GetUserDevices?UserId=${userId}&Token=${encodeURIComponent(apiKey)}&api=true`;
-    console.log('Making devices request to:', url);
-    
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'PiShock-Discord-Activity/1.0',
-        'Accept': 'application/json'
-      }
-    });
-    
-    console.log('Devices response status:', response.status);
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.log('Devices error response:', errorText);
-      return { 
-        hasDevices: false, 
-        error: `Device check failed: HTTP ${response.status}`,
-        debugInfo: { status: response.status, error: errorText }
-      };
-    }
-    
-    const responseText = await response.text();
-    console.log('Devices raw response:', responseText.substring(0, 500));
-    
-    let devices;
-    try {
-      devices = JSON.parse(responseText);
-      console.log('Parsed devices data:', devices);
-    } catch (parseError) {
-      console.log('Failed to parse devices JSON:', parseError);
-      return { 
-        hasDevices: false, 
-        error: 'Invalid devices response format',
-        debugInfo: { parseError: parseError.message, responseText: responseText.substring(0, 200) }
-      };
-    }
-    
-    // Check if user has any devices with shockers (as per documentation format)
-    const hasDevices = Array.isArray(devices) && devices.length > 0 && 
-                      devices.some(device => device.shockers && Array.isArray(device.shockers) && device.shockers.length > 0);
-    
-    console.log('Has devices result:', hasDevices);
-    console.log('Device count:', devices?.length || 0);
-    
-    return { 
-      hasDevices, 
-      devices: hasDevices ? devices : [],
-      debugInfo: { deviceCount: devices?.length || 0, devicesWithShockers: devices?.filter(d => d.shockers?.length > 0).length || 0 }
-    };
-    
-  } catch (error) {
-    console.error('Failed to check user devices:', error);
-    return { 
-      hasDevices: false, 
-      error: `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      debugInfo: { networkError: error instanceof Error ? error.message : 'Unknown error' }
-    };
-  }
-}
-
-async function validateShareCode(username: string, apiKey: string, sharecode: string): Promise<{ valid: boolean; error?: string; debugInfo?: any }> {
-  try {
-    console.log('=== Validating share code (V3 API) ===');
-    console.log('Share code:', sharecode);
-    
-    // Use V3 API Operate endpoint with minimal test command (1% beep for 1 second)
-    const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'User-Agent': 'PiShock-Discord-Activity/1.0'
-      },
-      body: JSON.stringify({
-        username: username,
-        apikey: apiKey,
-        code: sharecode,
-        intensity: 1,
-        duration: 1,
-        op: 2, // 2 = beep (least intrusive test)
-        name: 'DiscordActivityShareCodeValidation',
-      }),
-    });
-    
-    console.log('Share code validation response status:', response.status);
-    
-    const responseText = await response.text();
-    console.log('Share code validation response:', responseText);
-    
-    if (!response.ok) {
-      return { 
-        valid: false, 
-        error: `Share code validation failed: HTTP ${response.status}`,
-        debugInfo: { status: response.status, response: responseText }
-      };
-    }
-    
-    // Check for success responses as per documentation
-    if (responseText.includes('Operation Succeeded') || responseText.includes('Operation Attempted.')) {
-      console.log('✓ Share code validation successful');
-      return { valid: true, debugInfo: { response: responseText } };
-    }
-    
-    // Check for specific error messages from V3 API documentation
-    if (responseText.includes("This code doesn't exist")) {
-      return { valid: false, error: 'Share code not found. Please check your share code.', debugInfo: { response: responseText } };
-    }
-    if (responseText.includes('Not Authorized')) {
-      return { valid: false, error: 'Not authorized. Please check your credentials.', debugInfo: { response: responseText } };
-    }
-    if (responseText.includes('Shocker is Paused')) {
-      return { valid: false, error: 'Shocker is paused. Please unpause it in the PiShock web panel.', debugInfo: { response: responseText } };
-    }
-    if (responseText.includes('Device currently not connected')) {
-      return { valid: false, error: 'Device is not connected. Please ensure your PiShock device is online.', debugInfo: { response: responseText } };
-    }
-    if (responseText.includes('already been used by somebody else')) {
-      return { valid: false, error: 'Share code is already in use. Please generate a new one.', debugInfo: { response: responseText } };
-    }
-    
-    return { 
-      valid: false, 
-      error: `Unexpected response: ${responseText}`,
-      debugInfo: { response: responseText }
-    };
-    
-  } catch (error) {
-    console.error('Share code validation error:', error);
-    return { 
-      valid: false, 
-      error: `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      debugInfo: { networkError: error instanceof Error ? error.message : 'Unknown error' }
-    };
   }
 }
 
@@ -608,9 +321,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       let shareCodeDebug = null;
       
       if (sharecode) {
-        const shareCodeValidation = await validateShareCode(username, finalApiKey, sharecode);
+        const shareCodeValidation = await testPiShockOperation(finalApiKey, username, sharecode);
         shareCodeValid = shareCodeValidation.valid;
-        shareCodeError = shareCodeValidation.error;
+        shareCodeError = shareCodeValidation.error || null;
         shareCodeDebug = shareCodeValidation.debugInfo;
         
         if (!shareCodeValid) {
