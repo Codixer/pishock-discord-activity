@@ -106,7 +106,7 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
         };
       }
       // If no cache, allow access temporarily to avoid blocking functionality
-      console.warn('MULTISHOCK_ENTITLEMENT: No cache available, temporarily allowing access due to rate limit');
+      console.warn('MULTISHOCK_ENTITLEMENT: Rate limited with no cache, temporarily allowing access');
       return { hasEntitlement: true, entitlements: [] };
     }
 
@@ -120,8 +120,8 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
           entitlements: cachedResult.entitlements 
         };
       }
-      // If no cache and API error, be permissive to avoid blocking functionality
-      console.warn('MULTISHOCK_ENTITLEMENT: API error and no cache, temporarily allowing access');
+      // If no cache and API error, deny access for security (but log the issue)
+      console.warn('MULTISHOCK_ENTITLEMENT: API error with no cache, denying access for security');
       return { hasEntitlement: false };
     }
 
@@ -196,8 +196,8 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
       console.warn('MULTISHOCK_ENTITLEMENT: Cache fallback also failed:', cacheError);
     }
     
-    // On complete failure, be permissive to avoid blocking core functionality
-    console.warn('MULTISHOCK_ENTITLEMENT: Complete failure, temporarily allowing access');
+    // On complete failure, deny access for security
+    console.warn('MULTISHOCK_ENTITLEMENT: Complete failure, denying access for security');
     return { hasEntitlement: false };
   }
 }
