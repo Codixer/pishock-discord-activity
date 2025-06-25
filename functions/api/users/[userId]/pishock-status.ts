@@ -254,11 +254,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     return new Response('Method not allowed', { status: 405 });
   }
 
-  const token = await requireAuth(request);
+  // Import the optimized token manager
+  const authHeader = request.headers.get('authorization');
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
   if (!token) return new Response('Unauthorized', { status: 401 });
 
+  // Try to get cached validation first
   const user = await validateDiscordToken(token, env.PISHOCK_KV);
   if (!user) return new Response('Invalid token', { status: 401 });
+  
+  // Only validate if this user is checking their own status  
+  if (user.id !== userId) {
+    return new Response('Forbidden - can only check own status', { status: 403 });
+  }
 
   try {
     console.log('STATUS API: Checking status for user:', userId);

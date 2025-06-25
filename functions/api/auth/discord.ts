@@ -106,7 +106,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     // Store tokens and user in KV with proper TTL
     await Promise.all([
-      env.PISHOCK_KV.put(`discord_auth:access_token:${instanceId}:${user.id}`, access_token, { 
+      // Use shorter key pattern and store globally per user (not per instance)
+      env.PISHOCK_KV.put(`discord_token:${user.id}`, access_token, { 
         expirationTtl: expires_in - 60 // Expire 1 minute early for safety
       }),
       env.PISHOCK_KV.put(`discord_auth:refresh_token:${user.id}`, refresh_token),
@@ -115,8 +116,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }),
       // Cache the token validation to reduce future Discord API calls
       env.PISHOCK_KV.put(`discord_token_validation:${access_token.slice(-8)}`, JSON.stringify(user), {
-        expirationTtl: Math.min(expires_in - 60, 300) // Cache for 5 minutes or token expiry, whichever is shorter
+        expirationTtl: Math.min(expires_in - 60, 1800) // Cache for 30 minutes or token expiry, whichever is shorter
       }),
+      // Store instance-user mapping with shorter keys
+      env.PISHOCK_KV.put(`instance_user:${instanceId.slice(-8)}:${user.id}`, JSON.stringify({
+        instanceId,
+        userId: user.id,
+        authenticatedAt: new Date().toISOString()
+      }), { expirationTtl: 21600 }), // 6 hours
       // Mark instance as active when user successfully authenticates
       env.PISHOCK_KV.put(`instance:${instanceId}:status`, JSON.stringify({
         status: 'active',
