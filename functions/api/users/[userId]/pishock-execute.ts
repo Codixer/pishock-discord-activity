@@ -54,12 +54,6 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     const userData = await response.json();
     console.log('TOKEN_VALIDATION: ✓ Token validation successful for user:', userData.id);
     
-    // Cache user data using stable user ID (not token-based)
-    await kv.put(`discord_user:${userData.id}`, JSON.stringify(userData), {
-      expirationTtl: 86400 // 24 hours
-    });
-    
-    console.log('TOKEN_VALIDATION: ✓ Cached user data for:', userData.id);
     return userData;
   } catch (error) {
     console.error('TOKEN_VALIDATION: Error validating token:', error);
@@ -78,16 +72,6 @@ async function decrypt(encryptedData: string): Promise<any> {
 
 async function getUserInfo(kv: KVNamespace, userId: string, token: string): Promise<{ username: string; avatar?: string } | null> {
   try {
-    // First try to get from KV cache
-    const cachedData = await kv.get(`discord_user:${userId}`);
-    if (cachedData) {
-      const user = JSON.parse(cachedData);
-      return {
-        username: user.global_name || user.username || 'Unknown User',
-        avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${userId}/${user.avatar}.png` : undefined
-      };
-    }
-    
     // If not in cache, fetch from Discord API
     console.log('USER_INFO: Fetching user data from Discord API for:', userId);
     const response = await fetch(`https://discord.com/api/users/${userId}`, {
@@ -96,12 +80,6 @@ async function getUserInfo(kv: KVNamespace, userId: string, token: string): Prom
     
     if (response.ok) {
       const user = await response.json();
-      
-      // Cache the user data for 24 hours (longer than original 1 hour)
-      await kv.put(`discord_user:${userId}`, JSON.stringify(user), {
-        expirationTtl: 86400 // 24 hours
-      });
-      
       console.log('USER_INFO: ✓ Fetched and cached user data for:', user.username || user.global_name);
       
       return {

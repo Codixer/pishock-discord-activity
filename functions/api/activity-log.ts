@@ -61,12 +61,6 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     const userData = await response.json();
     console.log('TOKEN_VALIDATION: ✓ Token validation successful for user:', userData.id);
     
-    // Cache user data using stable user ID (not token-based)
-    await kv.put(`discord_user:${userData.id}`, JSON.stringify(userData), {
-      expirationTtl: 86400 // 24 hours
-    });
-    
-    console.log('TOKEN_VALIDATION: ✓ Cached user data for:', userData.id);
     return userData;
   } catch (error) {
     console.error('TOKEN_VALIDATION: Error validating token:', error);
