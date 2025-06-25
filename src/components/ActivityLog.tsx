@@ -285,7 +285,12 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
                         }}
                       />
                       <span className="font-semibold text-sm truncate">
-                        {entry.executorUsername}
+                        <span 
+                          className="hover:bg-white/10 px-1 -mx-1 rounded transition-colors cursor-help"
+                          title={entry.executorUsername}
+                        >
+                          {entry.executorUsername}
+                        </span>
                       </span>
                       <span className="text-xs text-gray-400">→</span>
                       {/* Target Avatar */}
@@ -299,7 +304,12 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
                         }}
                       />
                       <span className="font-semibold text-sm truncate">
-                        {entry.targetUsername}
+                        <span 
+                          className="hover:bg-white/10 px-1 -mx-1 rounded transition-colors cursor-help"
+                          title={entry.targetUsername}
+                        >
+                          {entry.targetUsername}
+                        </span>
                       </span>
                     </div>
 
