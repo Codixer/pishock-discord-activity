@@ -255,29 +255,48 @@ export function useEntitlements({
 
   // Auto-load entitlements when dependencies change
   useEffect(() => {
-    // Only auto-load in embedded mode and if not rate limited
-    if (isEmbedded && ((discordSdk) || auth) && !isRateLimited) {
-      loadEntitlements();
+    // Only auto-load in embedded mode when core dependencies change
+    if (isEmbedded && (discordSdk || auth)) {
+      // Only load if not currently rate limited
+      if (!isRateLimited) {
+        loadEntitlements();
+      }
     }
-  }, [isEmbedded, discordSdk, auth, loadEntitlements]);
+  }, [isEmbedded, discordSdk, auth]); // Removed loadEntitlements to prevent circular dependency
 
   // Set up Gateway event listeners for real-time updates
   useEffect(() => {
     if (!isEmbedded || !discordSdk) return;
 
-    // Only set up polling if not rate limited
-    if (!isRateLimited) {
-      const intervalId = setInterval(() => {
-        // Check if we're still rate limited before trying to refresh
-        if (!isRateLimited) {
-          console.log('ENTITLEMENTS: Periodic refresh');
-          loadEntitlements();
-        }
-      }, 10 * 60 * 1000); // Increased to 10 minutes to reduce rate limiting
+    // Set up periodic polling - the interval itself will check rate limiting
+    const intervalId = setInterval(() => {
+      // Only refresh if not currently rate limited and rate limit window has passed
+      if (!isRateLimited || (retryAfter && Date.now() >= retryAfter)) {
+        console.log('ENTITLEMENTS: Periodic refresh (10min interval)');
+        loadEntitlements();
+      } else {
+        console.log('ENTITLEMENTS: Skipping periodic refresh due to rate limiting');
+      }
+    }, 10 * 60 * 1000); // 10 minutes to reduce rate limiting
 
-      return () => clearInterval(intervalId);
+    return () => clearInterval(intervalId);
+  }, [isEmbedded, discordSdk]); // Removed loadEntitlements and isRateLimited to prevent circular dependency
+
+  // Separate effect to handle rate limit recovery
+  useEffect(() => {
+    if (isRateLimited && retryAfter) {
+      const timeUntilRetry = retryAfter - Date.now();
+      if (timeUntilRetry > 0 && timeUntilRetry < 5 * 60 * 1000) { // Only if less than 5 minutes
+        console.log(`ENTITLEMENTS: Setting up retry timer for ${Math.round(timeUntilRetry / 1000)}s`);
+        const retryTimeout = setTimeout(() => {
+          console.log('ENTITLEMENTS: Rate limit window expired, attempting refresh');
+          loadEntitlements();
+        }, timeUntilRetry);
+
+        return () => clearTimeout(retryTimeout);
+      }
     }
-  }, [isEmbedded, discordSdk, loadEntitlements, isRateLimited]);
+  }, [isRateLimited, retryAfter]); // This effect only depends on rate limiting state
 
   return {
     entitlements,
