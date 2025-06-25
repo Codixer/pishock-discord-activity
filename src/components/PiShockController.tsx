@@ -52,7 +52,6 @@ export function PiShockController({
         <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex-shrink-0 ${
           showSettings ? 'max-h-96 overflow-y-auto' : ''
         }`}>
-          {/* ... [settings panel content] ... */}
         </div>
       )}
 
