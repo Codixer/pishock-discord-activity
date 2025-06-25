@@ -1,4 +1,4 @@
-import { validateDiscordToken, getUserInfo } from '../../lib/discord-auth';
+import { validateDiscordToken, getUserInfo } from '../lib/discord-auth';
 
 import { v4 as uuidv4 } from 'uuid';
 
