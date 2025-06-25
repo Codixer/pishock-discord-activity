@@ -40,6 +40,12 @@ function getApiBaseUrl(): string {
   }
 }
 
+// Helper function to check if we're in the Discord embedded environment
+function isDiscordEmbedded(): boolean {
+  const urlParams = new URLSearchParams(window.location.search);
+  return urlParams.has('frame_id');
+}
+
 export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogProps) {
   const [entries, setEntries] = useState<ActivityLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,14 +57,17 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
 
   // Load initial activity log
   useEffect(() => {
-    if (auth) {
+    if (auth && isDiscordEmbedded()) {
       loadActivityLog();
+    } else if (!isDiscordEmbedded()) {
+      // In development mode, set loading to false and show empty state
+      setLoading(false);
     }
   }, [auth]);
 
   // Set up auto-refresh when enabled
   useEffect(() => {
-    if (autoRefresh && auth) {
+    if (autoRefresh && auth && isDiscordEmbedded()) {
       intervalRef.current = setInterval(() => {
         loadActivityLog(true);
       }, 60000); // Refresh every 60 seconds to minimize KV reads
@@ -72,6 +81,12 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
   }, [autoRefresh, auth]);
 
   const loadActivityLog = async (silent = false) => {
+    // Only load activity log in Discord embedded environment
+    if (!isDiscordEmbedded()) {
+      if (!silent) setLoading(false);
+      return;
+    }
+
     if (!silent) setLoading(true);
     
     try {
