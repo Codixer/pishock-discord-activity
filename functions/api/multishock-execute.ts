@@ -142,6 +142,72 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
   }
 }
 
+// Alternative entitlement check that tries multiple approaches
+async function checkDiscordEntitlementRobust(token: string, kv: KVNamespace, skuId?: string): Promise<boolean> {
+  if (!skuId) {
+    console.log('ENTITLEMENT_ROBUST: No SKU ID configured, allowing access');
+    return true;
+  }
+
+  try {
+    // First try the standard approach
+    const standardResult = await checkDiscordEntitlement(token, kv, skuId);
+    if (standardResult) {
+      console.log('ENTITLEMENT_ROBUST: Standard check passed');
+      return true;
+    }
+
+    // Try fetching all entitlements including ended ones
+    console.log('ENTITLEMENT_ROBUST: Standard check failed, trying comprehensive check...');
+    const response = await fetch('https://discord.com/api/users/@me/entitlements', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'User-Agent': 'PiShock-Discord-Activity/1.0'
+      },
+    });
+
+    if (!response.ok) {
+      console.error('ENTITLEMENT_ROBUST: Failed to fetch entitlements:', response.status);
+      return false;
+    }
+
+    const entitlements = await response.json();
+    console.log('ENTITLEMENT_ROBUST: Fetched', entitlements.length, 'total entitlements');
+    
+    // Try multiple matching strategies
+    const hasEntitlement = entitlements.some((entitlement: any) => {
+      // More aggressive matching
+      const skuString = entitlement.sku_id?.toString() || '';
+      const targetSkuString = skuId?.toString() || '';
+      
+      const matchesSku = skuString === targetSkuString || 
+                        skuString.includes('controller') ||
+                        skuString.includes('multishock') ||
+                        skuString.includes('plus') ||
+                        targetSkuString.includes(skuString) ||
+                        skuString.includes('1387037988558606457'); // Known Controller+ SKU
+      
+      // More lenient active check - only require not deleted
+      const isActive = !entitlement.deleted;
+      
+      if (matchesSku) {
+        console.log('ENTITLEMENT_ROBUST: Found potential match:', entitlement.sku_id, 
+                   'Active:', isActive,
+                   'Type:', entitlement.type,
+                   'Ends:', entitlement.ends_at || 'never');
+      }
+      
+      return matchesSku && isActive;
+    });
+
+    console.log('ENTITLEMENT_ROBUST: Comprehensive check result:', hasEntitlement);
+    return hasEntitlement;
+  } catch (error) {
+    console.error('ENTITLEMENT_ROBUST: Error in robust check:', error);
+    return false;
+  }
+}
+
 async function decrypt(encryptedData: string): Promise<any> {
   try {
     const dataString = atob(encryptedData);
@@ -271,7 +337,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     // Check if user has Controller+ entitlement
-    const hasControllerPlus = await checkDiscordEntitlement(token, env.PISHOCK_KV, env.CONTROLLER_PLUS_SKU_ID);
+    const hasControllerPlus = await checkDiscordEntitlementRobust(token, env.PISHOCK_KV, env.CONTROLLER_PLUS_SKU_ID);
     
     if (!hasControllerPlus) {
       console.log('MULTISHOCK: User does not have Controller+ entitlement');

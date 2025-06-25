@@ -212,14 +212,47 @@ function MainApp() {
   };
 
   // Handle Controller+ purchase attempt
-  const handleControllerPlusPurchase = () => {
-    addNotification(
-      'info',
-      'Coming Soon',
-      'Controller+ purchases will be available soon! Check back for updates.'
-    );
+  const handleControllerPlusPurchase = (skuId: string) => {
+    if (!skuId || !isEmbedded) {
+      addNotification(
+        'info',
+        'Coming Soon',
+        'Controller+ purchases will be available soon! Check back for updates.'
+      );
+    } else {
+      addNotification(
+        'info',
+        'Purchase Initiated',
+        'Discord purchase flow opened. Complete the purchase to unlock Controller+ features.'
+      );
+    }
     setShowControllerPlusPurchase(false);
   };
+
+  // Handle entitlement creation (when purchase is completed)
+  const handleEntitlementCreate = useCallback((data: any) => {
+    console.log('ENTITLEMENT_CREATE: New entitlement received:', data);
+    
+    // Check if this is the Controller+ SKU
+    const controllerPlusSkuId = import.meta.env.VITE_CONTROLLER_PLUS_SKU_ID;
+    if (data.sku_id === controllerPlusSkuId || 
+        data.sku_id?.includes('controller_plus') || 
+        data.sku_id?.includes('multishock')) {
+      
+      addNotification(
+        'success',
+        'Controller+ Activated!',
+        'Your Controller+ subscription is now active. Multi-select mode is now available!'
+      );
+      
+      // Refresh user status to reflect new entitlement
+      setTimeout(() => {
+        if (window.refreshAllUserStatuses) {
+          window.refreshAllUserStatuses();
+        }
+      }, 1000);
+    }
+  }, [addNotification]);
 
   // Handle layout mode updates
   const handleLayoutModeUpdate = useCallback((update: { layout_mode: number }) => {
@@ -601,6 +634,10 @@ function MainApp() {
             }
           );
 
+          // Subscribe to entitlement creation events
+          discordSdk.subscribe('ENTITLEMENT_CREATE', handleEntitlementCreate);
+          console.log('✓ Subscribed to ENTITLEMENT_CREATE events');
+
           // Get initial participants
           const initialParticipants = await discordSdk.commands.getInstanceConnectedParticipants();
           updateParticipants(initialParticipants.participants);
@@ -671,14 +708,14 @@ function MainApp() {
     return () => {
       if (isEmbedded && discordSdk) {
         discordSdk.unsubscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
-        discordSdk.unsubscribe('ENTITLEMENT_CREATE', () => {});
+        discordSdk.unsubscribe('ENTITLEMENT_CREATE', handleEntitlementCreate);
         // Layout mode cleanup - check if method exists before calling
         if (typeof discordSdk.unsubscribeFromLayoutModeUpdatesCompat === 'function') {
           discordSdk.unsubscribeFromLayoutModeUpdatesCompat(handleLayoutModeUpdate);
         }
       }
     };
-  }, [addNotification, updateParticipants, handleLayoutModeUpdate]);
+  }, [addNotification, updateParticipants, handleLayoutModeUpdate, handleEntitlementCreate]);
 
   // Load instance data when instanceId changes
   useEffect(() => {
@@ -918,6 +955,8 @@ function MainApp() {
         isOpen={showControllerPlusPurchase}
         onClose={() => setShowControllerPlusPurchase(false)}
         onPurchase={handleControllerPlusPurchase}
+        discordSdk={discordSdk}
+        isEmbedded={isEmbedded}
       />
       
       {/* Header */}

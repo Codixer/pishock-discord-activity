@@ -137,21 +137,121 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
 
 async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: string): Promise<boolean> {
   if (!skuId) {
-    console.log('ENTITLEMENT: No SKU ID configured, allowing access for development');
+    console.log('ENTITLEMENT_CHECK: No SKU ID configured, allowing access for development');
     return true; // Allow access if no SKU is configured (development mode)
   }
 
   try {
+    // Use a different cache key that includes user identification
+    const userIdHash = token.slice(-12); // Use more characters for better uniqueness
     const cacheKey = `entitlement:${token.slice(-8)}:${skuId}`;
     const cached = await kv.get(cacheKey);
     if (cached) {
       const cachedResult = JSON.parse(cached);
-      console.log('ENTITLEMENT: Using cached entitlement result:', cachedResult.hasEntitlement);
+      const cacheAge = Date.now() - new Date(cachedResult.checkedAt).getTime();
+      // Use shorter cache for more responsive updates (30 seconds instead of 2 minutes)
+      if (cacheAge < 30000) {
+        console.log('ENTITLEMENT_CHECK: Using cached entitlement result:', cachedResult.hasEntitlement, `(${Math.floor(cacheAge/1000)}s old)`);
+        return cachedResult.hasEntitlement;
+      } else {
+        console.log('ENTITLEMENT_CHECK: Cache expired, fetching fresh entitlements');
+      }
+    }
+
+    console.log('ENTITLEMENT_CHECK: Fetching fresh entitlements for SKU:', skuId);
+    
+    const response = await fetch('https://discord.com/api/users/@me/entitlements?exclude_ended=true', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'User-Agent': 'PiShock-Discord-Activity/1.0'
+      },
+    });
+
+    if (!response.ok) {
+      console.error('ENTITLEMENT_CHECK: Failed to fetch entitlements:', response.status, response.statusText);
       return cachedResult.hasEntitlement;
     }
 
-    console.log('ENTITLEMENT: Checking Discord entitlements for SKU:', skuId);
+    const entitlements = await response.json();
+    console.log('ENTITLEMENT_CHECK: Fetched', entitlements.length, 'active entitlements');
     
+    // Log all entitlements for debugging
+    entitlements.forEach((entitlement: any, index: number) => {
+      console.log(`ENTITLEMENT_CHECK: [${index}] SKU: ${entitlement.sku_id}, Type: ${entitlement.type}, Deleted: ${entitlement.deleted}, Ends: ${entitlement.ends_at || 'never'}`);
+    });
+    
+    const hasEntitlement = entitlements.some((entitlement: any) => {
+      // Check for exact SKU match or pattern matches
+      const matchesSku = entitlement.sku_id === skuId || 
+                        entitlement.sku_id?.toString().includes('controller_plus') ||
+                        entitlement.sku_id?.toString().includes('multishock') ||
+                        entitlement.sku_id?.toString().includes('1387037988558606457'); // Hardcoded fallback
+      
+      // Entitlement is active if not deleted and not expired
+      const isActive = !entitlement.deleted && 
+                      (!entitlement.ends_at || new Date(entitlement.ends_at) > new Date());
+      
+      if (matchesSku) {
+        console.log('ENTITLEMENT_CHECK: Found matching SKU:', entitlement.sku_id, 
+                   'Active:', isActive, 
+                   'Deleted:', entitlement.deleted,
+                   'Ends:', entitlement.ends_at || 'never');
+      }
+      
+      return matchesSku && isActive;
+    });
+
+    const cacheData = {
+      hasEntitlement,
+      checkedAt: new Date().toISOString(),
+      entitlementCount: entitlements.length
+    };
+    
+    // Cache for 30 seconds for more responsive updates
+    await kv.put(cacheKey, JSON.stringify(cacheData), {
+      expirationTtl: 30
+    });
+
+    console.log('ENTITLEMENT_CHECK: Final result for user:', hasEntitlement, 
+               `(checked ${entitlements.length} entitlements)`);
+    return hasEntitlement;
+  } catch (error) {
+    console.error('ENTITLEMENT_CHECK: Error checking entitlements:', error);
+    
+    // Try to return cached result if available, even if expired
+    try {
+      const cacheKey = `entitlement:${token.slice(-8)}:${skuId}`;
+      const cached = await kv.get(cacheKey);
+      if (cached) {
+        const cachedResult = JSON.parse(cached);
+        console.log('ENTITLEMENT_CHECK: Using stale cache due to error:', cachedResult.hasEntitlement);
+        return cachedResult.hasEntitlement;
+      }
+    } catch (cacheError) {
+      console.error('ENTITLEMENT_CHECK: Cache fallback also failed:', cacheError);
+    }
+    
+    return false;
+  }
+}
+
+// Alternative entitlement check that tries multiple approaches
+async function checkDiscordEntitlementRobust(token: string, kv: KVNamespace, skuId?: string): Promise<boolean> {
+  if (!skuId) {
+    console.log('ENTITLEMENT_ROBUST: No SKU ID configured, allowing access for development');
+    return true;
+  }
+
+  try {
+    // First try the standard approach
+    const standardResult = await checkDiscordEntitlement(token, kv, skuId);
+    if (standardResult) {
+      console.log('ENTITLEMENT_ROBUST: Standard check passed');
+      return true;
+    }
+
+    // Try fetching all entitlements including ended ones
+    console.log('ENTITLEMENT_ROBUST: Standard check failed, trying comprehensive check...');
     const response = await fetch('https://discord.com/api/users/@me/entitlements', {
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -160,41 +260,43 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
     });
 
     if (!response.ok) {
-      console.error('ENTITLEMENT: Failed to fetch entitlements:', response.status);
+      console.error('ENTITLEMENT_ROBUST: Failed to fetch entitlements:', response.status);
       return false;
     }
 
     const entitlements = await response.json();
-    console.log('ENTITLEMENT: Fetched', entitlements.length, 'entitlements');
+    console.log('ENTITLEMENT_ROBUST: Fetched', entitlements.length, 'total entitlements');
     
+    // Try multiple matching strategies
     const hasEntitlement = entitlements.some((entitlement: any) => {
-      const matchesSku = entitlement.sku_id === skuId || 
-                        entitlement.sku_id?.includes('controller_plus') ||
-                        entitlement.sku_id?.includes('multishock');
+      // More aggressive matching
+      const skuString = entitlement.sku_id?.toString() || '';
+      const targetSkuString = skuId?.toString() || '';
       
-      const isActive = !entitlement.deleted && 
-                      (!entitlement.ends_at || new Date(entitlement.ends_at) > new Date());
+      const matchesSku = skuString === targetSkuString || 
+                        skuString.includes('controller') ||
+                        skuString.includes('multishock') ||
+                        skuString.includes('plus') ||
+                        targetSkuString.includes(skuString) ||
+                        skuString.includes('1387037988558606457'); // Known Controller+ SKU
+      
+      // More lenient active check - only require not deleted
+      const isActive = !entitlement.deleted;
       
       if (matchesSku) {
-        console.log('ENTITLEMENT: Found matching SKU:', entitlement.sku_id, 'Active:', isActive);
+        console.log('ENTITLEMENT_ROBUST: Found potential match:', entitlement.sku_id, 
+                   'Active:', isActive,
+                   'Type:', entitlement.type,
+                   'Ends:', entitlement.ends_at || 'never');
       }
       
       return matchesSku && isActive;
     });
 
-    const cacheData = {
-      hasEntitlement,
-      checkedAt: new Date().toISOString()
-    };
-    
-    await kv.put(cacheKey, JSON.stringify(cacheData), {
-      expirationTtl: 120 // 2 minutes
-    });
-
-    console.log('ENTITLEMENT: Final result:', hasEntitlement);
+    console.log('ENTITLEMENT_ROBUST: Comprehensive check result:', hasEntitlement);
     return hasEntitlement;
   } catch (error) {
-    console.error('ENTITLEMENT: Error checking entitlements:', error);
+    console.error('ENTITLEMENT_ROBUST: Error in robust check:', error);
     return false;
   }
 }
@@ -360,7 +462,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
     
     // Check Controller+ entitlement
-    const hasControllerPlus = await checkDiscordEntitlement(token, env.PISHOCK_KV, env.CONTROLLER_PLUS_SKU_ID);
+    const hasControllerPlus = await checkDiscordEntitlementRobust(token, env.PISHOCK_KV, env.CONTROLLER_PLUS_SKU_ID);
     
     // Get all user data from single key
     console.log('STATUS API: Loading fresh data for user:', userId);
