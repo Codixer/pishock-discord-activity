@@ -49,13 +49,13 @@ export function PiShockController({
     <div className="h-full flex flex-col overflow-hidden">
       {/* Settings Panel */}
       {!isPipMode && (
-        <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex-shrink-0 ${
+        <div className={\`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex-shrink-0 ${
           showSettings ? 'max-h-96 overflow-y-auto' : ''
         }`}>
         </div>
       )}
 
-      <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 flex-1 flex flex-col min-h-0 overflow-hidden ${isPipMode ? 'p-2' : 'p-6'} ${
+      <div className={\`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 flex-1 flex flex-col min-h-0 overflow-hidden ${isPipMode ? 'p-2' : 'p-6'} ${
         showSettings ? 'mt-4' : ''
       }`}>
         {/* ... [control panel content] ... */}
