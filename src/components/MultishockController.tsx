@@ -4,6 +4,7 @@ import { Users, Crown, Zap, AlertTriangle, Lock } from 'lucide-react';
 interface MultishockControllerProps {
   selectedUsers: any[];
   hasControllerPlus: boolean;
+  isRateLimited?: boolean;
   effectiveLimits: { maxIntensity: number; maxDuration: number };
   isExecuting: boolean;
   onMultishock: (operation: number) => void;
@@ -13,6 +14,7 @@ interface MultishockControllerProps {
 export function MultishockController({ 
   selectedUsers, 
   hasControllerPlus, 
+  isRateLimited = false,
   effectiveLimits,
   isExecuting,
   onMultishock,
@@ -31,7 +33,12 @@ export function MultishockController({
   };
   if (!hasControllerPlus) {
     return (
-      <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-xl p-6 text-center">
+      <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-xl p-6 text-center relative">
+        {isRateLimited && (
+          <div className="absolute top-2 right-2 bg-orange-500/20 border border-orange-500/30 rounded px-2 py-1">
+            <span className="text-xs text-orange-300">Rate Limited</span>
+          </div>
+        )}
         <div className="w-12 h-12 mx-auto bg-yellow-500/20 rounded-full flex items-center justify-center mb-4">
           <Crown className="h-6 w-6 text-yellow-400" />
         </div>
@@ -41,9 +48,10 @@ export function MultishockController({
         </p>
         <button
           onClick={() => onUpgradePrompt?.()}
-          className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded-lg font-medium transition-colors"
+          className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium transition-colors"
+          disabled={isRateLimited}
         >
-          Learn More & Upgrade
+          {isRateLimited ? 'Temporarily Unavailable' : 'Learn More & Upgrade'}
         </button>
       </div>
     );
@@ -52,7 +60,12 @@ export function MultishockController({
   return (
     <div className="bg-gradient-to-br from-purple-900/20 to-blue-900/20 border border-purple-500/30 rounded-xl p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 relative">
+        {isRateLimited && (
+          <div className="absolute top-0 right-0 bg-orange-500/20 border border-orange-500/30 rounded px-2 py-1">
+            <span className="text-xs text-orange-300">Discord Rate Limited</span>
+          </div>
+        )}
         <div className="flex items-center space-x-3">
           <div className="p-2 bg-gradient-to-br from-yellow-400/20 to-orange-500/20 rounded-lg">
             <Crown className="h-5 w-5 text-yellow-400" />

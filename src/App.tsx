@@ -122,13 +122,28 @@ function MainApp() {
     hasControllerPlus, 
     refreshEntitlements,
     purchaseControllerPlus,
-    lastChecked: entitlementsLastChecked 
+    lastChecked: entitlementsLastChecked,
+    isRateLimited,
+    retryAfter
   } = useEntitlements({
     discordSdk,
     isEmbedded,
     auth,
     controllerPlusSkuId: import.meta.env.VITE_CONTROLLER_PLUS_SKU_ID
   });
+  
+  // Show rate limiting warning if needed
+  useEffect(() => {
+    if (isRateLimited && retryAfter) {
+      const retryMinutes = Math.ceil((retryAfter - Date.now()) / 60000);
+      addNotification(
+        'warning',
+        'Discord API Rate Limited',
+        `Entitlement checks are temporarily limited. This won't affect core functionality. Will retry in ~${retryMinutes} minutes.`
+      );
+    }
+  }, [isRateLimited, retryAfter, addNotification]);
+
   const { participants, updateParticipants } = useParticipants(discordSdk, isEmbedded);
 
   // Toggle multi-select mode
@@ -1094,6 +1109,7 @@ function MainApp() {
                 onToggleMultiSelect={handleToggleMultiSelect}
                 onParticipantClick={handleParticipantClick}
                 hasControllerPlus={hasControllerPlus}
+                isRateLimited={isRateLimited}
               />
             </div>
 
