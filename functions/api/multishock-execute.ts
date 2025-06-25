@@ -115,16 +115,6 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
                         entitlement.sku_id?.includes('multishock');
       
       if (!matchesSku) return false;
-    }
-    )
-    const now = new Date();
-    const hasEntitlement = entitlements.some((entitlement: any) => {
-      // Check if this is a Controller+ entitlement
-      const matchesSku = entitlement.sku_id === skuId || 
-                        entitlement.sku_id?.includes('controller_plus') ||
-                        entitlement.sku_id?.includes('multishock');
-      
-      if (!matchesSku) return false;
 
       // Check if entitlement is not deleted
       if (entitlement.deleted) return false;
@@ -266,7 +256,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }, 403);
     }
 
-
     // Generate unique multishock ID
     const multishockId = uuidv4();
     const operationNames = ['shock', 'vibrate', 'beep'];
@@ -282,137 +271,134 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     for (const targetUserId of targetUserIds) {
       try {
+          // Check if executor is banned by target
+          const targetUserDataStr = await env.PISHOCK_KV.get(`user:${targetUserId}:data`);
+          if (targetUserDataStr) {
+            const targetUserData = JSON.parse(targetUserDataStr);
+            const bannedExecutors = targetUserData.bannedExecutors || [];
+            
+            if (bannedExecutors.includes(user.id)) {
+              failedTargets.push({
+                userId: targetUserId,
+                error: 'You are blocked by this user'
+              });
+              continue;
+            }
+          }
 
-        // Check if executor is banned by target
-        const targetUserDataStr = await env.PISHOCK_KV.get(`user:${targetUserId}:data`);
-        if (targetUserDataStr) {
-          const targetUserData = JSON.parse(targetUserDataStr);
-          const bannedExecutors = targetUserData.bannedExecutors || [];
+          // Get target credentials
+          const userData = targetUserDataStr ? JSON.parse(targetUserDataStr) : null;
+          const encrypted = userData?.credentials;
           
-          if (bannedExecutors.includes(user.id)) {
+          if (!encrypted) {
             failedTargets.push({
               userId: targetUserId,
-              error: 'You are blocked by this user'
+              error: 'Target user has no PiShock device configured'
             });
             continue;
           }
-        }
 
-        // Get target credentials
-        const userData = targetUserDataStr ? JSON.parse(targetUserDataStr) : null;
-        const encrypted = userData?.credentials;
-        
-        if (!encrypted) {
-          failedTargets.push({
-            userId: targetUserId,
-            error: 'Target user has no PiShock device configured'
-          });
-          continue;
-        }
-
-        const creds = await decrypt(encrypted);
-        
-        // Validate against target's limits
-        const targetMaxIntensity = creds.maxIntensity || 100;
-        const targetMaxDuration = creds.maxDuration || 15;
-        
-        if (intensity > targetMaxIntensity) {
-          failedTargets.push({
-            userId: targetUserId,
-            error: `Intensity ${intensity}% exceeds target's maximum of ${targetMaxIntensity}%`
-          });
-          continue;
-        }
-        
-        if (duration > targetMaxDuration) {
-          failedTargets.push({
-            userId: targetUserId,
-            error: `Duration ${duration}s exceeds target's maximum of ${targetMaxDuration}s`
-          });
-          continue;
-        }
-
-        // Execute PiShock command
-        const payload = {
-          username: creds.username,
-          apikey: creds.apiKey,
-          code: creds.sharecode,
-          intensity: intensity,
-          duration: duration,
-          op: operation,
-          name: 'DiscordActivity-Multishock',
-        };
-        
-        const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'User-Agent': 'PiShock-Discord-Activity/1.0'
-          },
-          body: JSON.stringify(payload),
-        });
-
-        if (!response.ok) {
-          throw new Error(`PiShock API error: HTTP ${response.status}`);
-        }
-
-        const responseText = await response.text();
-        
-        if (responseText.includes('Operation Succeeded')) {
-          successfulTargets.push(targetUserId);
+          const creds = await decrypt(encrypted);
           
-          // Get target info for logging
-          const targetInfo = await getUserInfo(env.PISHOCK_KV, targetUserId, token);
+          // Get target's maximum limits
+          const targetMaxIntensity = creds.maxIntensity || 100;
+          const targetMaxDuration = creds.maxDuration || 15;
           
-          // Create activity log entry
-          const logEntry: ActivityLogEntry = {
-            id: uuidv4(),
-            timestamp: new Date().toISOString(),
-            instanceId: instanceId || 'global',
-            executorUserId: user.id,
-            executorUsername: executorInfo?.username || user.global_name || user.username || 'Unknown User',
-            executorAvatar: executorInfo?.avatar,
-            targetUserId,
-            targetUsername: targetInfo?.username || 'Unknown User',
-            targetAvatar: targetInfo?.avatar,
-            action: operationName as 'shock' | 'vibrate' | 'beep',
-            intensity,
-            duration,
-            isMultishock: true,
-            multishockId
+          // Calculate effective values for this specific target
+          // Use the MINIMUM of requested value and target's maximum
+          const effectiveIntensity = Math.min(intensity, targetMaxIntensity);
+          const effectiveDuration = Math.min(duration, targetMaxDuration);
+          
+          console.log(`MULTISHOCK: Target ${targetUserId} - Requested: ${intensity}%/${duration}s, Effective: ${effectiveIntensity}%/${effectiveDuration}s`);
+
+          // Execute PiShock command with effective values
+          const payload = {
+            username: creds.username,
+            apikey: creds.apiKey,
+            code: creds.sharecode,
+            intensity: effectiveIntensity, // Use effective intensity for this target
+            duration: effectiveDuration,   // Use effective duration for this target
+            op: operation,
+            name: 'DiscordActivity-Multishock',
           };
-
-          // Log the activity
-          try {
-            await addToActivityBatch(env.PISHOCK_KV, logEntry);
-          } catch (logError) {
-          }
           
-        } else {
-          throw new Error(`PiShock command failed: ${responseText}`);
-        }
+          const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'User-Agent': 'PiShock-Discord-Activity/1.0'
+            },
+            body: JSON.stringify(payload),
+          });
+
+          if (!response.ok) {
+            throw new Error(`PiShock API error: HTTP ${response.status}`);
+          }
+
+          const responseText = await response.text();
+          
+          if (responseText.includes('Operation Succeeded')) {
+            successfulTargets.push(targetUserId);
+            
+            // Get target info for logging
+            const targetInfo = await getUserInfo(env.PISHOCK_KV, targetUserId, token);
+            
+            // Create activity log entry with EFFECTIVE values used for this target
+            const logEntry: ActivityLogEntry = {
+              id: uuidv4(),
+              timestamp: new Date().toISOString(),
+              instanceId: instanceId || 'global',
+              executorUserId: user.id,
+              executorUsername: executorInfo?.username || user.global_name || user.username || 'Unknown User',
+              executorAvatar: executorInfo?.avatar,
+              targetUserId,
+              targetUsername: targetInfo?.username || 'Unknown User',
+              targetAvatar: targetInfo?.avatar,
+              action: operationName as 'shock' | 'vibrate' | 'beep',
+              intensity: effectiveIntensity, // Log the actual intensity used
+              duration: effectiveDuration,   // Log the actual duration used
+              isMultishock: true,
+              multishockId
+            };
+
+            // Log the activity
+            try {
+              await addToActivityBatch(env.PISHOCK_KV, logEntry);
+            } catch (logError) {
+              console.error('Failed to log multishock activity:', logError);
+            }
+            
+          } else {
+            throw new Error(`PiShock command failed: ${responseText}`);
+          }
         
-      } catch (error) {
-        failedTargets.push({
-          userId: targetUserId,
-          error: error instanceof Error ? error.message : 'Command execution failed'
-        });
+        } catch (error) {
+          console.error(`Multishock failed for target ${targetUserId}:`, error);
+          failedTargets.push({
+            userId: targetUserId,
+            error: error instanceof Error ? error.message : 'Command execution failed'
+          });
+        }
       }
+
+      return jsonResponse({ 
+        success: true,
+        multishockId,
+        totalTargets: targetUserIds.length,
+        successfulTargets: successfulTargets.length,
+        failedTargets: failedTargets.length,
+        results: {
+          successful: successfulTargets,
+          failed: failedTargets
+        },
+        summary: `${operationName} sent to ${successfulTargets.length}/${targetUserIds.length} targets`
+      });
+
+    } catch (error) {
+      console.error('MULTISHOCK: General error:', error);
+      return jsonResponse({ 
+        error: 'Internal server error',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      }, 500);
     }
-
-
-    return jsonResponse({ 
-      success: true,
-      multishockId,
-      totalTargets: targetUserIds.length,
-      successfulTargets: successfulTargets.length,
-      failedTargets: failedTargets.length,
-      results: {
-        successful: successfulTargets,
-        failed: failedTargets
-      },
-      summary: `${operationName} sent to ${successfulTargets.length}/${targetUserIds.length} targets`
-    };
-    )
-  }
 }
