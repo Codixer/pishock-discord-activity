@@ -110,8 +110,6 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       // Look for UserID field as specified in documentation
     let userId: string | null = null;
     
-    let userId = null;
-    
     if (authData.UserId !== undefined && authData.UserId !== null) {
       userId = authData.UserId.toString();
     } else if (authData.UserID !== undefined && authData.UserID !== null) {
