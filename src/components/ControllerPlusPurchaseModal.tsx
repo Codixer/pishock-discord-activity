@@ -1,84 +1,85 @@
 import React, { useState, useEffect } from 'react';
 import { X, Crown, Zap, Users, Star, Shield } from 'lucide-react';
 import { DiscordSDK } from '@discord/embedded-app-sdk';
+import { useEntitlements } from '../hooks/useEntitlements';
 
 interface ControllerPlusPurchaseModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onPurchase: (skuId: string) => void;
+  onPurchaseComplete?: () => void;
   discordSdk?: DiscordSDK;
   isEmbedded?: boolean;
+  auth?: any;
 }
 
 export function ControllerPlusPurchaseModal({ 
   isOpen, 
   onClose, 
-  onPurchase,
+  onPurchaseComplete,
   discordSdk,
-  isEmbedded = false
+  isEmbedded = false,
+  auth
 }: ControllerPlusPurchaseModalProps) {
-  const [skus, setSkus] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
+  const [purchaseError, setPurchaseError] = useState<string | null>(null);
   
   const controllerPlusSkuId = import.meta.env.VITE_CONTROLLER_PLUS_SKU_ID;
   
-  // Load SKUs when modal opens
+  const { 
+    purchaseControllerPlus, 
+    refreshEntitlements,
+    hasControllerPlus 
+  } = useEntitlements({
+    discordSdk,
+    isEmbedded,
+    auth,
+    controllerPlusSkuId
+  });
+
+  // Close modal if user already has Controller+
   useEffect(() => {
-    if (isOpen && isEmbedded && discordSdk && controllerPlusSkuId) {
-      loadSkus();
+    if (hasControllerPlus && isOpen) {
+      console.log('PURCHASE: User already has Controller+, closing modal');
+      onClose();
     }
-  }, [isOpen, isEmbedded, discordSdk, controllerPlusSkuId]);
-  
-  const loadSkus = async () => {
-    if (!discordSdk) return;
-    
-    setLoading(true);
-    try {
-      console.log('PURCHASE: Loading SKUs from Discord...');
-      const response = await discordSdk.commands.getSkus();
-      console.log('PURCHASE: Loaded SKUs:', response.skus);
-      setSkus(response.skus);
-    } catch (error) {
-      console.error('PURCHASE: Failed to load SKUs:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [hasControllerPlus, isOpen, onClose]);
   
   const handlePurchase = async () => {
     if (!controllerPlusSkuId) {
-      console.warn('PURCHASE: No SKU ID configured');
-      onPurchase('');
+      setPurchaseError('Controller+ SKU not configured. Please contact support.');
       return;
     }
     
     if (!isEmbedded || !discordSdk) {
-      console.warn('PURCHASE: Not in Discord environment, showing placeholder');
-      onPurchase('');
+      setPurchaseError('Purchases are only available within Discord Activities.');
       return;
     }
     
     setPurchasing(true);
+    setPurchaseError(null);
+    
     try {
-      console.log('PURCHASE: Starting purchase for SKU:', controllerPlusSkuId);
-      await discordSdk.commands.startPurchase({ sku_id: controllerPlusSkuId });
-      console.log('PURCHASE: Purchase flow initiated');
-      onPurchase(controllerPlusSkuId);
+      const success = await purchaseControllerPlus();
+      
+      if (success) {
+        console.log('PURCHASE: Purchase flow completed successfully');
+        
+        // Wait a moment then refresh entitlements to check for new purchase
+        setTimeout(async () => {
+          await refreshEntitlements();
+          onPurchaseComplete?.();
+          onClose();
+        }, 2000);
+      } else {
+        setPurchaseError('Failed to start purchase flow. Please try again.');
+      }
     } catch (error) {
-      console.error('PURCHASE: Failed to start purchase:', error);
-      onPurchase('');
+      console.error('PURCHASE: Purchase error:', error);
+      setPurchaseError(error instanceof Error ? error.message : 'Purchase failed. Please try again.');
     } finally {
       setPurchasing(false);
     }
   };
-  
-  // Find the Controller+ SKU
-  const controllerPlusSku = skus.find(sku => 
-    sku.id === controllerPlusSkuId || 
-    sku.name?.toLowerCase().includes('controller') ||
-    sku.name?.toLowerCase().includes('multishock')
-  );
   
   if (!isOpen) return null;
 
@@ -175,30 +176,11 @@ export function ControllerPlusPurchaseModal({
           {/* Pricing */}
           <div className="bg-gradient-to-r from-purple-900/40 to-blue-900/40 border border-purple-500/30 rounded-xl p-6">
             <div className="text-center">
-              {loading ? (
-                <div className="flex items-center justify-center space-x-2">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-400"></div>
-                  <span className="text-purple-200">Loading pricing...</span>
-                </div>
-              ) : controllerPlusSku?.price ? (
-                <>
-                  <div className="text-3xl font-bold text-white mb-1">
-                    ${(controllerPlusSku.price.amount / 100).toFixed(2)}
-                    {controllerPlusSku.type === 2 && <span className="text-lg text-gray-300 font-normal">/month</span>}
-                  </div>
-                  <p className="text-purple-200 text-sm">
-                    {controllerPlusSku.type === 2 ? 'Cancel anytime • ' : ''}Instant activation
-                  </p>
-                </>
-              ) : (
-                <>
-                  <div className="text-3xl font-bold text-white mb-1">
-                    $4.99
-                    <span className="text-lg text-gray-300 font-normal">/month</span>
-                  </div>
-                  <p className="text-purple-200 text-sm">Cancel anytime • Instant activation</p>
-                </>
-              )}
+              <div className="text-3xl font-bold text-white mb-1">
+                $4.99
+                <span className="text-lg text-gray-300 font-normal">/month</span>
+              </div>
+              <p className="text-purple-200 text-sm">Cancel anytime • Instant activation</p>
             </div>
           </div>
 
@@ -212,6 +194,16 @@ export function ControllerPlusPurchaseModal({
               </p>
             </div>
           </div>
+          
+          {/* Purchase Error */}
+          {purchaseError && (
+            <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-3">
+              <div className="flex items-center space-x-2 text-red-300 text-sm">
+                <X className="h-4 w-4 flex-shrink-0" />
+                <p>{purchaseError}</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -219,9 +211,10 @@ export function ControllerPlusPurchaseModal({
           <div className="flex items-center space-x-4 w-full">
             <button
               onClick={onClose}
-              className="flex-1 px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium transition-colors"
+              disabled={purchasing}
+              className="flex-1 px-4 py-3 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:cursor-not-allowed rounded-lg font-medium transition-colors"
             >
-              Maybe Later
+              {purchasing ? 'Processing...' : 'Maybe Later'}
             </button>
             <button
               onClick={handlePurchase}
