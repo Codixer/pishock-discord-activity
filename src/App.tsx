@@ -396,7 +396,7 @@ function MainApp() {
           }
         };
       });
- 
+
       const statuses = await Promise.all(statusPromises);
       const statusMap: Record<string, any> = {};
       statuses.forEach(({ userId, status }) => {
@@ -413,7 +413,7 @@ function MainApp() {
           prevStatus[userId].hasDevice !== statusMap[userId].hasDevice ||
           prevStatus[userId].hasCredentials !== statusMap[userId].hasCredentials ||
           prevStatus[userId].maxIntensity !== statusMap[userId].maxIntensity ||
-          prevStatus[userId].maxDuration !== statusMap[userId].maxDuration
+          prevStatus[userId].maxDuration !== statusMap[userId].maxDuration ||
           prevStatus[userId].hasControllerPlus !== statusMap[userId].hasControllerPlus
         );
         
