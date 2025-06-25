@@ -603,6 +603,7 @@ function MainApp() {
               'guilds',
               'guilds.members.read',
               'rpc.activities.write',
+             'entitlements',
             ],
           });
 
