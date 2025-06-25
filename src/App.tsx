@@ -671,6 +671,7 @@ function MainApp() {
     return () => {
       if (isEmbedded && discordSdk) {
         discordSdk.unsubscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
+        discordSdk.unsubscribe('ENTITLEMENT_CREATE', () => {});
         // Layout mode cleanup - check if method exists before calling
         if (typeof discordSdk.unsubscribeFromLayoutModeUpdatesCompat === 'function') {
           discordSdk.unsubscribeFromLayoutModeUpdatesCompat(handleLayoutModeUpdate);
