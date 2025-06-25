@@ -77,7 +77,7 @@ export function useParticipants(discordSdk: DiscordSDK, isEmbedded: boolean) {
     } catch (error) {
       console.error('Failed to enrich participants with guild data:', error);
     }
-  }, [participants, isEmbedded, discordSdk.guildId]);
+  }, [participants, isEmbedded, discordSdk]);
 
   return {
     participants,
