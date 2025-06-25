@@ -137,7 +137,8 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
 
 async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: string): Promise<boolean> {
   if (!skuId) {
-    return false; // No entitlement if no SKU configured
+    console.log('ENTITLEMENT: No SKU ID configured, allowing access for development');
+    return true; // Allow access if no SKU is configured (development mode)
   }
 
   try {
@@ -145,9 +146,12 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
     const cached = await kv.get(cacheKey);
     if (cached) {
       const cachedResult = JSON.parse(cached);
+      console.log('ENTITLEMENT: Using cached entitlement result:', cachedResult.hasEntitlement);
       return cachedResult.hasEntitlement;
     }
 
+    console.log('ENTITLEMENT: Checking Discord entitlements for SKU:', skuId);
+    
     const response = await fetch('https://discord.com/api/users/@me/entitlements', {
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -156,10 +160,13 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
     });
 
     if (!response.ok) {
+      console.error('ENTITLEMENT: Failed to fetch entitlements:', response.status);
       return false;
     }
 
     const entitlements = await response.json();
+    console.log('ENTITLEMENT: Fetched', entitlements.length, 'entitlements');
+    
     const hasEntitlement = entitlements.some((entitlement: any) => {
       const matchesSku = entitlement.sku_id === skuId || 
                         entitlement.sku_id?.includes('controller_plus') ||
@@ -167,6 +174,10 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
       
       const isActive = !entitlement.deleted && 
                       (!entitlement.ends_at || new Date(entitlement.ends_at) > new Date());
+      
+      if (matchesSku) {
+        console.log('ENTITLEMENT: Found matching SKU:', entitlement.sku_id, 'Active:', isActive);
+      }
       
       return matchesSku && isActive;
     });
@@ -180,9 +191,10 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
       expirationTtl: 120 // 2 minutes
     });
 
+    console.log('ENTITLEMENT: Final result:', hasEntitlement);
     return hasEntitlement;
   } catch (error) {
-    console.error('Error checking entitlements:', error);
+    console.error('ENTITLEMENT: Error checking entitlements:', error);
     return false;
   }
 }
