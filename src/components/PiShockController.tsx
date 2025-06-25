@@ -24,7 +24,6 @@ function getApiBaseUrl(): string {
     // Use Discord's proxy for embedded environment
     return '/.proxy/api';
   } else {
-    // Use direct API calls for development
     return '/api';
   }
 }
