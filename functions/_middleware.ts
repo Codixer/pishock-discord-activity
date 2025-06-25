@@ -12,32 +12,22 @@ async function getCachedResponse(request: Request, cacheKey: string): Promise<Re
   }
 }
 
-// Compress large response bodies to reduce storage
-async function compressResponse(responseBody: string): Promise<string> {
-  // Only compress if body is larger than 1KB
-  if (responseBody.length < 1024) {
-    return responseBody;
-  }
-  
+async function setCachedResponse(request: Request, response: Response, cacheKey: string, maxAge: number): Promise<void> {
   try {
-    // Use built-in compression for large responses
-    const compressed = new CompressionStream('gzip');
-    const writer = compressed.writable.getWriter();
-    const reader = compressed.readable.getReader();
+    const cache = caches.default;
+    const cacheRequest = new Request(cacheKey, request);
+    const responseToCache = response.clone();
     
-    writer.write(new TextEncoder().encode(responseBody));
-    writer.close();
+    // Add cache headers
+    responseToCache.headers.set('Cache-Control', `public, max-age=${maxAge}`);
+    responseToCache.headers.set('X-Cache-Status', 'MISS');
     
-    const chunks = [];
-    let done = false;
-    
-    while (!done) {
-      const { value, done: readerDone } = await reader.read();
-      done = readerDone;
-      if (value) chunks.push(value);
-    }
+    await cache.put(cacheRequest, responseToCache);
+  } catch (error) {
+    console.warn('Cache write error:', error);
   }
 }
+
 export async function onRequest(context: any) {
   const { request } = context;
   const url = new URL(request.url);
