@@ -18,6 +18,7 @@ function jsonResponse(body: any, status = 200) {
   });
 }
 
+
 async function requireAuth(request: Request): Promise<string | null> {
   const auth = request.headers.get('authorization');
   if (!auth || !auth.startsWith('Bearer ')) return null;
