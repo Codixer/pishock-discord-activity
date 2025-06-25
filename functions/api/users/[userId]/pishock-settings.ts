@@ -639,9 +639,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       };
       
       // Only write if data has actually changed to reduce unnecessary KV operations
-      const existingUserDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
-      const existingUserData = existingUserDataStr ? JSON.parse(existingUserDataStr) : null;
-      
       if (hasSettingsChanged(existingUserData, userData)) {
         await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
         console.log('SETTINGS: ✓ Settings updated for user:', userId);
