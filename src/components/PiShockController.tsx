@@ -877,7 +877,6 @@ export function PiShockController({
               </div>
             )}
           </div>
-            </div>
           </>
         )}
         </div>
