@@ -24,6 +24,7 @@ async function requireAuth(request: Request): Promise<string | null> {
   return auth.slice(7);
 }
 
+// Optimized token validation without excessive caching
 async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
   try {
     // Try to get cached validation result first
@@ -36,16 +37,6 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     }
     
     console.log('TOKEN_VALIDATION: Fetching fresh Discord token validation');
-    const response = await fetch('https://discord.com/api/users/@me', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    
-    if (!response.ok) {
-      throw new Error('Invalid Discord token');
-    }
-    
-    const userData = await response.json();
-    
     // Cache the validation result for 5 minutes
     await kv.put(cacheKey, JSON.stringify(userData), {
       expirationTtl: 300 // 5 minutes
@@ -55,52 +46,44 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     return userData;
   } catch (error) {
     return null;
-  }
-}
-
-async function encrypt(data: any): Promise<string> {
-  // Simple base64 encoding for now - in production, use proper encryption
-  return btoa(JSON.stringify(data));
-}
 
 async function decrypt(data: string): Promise<any> {
   // Simple base64 decoding for now - in production, use proper decryption
   return JSON.parse(atob(data));
 }
 
-async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: string): Promise<boolean> {
+// Simplified entitlement check
+async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: string, userId?: string): Promise<boolean> {
   if (!skuId) {
-    console.log('ENTITLEMENT: No SKU ID configured, denying access in production');
     return false; // In production, require proper SKU configuration
   }
 
   try {
-    // Get user ID first for proper cache keying
-    const userResponse = await fetch('https://discord.com/api/users/@me', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
+    let finalUserId = userId;
     
-    if (!userResponse.ok) {
-      console.error('ENTITLEMENT: Failed to get user info for cache key');
-      return false;
+    if (!finalUserId) {
+      const userResponse = await fetch('https://discord.com/api/users/@me', {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      
+      if (!userResponse.ok) {
+        return false;
+      }
+      
+      const userData = await userResponse.json();
+      finalUserId = userData.id;
     }
     
-    const userData = await userResponse.json();
-    const userId = userData.id;
-    
-    const cacheKey = `entitlement:${userId}:${skuId}`;
+    const cacheKey = `ent:${finalUserId}`;
     const cached = await kv.get(cacheKey);
     if (cached) {
       const cachedResult = JSON.parse(cached);
       const cacheAge = Date.now() - new Date(cachedResult.checkedAt).getTime();
-      if (cacheAge < 15000) { // 15 seconds cache
-        console.log('ENTITLEMENT: Using cached entitlement result:', cachedResult.hasEntitlement, `(${Math.floor(cacheAge/1000)}s old)`);
+      if (cacheAge < 30000) { // 30 seconds
         return cachedResult.hasEntitlement;
       }
     }
 
-    console.log('ENTITLEMENT: Checking Discord entitlements for user:', userId, 'SKU:', skuId);
-    
     const entitlementsUrl = new URL('https://discord.com/api/users/@me/entitlements');
     entitlementsUrl.searchParams.set('exclude_ended', 'true');
     entitlementsUrl.searchParams.set('exclude_deleted', 'true');
@@ -108,168 +91,45 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
     const response = await fetch(entitlementsUrl.toString(), {
       headers: {
         'Authorization': `Bearer ${token}`,
-        'User-Agent': 'PiShock-Discord-Activity/1.0',
-        'Accept': 'application/json'
       },
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('ENTITLEMENT: Failed to fetch entitlements:', response.status, response.statusText, errorText);
-      
       // Try to use stale cache if available
       if (cached) {
         const cachedResult = JSON.parse(cached);
-        console.log('ENTITLEMENT: Using stale cache due to API error:', cachedResult.hasEntitlement);
         return cachedResult.hasEntitlement;
       }
       return false;
     }
 
     const entitlements = await response.json();
-    console.log('ENTITLEMENT: Fetched', entitlements.length, 'entitlements');
     
     const hasEntitlement = entitlements.some((entitlement: any) => {
       const matchesSku = entitlement.sku_id === skuId || 
                         entitlement.sku_id?.includes('controller_plus') ||
                         entitlement.sku_id?.includes('multishock');
       
-      // Comprehensive validation according to Discord docs
       const isNotDeleted = !entitlement.deleted;
       const isNotExpired = !entitlement.ends_at || new Date(entitlement.ends_at) > new Date();
       const isStarted = !entitlement.starts_at || new Date(entitlement.starts_at) <= new Date();
-      const isValidType = [1, 3, 4, 5, 7, 8].includes(entitlement.type); // Valid entitlement types
+      const isValidType = [1, 3, 4, 5, 7, 8].includes(entitlement.type);
       
       const isActive = isNotDeleted && isNotExpired && isStarted && isValidType;
-      
-      if (matchesSku) {
-        console.log('ENTITLEMENT: Found matching SKU:', entitlement.sku_id, 
-                   'Active:', isActive, 
-                   'Deleted:', entitlement.deleted,
-                   'Ends:', entitlement.ends_at || 'never',
-                   'Type:', entitlement.type);
-      }
-      
       return matchesSku && isActive;
     });
 
     const cacheData = {
       hasEntitlement,
-      checkedAt: new Date().toISOString(),
-      entitlementCount: entitlements.length
-    };
-    
-    await kv.put(cacheKey, JSON.stringify(cacheData), {
-      expirationTtl: 15 // Much shorter cache for faster updates
-    });
-
-    console.log('ENTITLEMENT: Final result:', hasEntitlement);
-    return hasEntitlement;
-  } catch (error) {
-    console.error('ENTITLEMENT: Error checking entitlements:', error);
-    return false;
-  }
-}
-
-// Alternative entitlement check that tries multiple approaches  
-async function checkDiscordEntitlementRobust(token: string, kv: KVNamespace, skuId?: string): Promise<boolean> {
-  if (!skuId) {
-    console.log('ENTITLEMENT_ROBUST: No SKU ID configured, denying access in production');
-    return false;
-  }
-
-  try {
-    // Get user info for better logging
-    const userResponse = await fetch('https://discord.com/api/users/@me', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    const userData = userResponse.ok ? await userResponse.json() : { id: 'unknown' };
-    console.log('ENTITLEMENT_ROBUST: Checking entitlements for user:', userData.id);
-
-    // First try the standard approach
-    const standardResult = await checkDiscordEntitlement(token, kv, skuId);
-    if (standardResult) {
-      console.log('ENTITLEMENT_ROBUST: Standard check passed');
-      return true;
-    }
-
-    // Try fetching all entitlements including ended ones for comprehensive check
-    console.log('ENTITLEMENT_ROBUST: Standard check failed, trying comprehensive check...');
-    const response = await fetch('https://discord.com/api/users/@me/entitlements?limit=100', {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'User-Agent': 'PiShock-Discord-Activity/1.0',
-        'Accept': 'application/json'
-      },
-    });
-
-    if (!response.ok) {
-      console.error('ENTITLEMENT_ROBUST: Failed to fetch entitlements:', response.status);
-      return false;
-    }
-
-    const entitlements = await response.json();
-    console.log('ENTITLEMENT_ROBUST: Fetched', entitlements.length, 'total entitlements');
-    
-    // Log all entitlements for debugging
-    entitlements.forEach((entitlement: any, index: number) => {
-      console.log(`ENTITLEMENT_ROBUST: [${index}] SKU: ${entitlement.sku_id}, Type: ${entitlement.type}, Deleted: ${entitlement.deleted}, Ends: ${entitlement.ends_at || 'never'}`);
-    });
-    
-    // Try multiple matching strategies with improved validation
-    const hasEntitlement = entitlements.some((entitlement: any) => {
-      // More aggressive matching
-      const skuString = entitlement.sku_id?.toString() || '';
-      const targetSkuString = skuId?.toString() || '';
-      
-      const exactMatch = skuString === targetSkuString;
-      const patternMatch = skuString.includes('controller') ||
-                        skuString.includes('multishock') ||
-                        skuString.includes('plus') ||
-                        skuString.includes('1387037988558606457'); // Known Controller+ SKU
-      const reverseMatch = targetSkuString.includes(skuString);
-      
-      const matchesSku = exactMatch || patternMatch || reverseMatch;
-      
-      // FIXED: More accurate validation according to Discord entitlement docs
-      const isNotDeleted = !entitlement.deleted;
-      const isNotExpired = !entitlement.ends_at || new Date(entitlement.ends_at) > new Date();
-      const isStarted = !entitlement.starts_at || new Date(entitlement.starts_at) <= new Date();
-      // FIXED: Include all valid entitlement types from Discord docs
-      const hasValidType = [1, 2, 3, 4, 5, 6, 7, 8].includes(entitlement.type);
-      
-      // FIXED: Proper active check - must not be deleted, valid type, not expired, and started
-      const isActive = isNotDeleted && hasValidType && isNotExpired && isStarted;
-      
-      if (matchesSku) {
-        console.log('ENTITLEMENT_ROBUST: Found potential match:', entitlement.sku_id, 
-                   'Active:', isActive,
-                   'Deleted:', entitlement.deleted,
-                   'Type:', entitlement.type,
-                   'Expires:', entitlement.ends_at || 'never',
-                   'Starts:', entitlement.starts_at || 'immediately');
-      }
-      
-      return matchesSku && isActive;
-    });
-
-    console.log('ENTITLEMENT_ROBUST: Comprehensive check result:', hasEntitlement);
-    
-    // Cache the result
-    const cacheKey = `entitlement_robust:${userData.id}:${skuId}`;
-    const cacheData = {
-      hasEntitlement,
-      checkedAt: new Date().toISOString(),
-      method: 'comprehensive'
+      checkedAt: new Date().toISOString()
     };
     
     await kv.put(cacheKey, JSON.stringify(cacheData), {
       expirationTtl: 30
     });
-    
+
     return hasEntitlement;
   } catch (error) {
-    console.error('ENTITLEMENT_ROBUST: Error in robust check:', error);
     return false;
   }
 }
@@ -577,25 +437,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   try {
     if (method === 'GET') {
       // Get all user data from single key
-      console.log('SETTINGS API: Loading settings for user:', userId);
-      
       // Check Controller+ entitlement
-      const hasControllerPlus = await checkDiscordEntitlementRobust(token, env.PISHOCK_KV, env.CONTROLLER_PLUS_SKU_ID);
+      const hasControllerPlus = await checkDiscordEntitlement(token, env.PISHOCK_KV, env.CONTROLLER_PLUS_SKU_ID, user.id);
       
       const userDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
       const userData = userDataStr ? JSON.parse(userDataStr) : null;
       
-      console.log('SETTINGS API: User data found:', !!userData);
-      if (userData) {
-        console.log('SETTINGS API: User data keys:', Object.keys(userData));
-        console.log('SETTINGS API: Has credentials:', !!userData?.credentials);
-        if (userData.credentials) {
-          console.log('SETTINGS API: Credentials length:', userData.credentials.length);
-        }
-      }
-      
       if (!userData?.credentials) {
-        console.log('SETTINGS API: No credentials found in user data');
         return jsonResponse({ 
           hasSettings: false,
           settings: null,
@@ -605,10 +453,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
 
       try {
-        console.log('SETTINGS API: Decrypting credentials...');
         const creds = await decrypt(userData.credentials);
-        
-        console.log('SETTINGS API: Decrypted credential fields:', Object.keys(creds));
         
         // Return settings without sensitive data (API key)
         const settings = {
@@ -621,13 +466,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           piShockUserId: creds.piShockUserId,
           bannedExecutors: userData.bannedExecutors || []
         };
-        
-        console.log('SETTINGS API: ✓ Successfully loaded settings for user:', userId, {
-          username: !!settings.username,
-          sharecode: !!settings.sharecode,
-          maxIntensity: settings.maxIntensity,
-          maxDuration: settings.maxDuration
-        });
         
         return jsonResponse({ 
           hasSettings: true,
@@ -657,15 +495,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         bannedExecutors = []
       } = await request.json();
 
-      console.log('SETTINGS API: PUT request received with fields:', {
-        hasApiKey: !!apiKey,
-        hasUsername: !!username,
-        hasSharecode: !!sharecode,
-        maxIntensity,
-        maxDuration,
-        bannedExecutorsCount: Array.isArray(bannedExecutors) ? bannedExecutors.length : 'not-array'
-      });
-
       // Get existing user data to check if this is an update
       const existingUserDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
       const existingUserData = existingUserDataStr ? JSON.parse(existingUserDataStr) : null;
@@ -676,15 +505,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
                                  Array.isArray(bannedExecutors) && 
                                  isExistingUser;
       
-      console.log('SETTINGS API: Update type analysis:', {
-        isExistingUser,
-        isBanListOnlyUpdate,
-        hasCredentialFields: !!(apiKey || username || sharecode)
-      });
-      
       if (isBanListOnlyUpdate) {
-        console.log('SETTINGS API: Processing ban list only update');
-        
         // Update only the banned executors list
         const updatedUserData = {
           ...existingUserData,
@@ -694,8 +515,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         
         await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(updatedUserData));
         
-        console.log('SETTINGS API: ✓ Ban list updated successfully');
-        
         return jsonResponse({ 
           success: true,
           banListUpdated: true,
@@ -703,8 +522,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         });
       } else {
         // Full credential update - validate required fields
-        console.log('SETTINGS API: Processing full credential update');
-        
         // For new users, all fields are required
         // For existing users, API key is optional (will preserve existing if not provided)
         if (!isExistingUser && (!apiKey || !username || !sharecode)) {
@@ -728,9 +545,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         try {
           const existingCreds = await decrypt(existingUserData.credentials);
           finalApiKey = existingCreds.apiKey;
-          console.log('SETTINGS API: Preserving existing API key for user:', userId);
         } catch (error) {
-          console.error('SETTINGS API: Failed to decrypt existing credentials:', error);
           return jsonResponse({ 
             success: false, 
             error: 'Failed to preserve existing API key. Please provide your API key.' 
@@ -759,13 +574,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           error: 'Max duration must be between 1 and 15 seconds' 
         }, 400);
       }
-      console.log('=== Starting PiShock Legacy API validation ===');
-      console.log('Username:', username);
-      console.log('API Key provided:', !!apiKey);
-      console.log('Using existing API key:', !apiKey && isExistingUser);
-      console.log('Has own device:', true); // Always true now
-      console.log('Share code provided:', !!sharecode);
-      console.log('Max limits:', { maxIntensity, maxDuration });
 
       // Step 1: Validate credentials and get UserID using V3 API (auth endpoint unchanged)
       const credentialValidation = await validatePiShockCredentials(finalApiKey, username);
@@ -784,11 +592,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
 
       const piShockUserId = credentialValidation.userId!;
-      console.log('✓ Credential validation successful, PiShock User ID:', piShockUserId);
       
       // Step 2: Check if user has devices using V3 API (endpoint unchanged)
       const deviceCheck = await checkUserDevices(piShockUserId, finalApiKey);
-      console.log('Device check result:', deviceCheck);
       
       // Step 3: Validate the sharecode using V3 API (always required now)
       let shareCodeValid = true;
@@ -796,14 +602,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       let shareCodeDebug = null;
       
       if (sharecode) {
-        console.log('Validating share code...');
         const shareCodeValidation = await validateShareCode(username, finalApiKey, sharecode);
         shareCodeValid = shareCodeValidation.valid;
         shareCodeError = shareCodeValidation.error;
         shareCodeDebug = shareCodeValidation.debugInfo;
         
         if (!shareCodeValid) {
-          console.log('Share code validation failed:', shareCodeError);
           return jsonResponse({ 
             success: false, 
             isConnected: false, 
@@ -814,17 +618,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
             }
           });
         }
-        console.log('✓ Share code validation successful');
       }
 
       // Determine final configuration
       const finalSharecode = sharecode;
       const actuallyHasDevice = shareCodeValid && deviceCheck.hasDevices;
-      
-      console.log('Final configuration:');
-      console.log('- Share code:', finalSharecode);
-      console.log('- Actually has device:', actuallyHasDevice);
-      console.log('- Device count:', deviceCheck.devices?.length || 0);
       
       // Encrypt and store credentials
       const credentialsToStore = {
@@ -856,25 +654,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       // Only write if data has actually changed to reduce unnecessary KV operations
       if (hasSettingsChanged(existingUserData, userData)) {
         await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
-        console.log('SETTINGS: ✓ Settings updated for user:', userId);
-      } else {
-        console.log('SETTINGS: No changes detected, skipping write for user:', userId);
-      }
-
-      console.log('✓ Settings saved successfully for user:', userId);
-      
-      // Clear the user's status cache so it gets refreshed immediately
-      try {
-        // Clear multiple possible cache keys to ensure consistency
-        const cacheKeys = [
-          `cache:user_status:${userId}`,
-          `user_status_cache:${userId}`,
-        ];
-        
-        await Promise.allSettled(cacheKeys.map(key => env.PISHOCK_KV.delete(key)));
-        console.log('✓ Cleared all status caches for user:', userId);
-      } catch (error) {
-        console.warn('Failed to clear status cache:', error);
       }
 
       return jsonResponse({ 

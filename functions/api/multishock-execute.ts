@@ -42,17 +42,9 @@ async function requireAuth(request: Request): Promise<string | null> {
   return auth.slice(7);
 }
 
+// Streamlined token validation
 async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
   try {
-    const cacheKey = `discord_token_validation:${token.slice(-8)}`;
-    const cached = await kv.get(cacheKey);
-    if (cached) {
-      const cachedData = JSON.parse(cached);
-      console.log('TOKEN_VALIDATION: Using cached Discord token validation');
-      return cachedData;
-    }
-    
-    console.log('TOKEN_VALIDATION: Fetching fresh Discord token validation');
     const response = await fetch('https://discord.com/api/users/@me', {
       headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -62,51 +54,44 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     }
     
     const userData = await response.json();
-    
-    await kv.put(cacheKey, JSON.stringify(userData), {
-      expirationTtl: 300
-    });
-    
-    console.log('TOKEN_VALIDATION: ✓ Cached fresh Discord token validation');
     return userData;
   } catch (error) {
     return null;
   }
 }
 
-async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: string): Promise<boolean> {
+// Streamlined entitlement check
+async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: string, userId?: string): Promise<boolean> {
   if (!skuId) {
-    console.log('ENTITLEMENT: No SKU ID configured, denying access in production');
     return false; // In production, require proper SKU configuration
   }
 
   try {
-    // Get user ID first for proper cache keying
-    const userResponse = await fetch('https://discord.com/api/users/@me', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
+    let finalUserId = userId;
     
-    if (!userResponse.ok) {
-      console.error('ENTITLEMENT: Failed to get user info for cache key');
-      return false;
+    if (!finalUserId) {
+      const userResponse = await fetch('https://discord.com/api/users/@me', {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      
+      if (!userResponse.ok) {
+        return false;
+      }
+      
+      const userData = await userResponse.json();
+      finalUserId = userData.id;
     }
     
-    const userData = await userResponse.json();
-    const userId = userData.id;
-    
-    const cacheKey = `entitlement:${userId}:${skuId}`;
+    const cacheKey = `ent:${finalUserId}`;
     const cached = await kv.get(cacheKey);
     if (cached) {
       const cachedResult = JSON.parse(cached);
       const cacheAge = Date.now() - new Date(cachedResult.checkedAt).getTime();
-      if (cacheAge < 15000) { // 15 seconds cache
-        console.log('ENTITLEMENT: Using cached entitlement result:', cachedResult.hasEntitlement, `(${Math.floor(cacheAge/1000)}s old)`);
+      if (cacheAge < 30000) { // 30 seconds
         return cachedResult.hasEntitlement;
       }
     }
 
-    console.log('ENTITLEMENT: Checking Discord entitlements for user:', userId, 'SKU:', skuId);
-    
     // Fetch entitlements from Discord
     const entitlementsUrl = new URL('https://discord.com/api/users/@me/entitlements');
     entitlementsUrl.searchParams.set('exclude_ended', 'true');
@@ -115,15 +100,10 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
     const response = await fetch(entitlementsUrl.toString(), {
       headers: {
         'Authorization': `Bearer ${token}`,
-        'User-Agent': 'PiShock-Discord-Activity/1.0',
-        'Accept': 'application/json'
       },
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('ENTITLEMENT: Failed to fetch entitlements:', response.status, response.statusText, errorText);
-      
       // Try to use stale cache if available
       if (cached) {
         const cachedResult = JSON.parse(cached);
@@ -134,7 +114,6 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
     }
 
     const entitlements = await response.json();
-    console.log('ENTITLEMENT: Fetched', entitlements.length, 'entitlements');
 
     // Check if user has the Controller+ SKU
     const hasEntitlement = entitlements.some((entitlement: any) => {
@@ -149,146 +128,22 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
       const isValidType = [1, 3, 4, 5, 7, 8].includes(entitlement.type); // Valid entitlement types
       
       const isActive = isNotDeleted && isNotExpired && isStarted && isValidType;
-      
-      if (matchesSku) {
-        console.log('ENTITLEMENT: Found matching SKU:', entitlement.sku_id, 
-                   'Active:', isActive, 
-                   'Deleted:', entitlement.deleted,
-                   'Ends:', entitlement.ends_at || 'never',
-                   'Type:', entitlement.type);
-      }
-      
       return matchesSku && isActive;
     });
 
-    // Cache result for 2 minutes
+    // Minimal cache
     const cacheData = {
       hasEntitlement,
       checkedAt: new Date().toISOString(),
-      entitlementCount: entitlements.length
-    };
-    
-    await kv.put(cacheKey, JSON.stringify(cacheData), {
-      expirationTtl: 15 // Much shorter cache for faster updates
-    });
-
-    console.log('ENTITLEMENT: Final result:', hasEntitlement);
-    return hasEntitlement;
-  } catch (error) {
-    console.error('ENTITLEMENT: Error checking entitlements:', error);
-    return false;
-  }
-}
-
-// Alternative entitlement check that tries multiple approaches
-async function checkDiscordEntitlementRobust(token: string, kv: KVNamespace, skuId?: string): Promise<boolean> {
-  if (!skuId) {
-    console.log('ENTITLEMENT_ROBUST: No SKU ID configured, denying access in production');
-    return false;
-  }
-
-  try {
-    // Get user info for better logging
-    const userResponse = await fetch('https://discord.com/api/users/@me', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    const userData = userResponse.ok ? await userResponse.json() : { id: 'unknown' };
-    console.log('ENTITLEMENT_ROBUST: Checking entitlements for user:', userData.id, 'SKU:', skuId);
-
-    // First try the standard approach
-    const standardResult = await checkDiscordEntitlement(token, kv, skuId);
-    if (standardResult) {
-      console.log('ENTITLEMENT_ROBUST: Standard check passed');
-      return true;
-    }
-
-    // Try fetching all entitlements including ended ones for comprehensive check
-    console.log('ENTITLEMENT_ROBUST: Standard check failed, trying comprehensive check...');
-    const response = await fetch('https://discord.com/api/users/@me/entitlements?limit=100', {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'User-Agent': 'PiShock-Discord-Activity/1.0',
-        'Accept': 'application/json'
-      },
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('ENTITLEMENT_ROBUST: Failed to fetch entitlements:', response.status, errorText);
-      return false;
-    }
-
-    const entitlements = await response.json();
-    console.log('ENTITLEMENT_ROBUST: Fetched', entitlements.length, 'total entitlements');
-    
-    // Log all entitlements for debugging
-    entitlements.forEach((entitlement: any, index: number) => {
-      if (index < 10) { // Limit logging to prevent spam
-        console.log(`ENTITLEMENT_ROBUST: [${index}] SKU: ${entitlement.sku_id}, Type: ${entitlement.type}, Deleted: ${entitlement.deleted}`);
-        console.log(`    Starts: ${entitlement.starts_at || 'immediately'}, Ends: ${entitlement.ends_at || 'never'}`);
-      }
-    });
-    
-    // Try multiple matching strategies with improved validation
-    const hasEntitlement = entitlements.some((entitlement: any) => {
-      // Comprehensive matching strategies
-      const skuString = entitlement.sku_id?.toString() || '';
-      const targetSkuString = skuId?.toString() || '';
-      
-      const exactMatch = skuString === targetSkuString;
-      const patternMatch = skuString.includes('controller') ||
-                        skuString.includes('multishock') ||
-                        skuString.includes('plus') ||
-                        skuString.includes('1387037988558606457'); // Known Controller+ SKU
-      const reverseMatch = targetSkuString.includes(skuString);
-      
-      const matchesSku = exactMatch || patternMatch || reverseMatch;
-      
-      // FIXED: Comprehensive validation according to Discord entitlement documentation
-      const isNotDeleted = !entitlement.deleted;
-      const isNotExpired = !entitlement.ends_at || new Date(entitlement.ends_at) > new Date();
-      const isStarted = !entitlement.starts_at || new Date(entitlement.starts_at) <= new Date();
-      // FIXED: Include all valid entitlement types (1-8) as per Discord docs
-      const hasValidType = [1, 2, 3, 4, 5, 6, 7, 8].includes(entitlement.type);
-      
-      // FIXED: Proper comprehensive validation - all conditions must be true
-      const isActive = isNotDeleted && hasValidType && isNotExpired && isStarted;
-      
-      if (matchesSku) {
-        console.log('ENTITLEMENT_ROBUST: *** POTENTIAL MATCH FOUND ***');
-        console.log(`  SKU: ${entitlement.sku_id} (looking for: ${skuId})`);
-        console.log(`  Match type: ${exactMatch ? 'exact' : patternMatch ? 'pattern' : 'reverse'}`);
-        console.log(`  Active: ${isActive}`);
-        console.log(`  Not deleted: ${isNotDeleted} (deleted: ${entitlement.deleted})`);
-        console.log(`  Valid type: ${hasValidType} (type: ${entitlement.type})`);
-        console.log(`  Not expired: ${isNotExpired} (ends: ${entitlement.ends_at || 'never'})`);
-        console.log(`  Started: ${isStarted} (starts: ${entitlement.starts_at || 'immediately'})`);
-      }
-      
-      return matchesSku && isActive;
-    });
-
-    console.log('ENTITLEMENT_ROBUST: *** FINAL RESULT ***');
-    console.log(`  User: ${userData.id}`);
-    console.log(`  SKU: ${skuId}`);
-    console.log(`  Has entitlement: ${hasEntitlement}`);
-    
-    // Cache the result
-    const cacheKey = `entitlement_robust:${userData.id}:${skuId}`;
-    const cacheData = {
-      hasEntitlement,
-      checkedAt: new Date().toISOString(),
-      method: 'comprehensive',
       entitlementCount: entitlements.length
     };
     
     await kv.put(cacheKey, JSON.stringify(cacheData), {
       expirationTtl: 30
     });
-    
+
     return hasEntitlement;
   } catch (error) {
-    console.error('ENTITLEMENT_ROBUST: *** ERROR IN ROBUST CHECK ***', error);
     return false;
   }
 }
@@ -394,11 +249,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   try {
     const { targetUserIds, intensity, duration, operation, instanceId } = await request.json();
 
-    console.log('MULTISHOCK: Starting multishock execution');
-    console.log('MULTISHOCK: Executor:', user.id);
-    console.log('MULTISHOCK: Targets:', targetUserIds?.length || 0);
-    console.log('MULTISHOCK: Operation:', operation);
-
     // Validate parameters
     if (!Array.isArray(targetUserIds) || targetUserIds.length === 0) {
       return jsonResponse({ 
@@ -422,10 +272,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     // Check if user has Controller+ entitlement
-    const hasControllerPlus = await checkDiscordEntitlementRobust(token, env.PISHOCK_KV, env.CONTROLLER_PLUS_SKU_ID);
+    const hasControllerPlus = await checkDiscordEntitlement(token, env.PISHOCK_KV, env.CONTROLLER_PLUS_SKU_ID, user.id);
     
     if (!hasControllerPlus) {
-      console.log('MULTISHOCK: User does not have Controller+ entitlement');
       return jsonResponse({ 
         success: false, 
         error: 'Controller+ subscription required for multishock commands',
@@ -433,7 +282,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }, 403);
     }
 
-    console.log('MULTISHOCK: ✓ Controller+ entitlement verified');
 
     // Generate unique multishock ID
     const multishockId = uuidv4();
@@ -450,7 +298,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     for (const targetUserId of targetUserIds) {
       try {
-        console.log(`MULTISHOCK: Processing target ${targetUserId}`);
 
         // Check if executor is banned by target
         const targetUserDataStr = await env.PISHOCK_KV.get(`user:${targetUserId}:data`);
@@ -459,7 +306,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           const bannedExecutors = targetUserData.bannedExecutors || [];
           
           if (bannedExecutors.includes(user.id)) {
-            console.log(`MULTISHOCK: Executor ${user.id} is banned by target ${targetUserId}`);
             failedTargets.push({
               userId: targetUserId,
               error: 'You are blocked by this user'
@@ -473,7 +319,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         const encrypted = userData?.credentials;
         
         if (!encrypted) {
-          console.log(`MULTISHOCK: No credentials found for target ${targetUserId}`);
           failedTargets.push({
             userId: targetUserId,
             error: 'Target user has no PiShock device configured'
@@ -530,7 +375,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         const responseText = await response.text();
         
         if (responseText.includes('Operation Succeeded')) {
-          console.log(`MULTISHOCK: ✓ Command successful for target ${targetUserId}`);
           successfulTargets.push(targetUserId);
           
           // Get target info for logging
@@ -558,7 +402,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           try {
             await addToActivityBatch(env.PISHOCK_KV, logEntry);
           } catch (logError) {
-            console.error(`MULTISHOCK: Failed to log activity for ${targetUserId}:`, logError);
           }
           
         } else {
@@ -566,7 +409,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         }
         
       } catch (error) {
-        console.error(`MULTISHOCK: Failed to execute command for ${targetUserId}:`, error);
         failedTargets.push({
           userId: targetUserId,
           error: error instanceof Error ? error.message : 'Command execution failed'
@@ -574,7 +416,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
     }
 
-    console.log(`MULTISHOCK: Completed - ${successfulTargets.length} successful, ${failedTargets.length} failed`);
 
     return jsonResponse({ 
       success: true,
