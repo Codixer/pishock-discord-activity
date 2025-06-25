@@ -35,6 +35,9 @@ async function compressResponse(responseBody: string): Promise<string> {
       const { value, done: readerDone } = await reader.read();
       done = readerDone;
       if (value) chunks.push(value);
+    }
+  }
+}
 export async function onRequest(context: any) {
   const { request } = context;
   const url = new URL(request.url);
