@@ -655,7 +655,8 @@ export function PiShockController({
         </div>
 
         {showSettings && (
-          <div className="space-y-3 mb-4 overflow-y-auto flex-1 min-h-0 pr-2">
+          <>
+            <div className="space-y-3 mb-4 overflow-y-auto flex-1 min-h-0 pr-2">
             {settingsLoadingData && (
               <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg text-sm text-blue-200">
                 <div className="flex items-center space-x-2">
@@ -845,9 +846,9 @@ export function PiShockController({
             </div>
             
           </div>
-          
-          {/* Fixed Save Button */}
-          <div className="flex-shrink-0 pt-3 border-t border-white/10">
+            
+            {/* Fixed Save Button */}
+            <div className="flex-shrink-0 pt-3 border-t border-white/10">
             <button
               onClick={savePiShockSettings}
               disabled={settingsSaving || settingsLoadingData}
@@ -876,6 +877,8 @@ export function PiShockController({
               </div>
             )}
           </div>
+            </div>
+          </>
         )}
         </div>
       )}
