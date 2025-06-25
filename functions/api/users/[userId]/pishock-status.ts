@@ -24,25 +24,24 @@ async function requireAuth(request: Request): Promise<string | null> {
 // Optimized token validation with user-ID based caching
 async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
   try {
+    console.log('TOKEN_VALIDATION: Validating Discord token');
+    
     // Direct API call without excessive caching
     const response = await fetch('https://discord.com/api/users/@me', {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     
     if (!response.ok) {
+      console.log('TOKEN_VALIDATION: Token validation failed:', response.status);
       throw new Error('Invalid Discord token');
     }
     
     const userData = await response.json();
+    console.log('TOKEN_VALIDATION: ✓ Token validation successful for user:', userData.id);
     
-    // Cache the validation result for 5 minutes
-    await kv.put(cacheKey, JSON.stringify(userData), {
-      expirationTtl: 300 // 5 minutes
-    });
-    
-    console.log('TOKEN_VALIDATION: ✓ Cached fresh Discord token validation');
     return userData;
   } catch (error) {
+    console.error('TOKEN_VALIDATION: Error validating token:', error);
     return null;
   }
 }
