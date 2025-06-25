@@ -173,7 +173,7 @@ export function PiShockSettingsModal({
         if (result.success) {
           setConnectionStatus({
             connected: true,
-            message: 'Credentials validated successfully',
+            message: 'Connection test successful',
             color: 'green'
           });
           
@@ -181,16 +181,16 @@ export function PiShockSettingsModal({
             window.refreshAllUserStatuses();
           }
         } else {
-          throw new Error(result.error || 'Credential validation failed');
+          throw new Error(result.error || 'Connection test failed');
         }
       } else {
-        throw new Error('Credential validation failed');
+        throw new Error('Connection test failed');
       }
     } catch (error) {
-      console.error('Credential validation error:', error);
+      console.error('Connection test error:', error);
       setConnectionStatus({
         connected: false,
-        message: 'Credential validation failed',
+        message: 'Connection test failed',
         color: 'red'
       });
     } finally {

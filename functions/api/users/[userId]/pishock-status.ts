@@ -192,13 +192,17 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         maxIntensity = creds.maxIntensity || 100;
         maxDuration = creds.maxDuration || 15;
         
-        // Test credentials without device ping for status check
-        console.log('STATUS: Validating credentials for user:', userId);
-        const credentialValidation = await validatePiShockCredentials(creds.apiKey, creds.username);
-        isConnected = credentialValidation.valid;
+        // Test actual device operation instead of just credential validation
+        console.log('STATUS: Testing device operation for user:', userId);
+        const operationTest = await testPiShockOperation(creds.apiKey, creds.username, creds.sharecode);
+        isConnected = operationTest.success;
         
         if (isConnected) {
-          piShockUserId = credentialValidation.userId;
+          // Get user ID from credential validation (for display purposes)
+          const credentialValidation = await validatePiShockCredentials(creds.apiKey, creds.username);
+          if (credentialValidation.valid && credentialValidation.userId) {
+            piShockUserId = credentialValidation.userId;
+          }
           
           // Check for devices using V3 API if we have a user ID
           const deviceCheck = piShockUserId 
@@ -213,7 +217,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
             await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
           }
         } else {
-          console.log('STATUS: Credential validation failed:', credentialValidation.error);
+          console.log('STATUS: Device operation test failed:', operationTest.error);
         }
         
         // Update last tested timestamp
