@@ -179,7 +179,7 @@ export function ControllerPlusPurchaseModal({
           <div className="bg-gradient-to-r from-purple-900/40 to-blue-900/40 border border-purple-500/30 rounded-xl p-6">
             <div className="text-center">
               <div className="text-3xl font-bold text-white mb-1">
-                $4.99
+                $9.99
                 <span className="text-lg text-gray-300 font-normal">/month</span>
               </div>
               <p className="text-purple-200 text-sm">Cancel anytime • Instant activation</p>
