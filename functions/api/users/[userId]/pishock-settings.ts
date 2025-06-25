@@ -49,6 +49,11 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
   }
 }
 
+async function encrypt(data: any): Promise<string> {
+  // Simple base64 encoding for now - in production, use proper encryption
+  return btoa(JSON.stringify(data));
+}
+
 async function decrypt(data: string): Promise<any> {
   // Simple base64 decoding for now - in production, use proper decryption
   return JSON.parse(atob(data));
