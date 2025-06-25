@@ -23,7 +23,6 @@ function getApiBaseUrl(): string {
   if (isEmbedded) {
     // Use Discord's proxy for embedded environment
     return '/.proxy/api';
-  } else {
     return '/api';
   }
 }
