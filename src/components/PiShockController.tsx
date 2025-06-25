@@ -882,12 +882,7 @@ export function PiShockController({
       <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 flex-1 flex flex-col min-h-0 overflow-hidden ${isPipMode ? 'p-2' : 'p-6'} ${
         showSettings ? 'mt-4' : ''
       }`}>
-        )}
-        </div>
-      )}
 
-      {/* Control Panel */}
-      <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6 flex-1 flex flex-col min-h-96 ${isPipMode ? 'p-2' : ''}`}>
         {!isPipMode && <h3 className="text-lg sm:text-xl font-semibold mb-6 flex-shrink-0">Control Panel</h3>}
 
         {!selectedUser ? (
