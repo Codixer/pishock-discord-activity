@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Zap, Settings, Play, Square, AlertTriangle, Lock, Wifi, WifiOff } from 'lucide-react';
+import { Zap, Settings, Play, Square, AlertTriangle, Lock, Wifi, WifiOff, User, Users } from 'lucide-react';
 import { DiscordSDK, Common } from '@discord/embedded-app-sdk';
 import { PiShockSettingsModal } from './PiShockSettingsModal';
 
