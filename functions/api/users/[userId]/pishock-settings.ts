@@ -2,6 +2,10 @@ interface Env {
   PISHOCK_KV: KVNamespace;
 }
 
+interface PagesFunction<Env = unknown> {
+  (context: { request: Request; env: Env; params: Record<string, string>; waitUntil: (promise: Promise<any>) => void; passThroughOnException: () => void; }): Promise<Response> | Response;
+}
+
 function jsonResponse(body: any, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -103,16 +107,10 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       };
     }
 
-    let userId = null;
+    let userId: string | null = null;
     
     if (authData.UserId !== undefined && authData.UserId !== null) {
       userId = authData.UserId.toString();
-    }
-    else if (authData.UserID !== undefined && authData.UserID !== null) {
-      userId = authData.UserID.toString();
-    }
-    else if (authData.userId !== undefined && authData.userId !== null) {
-      userId = authData.userId.toString();
     }
     else if (authData.id !== undefined && authData.id !== null) {
       userId = authData.id.toString();
@@ -341,9 +339,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           bannedExecutors: []
         });
       }
-    }
-
-    if (method === 'PUT') {
+    }    if (method === 'PUT') {
       const { 
         apiKey, 
         username, 
@@ -354,6 +350,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         bannedExecutors = []
       } = await request.json();
 
+      const existingUserDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
       const existingUserData = existingUserDataStr ? JSON.parse(existingUserDataStr) : null;
       const isExistingUser = !!existingUserData?.credentials;
       
@@ -442,15 +439,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const piShockUserId = credentialValidation.userId!;
       
       const deviceCheck = await checkUserDevices(piShockUserId, finalApiKey);
-      
-      let shareCodeValid = true;
-      let shareCodeError = null;
-      let shareCodeDebug = null;
+        let shareCodeValid = true;
+      let shareCodeError: string | null = null;
+      let shareCodeDebug: any = null;
       
       if (sharecode) {
         const shareCodeValidation = await validateShareCode(username, finalApiKey, sharecode);
         shareCodeValid = shareCodeValidation.valid;
-        shareCodeError = shareCodeValidation.error;
+        shareCodeError = shareCodeValidation.error || null;
         shareCodeDebug = shareCodeValidation.debugInfo;
         
         if (!shareCodeValid) {
