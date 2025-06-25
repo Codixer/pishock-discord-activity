@@ -40,6 +40,7 @@
 		"CF_BROWSER_INSIGHTS_DISABLED": "true",
 		// Note: VITE_DISCORD_CLIENT_ID is a BUILD-TIME variable
 		// It must be set during npm run build, not here
-		"BUILD_INFO": "Set DISCORD_CLIENT_ID before build"
+		"BUILD_INFO": "Set DISCORD_CLIENT_ID before build",
+    "CONTROLLER_PLUS_SKU_ID": "1387037988558606457"
 	}
 }
