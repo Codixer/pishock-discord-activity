@@ -1,5 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 
+import { validateDiscordToken } from '../../lib/discord-auth';
+
 interface Env {
   PISHOCK_KV: KVNamespace;
   DISCORD_CLIENT_ID: string;
@@ -104,10 +106,20 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     const user = await userRes.json();
 
-    // Store tokens and user in KV with proper TTL
+    // Store tokens in KV with proper TTL and structured data
+    const expiresAt = Date.now() + (expires_in * 1000) - 60000; // 1 minute early for safety
+    const tokenData = {
+      access_token,
+      expires_at: expiresAt,
+      user_id: user.id,
+      username: user.username,
+      global_name: user.global_name,
+      avatar: user.avatar
+    };
+
     await Promise.all([
-      // Use shorter key pattern and store globally per user (not per instance)
-      env.PISHOCK_KV.put(`discord_token:${user.id}`, access_token, { 
+      // Store structured token data instead of just the token
+      env.PISHOCK_KV.put(`discord_token:${user.id}`, JSON.stringify(tokenData), { 
         expirationTtl: expires_in - 60 // Expire 1 minute early for safety
       }),
       env.PISHOCK_KV.put(`discord_auth:refresh_token:${user.id}`, refresh_token),

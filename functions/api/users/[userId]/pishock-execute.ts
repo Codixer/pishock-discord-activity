@@ -1,3 +1,5 @@
+import { validateDiscordToken, getUserInfo } from '../../../lib/discord-auth';
+
 import { v4 as uuidv4 } from 'uuid';
 
 interface Env {
@@ -39,28 +41,6 @@ async function requireAuth(request: Request): Promise<string | null> {
   return auth.slice(7);
 }
 
-async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
-  try {
-    console.log('TOKEN_VALIDATION: Validating Discord token');
-    const response = await fetch('https://discord.com/api/users/@me', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    
-    if (!response.ok) {
-      console.log('TOKEN_VALIDATION: Token validation failed:', response.status);
-      throw new Error('Invalid Discord token');
-    }
-    
-    const userData = await response.json();
-    console.log('TOKEN_VALIDATION: ✓ Token validation successful for user:', userData.id);
-    
-    return userData;
-  } catch (error) {
-    console.error('TOKEN_VALIDATION: Error validating token:', error);
-    return null;
-  }
-}
-
 async function decrypt(encryptedData: string): Promise<any> {
   try {
     const dataString = atob(encryptedData);
@@ -68,32 +48,6 @@ async function decrypt(encryptedData: string): Promise<any> {
   } catch (error) {
     throw new Error('Failed to decrypt data');
   }
-}
-
-async function getUserInfo(kv: KVNamespace, userId: string, token: string): Promise<{ username: string; avatar?: string } | null> {
-  try {
-    // If not in cache, fetch from Discord API
-    console.log('USER_INFO: Fetching user data from Discord API for:', userId);
-    const response = await fetch(`https://discord.com/api/users/${userId}`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    
-    if (response.ok) {
-      const user = await response.json();
-      console.log('USER_INFO: ✓ Fetched and cached user data for:', user.username || user.global_name);
-      
-      return {
-        username: user.global_name || user.username || 'Unknown User',
-        avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${userId}/${user.avatar}.png` : undefined
-      };
-    } else {
-      console.warn('USER_INFO: Failed to fetch user from Discord API:', response.status, response.statusText);
-    }
-  } catch (error) {
-    console.error('USER_INFO: Error fetching user info:', error);
-  }
-  
-  return null;
 }
 
 async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
