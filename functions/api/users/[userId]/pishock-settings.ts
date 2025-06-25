@@ -453,7 +453,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
 
       // Get existing user data to check if this is an update
-      const existingUserDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
       const existingUserData = existingUserDataStr ? JSON.parse(existingUserDataStr) : null;
       const isExistingUser = !!existingUserData?.credentials;
       
