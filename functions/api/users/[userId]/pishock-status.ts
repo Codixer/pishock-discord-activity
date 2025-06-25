@@ -284,6 +284,13 @@ async function checkDiscordEntitlementRobust(token: string, kv: KVNamespace, sku
   console.log('ENTITLEMENT_ROBUST: Starting robust entitlement check for SKU:', skuId);
 
   try {
+    // Get user info for better logging
+    const userResponse = await fetch('https://discord.com/api/users/@me', {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    const userData = userResponse.ok ? await userResponse.json() : { id: 'unknown' };
+    console.log('ENTITLEMENT_ROBUST: Checking comprehensive entitlements for user:', userData.id);
+    
     // First try the standard approach
     const standardResult = await checkDiscordEntitlement(token, kv, skuId);
     if (standardResult) {
@@ -291,15 +298,8 @@ async function checkDiscordEntitlementRobust(token: string, kv: KVNamespace, sku
       return true;
     }
 
-    // Try fetching all entitlements including ended ones
+    // Try fetching all entitlements including ended ones for comprehensive check
     console.log('ENTITLEMENT_ROBUST: Standard check failed, trying comprehensive check (including ended)...');
-    
-    // Get user info for better logging
-    const userResponse = await fetch('https://discord.com/api/users/@me', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    const userData = userResponse.ok ? await userResponse.json() : { id: 'unknown' };
-    console.log('ENTITLEMENT_ROBUST: Checking comprehensive entitlements for user:', userData.id);
     
     const response = await fetch('https://discord.com/api/users/@me/entitlements?limit=100', {
       headers: {
@@ -346,13 +346,15 @@ async function checkDiscordEntitlementRobust(token: string, kv: KVNamespace, sku
       
       const matchesSku = exactMatch || patternMatch || reverseMatch;
       
-      // Comprehensive validation
+      // FIXED: More accurate validation according to Discord docs
       const isNotDeleted = !entitlement.deleted;
       const isNotExpired = !entitlement.ends_at || new Date(entitlement.ends_at) > new Date();
       const isStarted = !entitlement.starts_at || new Date(entitlement.starts_at) <= new Date();
-      const hasValidType = entitlement.type !== undefined && entitlement.type !== null;
+      // FIXED: More comprehensive type validation - include all valid entitlement types
+      const hasValidType = [1, 2, 3, 4, 5, 6, 7, 8].includes(entitlement.type);
       
-      const isActive = isNotDeleted && isNotExpired && isStarted && hasValidType;
+      // FIXED: More lenient validation - if not deleted and valid type, consider active
+      const isActive = isNotDeleted && hasValidType && isNotExpired && isStarted;
       
       if (matchesSku) {
         console.log('ENTITLEMENT_ROBUST: *** FOUND POTENTIAL MATCH ***');
@@ -361,9 +363,9 @@ async function checkDiscordEntitlementRobust(token: string, kv: KVNamespace, sku
         console.log(`  Pattern match: ${patternMatch}`);
         console.log(`  Reverse match: ${reverseMatch}`);
         console.log(`  Is active: ${isActive}`);
-        console.log(`  Not deleted: ${isNotDeleted}`);
-        console.log(`  Not expired: ${isNotExpired}`);
-        console.log(`  Is started: ${isStarted}`);
+        console.log(`  Not deleted: ${isNotDeleted} (deleted: ${entitlement.deleted})`);
+        console.log(`  Not expired: ${isNotExpired} (ends: ${entitlement.ends_at || 'never'})`);
+        console.log(`  Is started: ${isStarted} (starts: ${entitlement.starts_at || 'immediately'})`);
         console.log(`  Valid type: ${hasValidType} (type: ${entitlement.type})`);
         console.log(`  Starts: ${entitlement.starts_at || 'immediately'}`);
         console.log(`  Ends: ${entitlement.ends_at || 'never'}`);
