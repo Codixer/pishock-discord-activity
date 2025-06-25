@@ -303,6 +303,9 @@ function MainApp() {
 
   // Load ban lists for current user (who can be banned from shocking them)
   const loadCurrentUserBanList = async () => {
+    // Don't load ban list in development mode
+    if (!isEmbedded) return;
+    
     if (!auth?.user?.id) return;
 
     try {
