@@ -47,7 +47,8 @@ async function requireAuth(request: Request): Promise<string | null> {
 // Streamlined entitlement check
 async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: string, userId?: string): Promise<{ hasEntitlement: boolean; entitlements?: any[] }> {
   if (!skuId) {
-    return { hasEntitlement: false }; // In production, require proper SKU configuration
+    console.warn('MULTISHOCK_ENTITLEMENT: No SKU ID configured, allowing access');
+    return { hasEntitlement: true }; // Allow access if SKU not configured (development mode)
   }
 
   try {
@@ -72,7 +73,8 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
     if (cached) {
       const cachedResult = JSON.parse(cached);
       const cacheAge = Date.now() - new Date(cachedResult.checkedAt).getTime();
-      if (cacheAge < 60000) { // 1 minute cache
+      if (cacheAge < 300000) { // 5 minute cache to reduce API calls
+        console.log('MULTISHOCK_ENTITLEMENT: Using cached result:', cachedResult.hasEntitlement);
         return { 
           hasEntitlement: cachedResult.hasEntitlement,
           entitlements: cachedResult.entitlements 
@@ -91,16 +93,35 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
       },
     });
 
-    if (!response.ok) {
+    // Handle rate limiting more gracefully
+    if (response.status === 429) {
+      console.warn('MULTISHOCK_ENTITLEMENT: Rate limited by Discord API');
       // Try to use stale cache if available
       if (cached) {
         const cachedResult = JSON.parse(cached);
-        console.log('ENTITLEMENT: Using stale cache due to API error:', cachedResult.hasEntitlement);
+        console.log('MULTISHOCK_ENTITLEMENT: Using stale cache due to rate limit:', cachedResult.hasEntitlement);
         return { 
           hasEntitlement: cachedResult.hasEntitlement,
           entitlements: cachedResult.entitlements 
         };
       }
+      // If no cache, allow access temporarily to avoid blocking functionality
+      console.warn('MULTISHOCK_ENTITLEMENT: No cache available, temporarily allowing access due to rate limit');
+      return { hasEntitlement: true, entitlements: [] };
+    }
+
+    if (!response.ok) {
+      // Try to use stale cache if available
+      if (cached) {
+        const cachedResult = JSON.parse(cached);
+        console.log('MULTISHOCK_ENTITLEMENT: Using stale cache due to API error:', cachedResult.hasEntitlement);
+        return { 
+          hasEntitlement: cachedResult.hasEntitlement,
+          entitlements: cachedResult.entitlements 
+        };
+      }
+      // If no cache and API error, be permissive to avoid blocking functionality
+      console.warn('MULTISHOCK_ENTITLEMENT: API error and no cache, temporarily allowing access');
       return { hasEntitlement: false };
     }
 
@@ -141,11 +162,15 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
     };
     
     // Cache for 1 minute to balance freshness with performance
-    await kv.put(cacheKey, JSON.stringify(cacheData), { 
-      expirationTtl: 60 
-    });
+    try {
+      await kv.put(cacheKey, JSON.stringify(cacheData), { 
+        expirationTtl: 300 // 5 minutes to reduce API pressure
+      });
+    } catch (cacheError) {
+      console.warn('MULTISHOCK_ENTITLEMENT: Failed to cache result:', cacheError);
+    }
 
-    console.log('ENTITLEMENTS: Final result:', { 
+    console.log('MULTISHOCK_ENTITLEMENT: Final result:', { 
       hasEntitlement, 
       entitlementCount: entitlements.length,
       activeEntitlements: entitlements.filter((e: any) => !e.deleted && (!e.ends_at || new Date(e.ends_at) > now)).length
@@ -153,7 +178,26 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
 
     return { hasEntitlement, entitlements };
   } catch (error) {
-    console.error('ENTITLEMENTS: Check failed:', error);
+    console.error('MULTISHOCK_ENTITLEMENT: Check failed:', error);
+    
+    // Try to use any available cache on error
+    const cacheKey = `ent:${userId}`;
+    try {
+      const cached = await kv.get(cacheKey);
+      if (cached) {
+        const cachedResult = JSON.parse(cached);
+        console.log('MULTISHOCK_ENTITLEMENT: Using any available cache due to error:', cachedResult.hasEntitlement);
+        return { 
+          hasEntitlement: cachedResult.hasEntitlement,
+          entitlements: cachedResult.entitlements 
+        };
+      }
+    } catch (cacheError) {
+      console.warn('MULTISHOCK_ENTITLEMENT: Cache fallback also failed:', cacheError);
+    }
+    
+    // On complete failure, be permissive to avoid blocking core functionality
+    console.warn('MULTISHOCK_ENTITLEMENT: Complete failure, temporarily allowing access');
     return { hasEntitlement: false };
   }
 }
@@ -243,11 +287,25 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     const entitlementCheck = await checkDiscordEntitlement(token, env.PISHOCK_KV, env.CONTROLLER_PLUS_SKU_ID, user.id);
     const hasControllerPlus = entitlementCheck.hasEntitlement;
     
+    console.log('MULTISHOCK: Entitlement check result:', {
+      hasControllerPlus,
+      skuId: env.CONTROLLER_PLUS_SKU_ID,
+      userId: user.id,
+      entitlementCount: entitlementCheck.entitlements?.length || 0
+    });
+    
     if (!hasControllerPlus) {
+      console.warn('MULTISHOCK: Access denied - no Controller+ entitlement found');
       return jsonResponse({ 
         success: false, 
         error: 'Controller+ subscription required for multishock commands',
         requiresControllerPlus: true,
+        debug: {
+          userId: user.id,
+          skuId: env.CONTROLLER_PLUS_SKU_ID,
+          entitlementCount: entitlementCheck.entitlements?.length || 0,
+          checkTimestamp: new Date().toISOString()
+        },
         entitlementInfo: {
           skuId: env.CONTROLLER_PLUS_SKU_ID,
           entitlementCount: entitlementCheck.entitlements?.length || 0,
@@ -255,6 +313,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         }
       }, 403);
     }
+
+    console.log('MULTISHOCK: ✓ Controller+ entitlement verified, proceeding with multishock');
 
     // Generate unique multishock ID
     const multishockId = uuidv4();

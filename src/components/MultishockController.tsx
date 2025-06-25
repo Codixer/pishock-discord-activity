@@ -136,7 +136,7 @@ export function MultishockController({
         <button
           onClick={() => handleActionClick(0)}
           disabled={isExecuting || selectedUsers.length === 0}
-          className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed text-white py-3 px-4 rounded-lg font-semibold flex flex-col items-center space-y-1 transition-all"
+          className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed text-white py-3 px-4 rounded-lg font-semibold flex flex-col items-center space-y-1 transition-all disabled:opacity-50"
         >
           <Zap className="h-5 w-5" />
           <span className="text-sm">Shock All</span>
@@ -145,7 +145,7 @@ export function MultishockController({
         <button
           onClick={() => handleActionClick(1)}
           disabled={isExecuting || selectedUsers.length === 0}
-          className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed text-white py-3 px-4 rounded-lg font-semibold flex flex-col items-center space-y-1 transition-all"
+          className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed text-white py-3 px-4 rounded-lg font-semibold flex flex-col items-center space-y-1 transition-all disabled:opacity-50"
         >
           <Users className="h-5 w-5" />
           <span className="text-sm">Vibrate All</span>
@@ -154,7 +154,7 @@ export function MultishockController({
         <button
           onClick={() => handleActionClick(2)}
           disabled={isExecuting || selectedUsers.length === 0}
-          className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed text-white py-3 px-4 rounded-lg font-semibold flex flex-col items-center space-y-1 transition-all"
+          className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed text-white py-3 px-4 rounded-lg font-semibold flex flex-col items-center space-y-1 transition-all disabled:opacity-50"
         >
           <AlertTriangle className="h-5 w-5" />
           <span className="text-sm">Beep All</span>

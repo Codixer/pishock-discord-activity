@@ -191,30 +191,38 @@ function MainApp() {
       const intensity = (document.querySelector('input[type="range"]') as HTMLInputElement)?.value || '1';
       const duration = (document.querySelectorAll('input[type="range"]')[1] as HTMLInputElement)?.value || '1';
       
-      const response = await fetch(`${getApiBaseUrl()}/multishock-execute`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${auth.access_token}`,
-        },
-        body: JSON.stringify({
-          targetUserIds: selectedUsers.map(u => u.id),
-          intensity: parseInt(intensity),
-          duration: parseInt(duration),
-          operation,
-          instanceId,
-        }),
-      });
+      try {
+        const response = await fetch(`${getApiBaseUrl()}/multishock-execute`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${auth.access_token}`,
+          },
+          body: JSON.stringify({
+            targetUserIds: selectedUsers.map(u => u.id),
+            intensity,
+            duration,
+            operation,
+            instanceId: discordSdk.instanceId
+          }),
+        });
 
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success) {
-          addNotification(
-            'success',
-            'Multishock Complete',
-            `${operationName} sent to ${result.successfulTargets}/${result.totalTargets} targets`
-          );
+        console.log('MULTISHOCK: Response status:', response.status);
+        
+        if (response.ok) {
+          const result = await response.json();
+          console.log('MULTISHOCK: Response data:', result);
           
+          if (result.success) {
+            addNotification('success', 'Multishock Complete', result.summary);
+            
+            // Refresh activity log after successful execution
+            if (window.refreshActivityLog) {
+              window.refreshActivityLog();
+            }
+          } else {
+            throw new Error(result.error || 'Multishock failed');
+          }
           if (result.failedTargets > 0) {
             addNotification(
               'warning',
@@ -223,20 +231,42 @@ function MainApp() {
             );
           }
         } else {
-          throw new Error(result.error || 'Multishock failed');
+          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+          console.error('MULTISHOCK: HTTP error:', response.status, errorData);
+          
+          if (response.status === 403) {
+            if (errorData.requiresControllerPlus) {
+              addNotification('warning', 'Controller+ Required', 
+                'Multishock commands require a Controller+ subscription. Please upgrade to continue.');
+              return; // Don't throw error, just show warning
+            } else {
+              throw new Error('Access denied. Please check your permissions.');
+            }
+          } else {
+            throw new Error(errorData.error || `HTTP ${response.status}: Request failed`);
+          }
         }
       } else {
         const errorData = await response.json();
         if (errorData.requiresControllerPlus) {
           setShowControllerPlusPurchase(true);
-          return;
+      } catch (networkError) {
+        console.error('MULTISHOCK: Network error:', networkError);
+        if (networkError instanceof Error) {
+          throw networkError;
+        } else {
+          throw new Error('Network error occurred while executing multishock');
         }
-        throw new Error(errorData.error || 'Multishock request failed');
       }
     } catch (error) {
       console.error('Multishock error:', error);
-      addNotification(
-        'error',
+      
+      const errorMessage = error instanceof Error ? error.message : 'Failed to execute multishock command';
+      
+      // Don't show error notification for Controller+ requirement - that's handled above
+      if (!errorMessage.includes('Controller+')) {
+        addNotification('error', 'Multishock Failed', errorMessage);
+      }
         'Multishock Failed',
         error instanceof Error ? error.message : 'Failed to execute multishock command'
       );
