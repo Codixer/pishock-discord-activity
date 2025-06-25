@@ -129,6 +129,9 @@ export function PiShockController({
   }, [currentUser, auth]);
 
   const checkCurrentUserCredentials = async () => {
+    // Don't check credentials in development mode
+    if (!isEmbedded) return;
+    
     console.log('STATUS: Checking current user credentials for:', currentUser?.id);
     
     try {

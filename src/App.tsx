@@ -738,6 +738,9 @@ function MainApp() {
 
   // Load instance data when instanceId changes
   useEffect(() => {
+    // Don't load instance data in development mode
+    if (!isEmbedded) return;
+    
     if (instanceId && auth) {
       // Load instance-specific data from backend using proxy
       fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
