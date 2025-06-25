@@ -573,10 +573,12 @@ export function PiShockController({
   const status = getConnectionStatus();
 
   return (
-    <div className="h-full flex flex-col space-y-4 overflow-y-auto">
+    <div className="h-full flex flex-col overflow-hidden">
       {/* Settings Panel */}
       {!isPipMode && (
-        <div className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex-shrink-0 max-h-80 flex flex-col">
+        <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex-shrink-0 ${
+          showSettings ? 'max-h-96 overflow-y-auto' : ''
+        }`}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-3">
             <Settings className="h-5 w-5 text-purple-400" />
@@ -877,7 +879,9 @@ export function PiShockController({
               </div>
             )}
           </div>
-          </>
+      <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 flex-1 flex flex-col min-h-0 overflow-hidden ${isPipMode ? 'p-2' : 'p-6'} ${
+        showSettings ? 'mt-4' : ''
+      }`}>
         )}
         </div>
       )}
@@ -893,7 +897,7 @@ export function PiShockController({
             <p className="text-sm opacity-75">Only users with PiShock accounts can be targeted</p>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <div className="flex-1 flex flex-col space-y-6 min-h-0 overflow-y-auto">
             {/* Target User */}
             <div className="flex-shrink-0 space-y-4">
               <div className={`p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg ${isPipMode ? 'p-2' : ''}`}>
@@ -971,7 +975,7 @@ export function PiShockController({
                   </div>
                 </div>
               )}
-            </div>
+            <div className="flex-1 flex flex-col space-y-6">
 
             {/* Scrollable Controls Container */}
             <div className="flex-1 overflow-y-auto min-h-0 px-1">
