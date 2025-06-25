@@ -9,7 +9,6 @@ declare global {
 
 interface Env {
   PISHOCK_KV: KVNamespace;
-  CONTROLLER_PLUS_SKU_ID?: string;
 }
 
 interface PagesFunction<Env = unknown> {
@@ -55,10 +54,10 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
       console.log('TOKEN_VALIDATION: Token validation failed:', response.status);
       throw new Error('Invalid Discord token');
     }
-    
-    const userData = await response.json();
+      const userData = await response.json();
     console.log('TOKEN_VALIDATION: ✓ Token validation successful for user:', userData.id);
     
+    // Cache the parsed userData, not the response
     await kv.put(cacheKey, JSON.stringify(userData), {
       expirationTtl: 300 // 5 minutes
     });
@@ -96,8 +95,7 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
     }
     
     const responseText = await response.text();
-    
-    let authData;
+      let authData;
     try {
       authData = JSON.parse(responseText);
     } catch (parseError) {
@@ -107,7 +105,8 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       }
       return { valid: false };
     }
-      // Look for UserID field as specified in documentation
+    
+    // Look for UserID field as specified in documentation
     let userId: string | null = null;
     
     if (authData.UserId !== undefined && authData.UserId !== null) {
@@ -141,34 +140,18 @@ function getUserStatusCacheKey(userId: string): string {
 
 async function getCachedUserStatus(kv: KVNamespace, userId: string) {
   try {
-    let finalUserId = userId;
-    
-    // Only fetch user ID if not provided
-    if (!finalUserId) {
-      const userResponse = await fetch('https://discord.com/api/users/@me', {
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      
-      if (!userResponse.ok) {
-        return false;
-      }
-      
-      const userData = await userResponse.json();
-      finalUserId = userData.id;
-    }
-    
-    // Much shorter cache to prevent accumulation
-    const cacheKey = `ent:${finalUserId}`;
+    const cacheKey = getUserStatusCacheKey(userId);
     const cached = await kv.get(cacheKey);
     if (cached) {
       const cachedData = JSON.parse(cached);
       const cacheAge = Date.now() - new Date(cachedData.timestamp).getTime();
-      if (cacheAge < 60000) {
+      if (cacheAge < 60000) { // 1 minute cache
         return cachedData.status;
       }
     }
   } catch (error) {
     // Silently handle cache errors
+    console.warn('Cache read error:', error);
   }
   return null;
 }
@@ -177,6 +160,7 @@ async function setCachedUserStatus(kv: KVNamespace, userId: string, newStatus: a
   try {
     const cacheKey = getUserStatusCacheKey(userId);
     
+    // Check if we need to update the cache
     const existing = await kv.get(cacheKey);
     if (existing) {
       const existingData = JSON.parse(existing);
@@ -186,51 +170,22 @@ async function setCachedUserStatus(kv: KVNamespace, userId: string, newStatus: a
                         existingData.status?.maxDuration !== newStatus.maxDuration;
       
       if (!hasChanges) {
-        return;
+        return; // No changes, don't update cache
       }
-      return false;
     }
 
-    const entitlements = await response.json();
-    
-    // Check for entitlement
-    const hasEntitlement = entitlements.some((entitlement: any) => {
-      const matchesSku = entitlement.sku_id === skuId || 
-                        entitlement.sku_id?.toString().includes('controller_plus') ||
-                        entitlement.sku_id?.toString().includes('multishock') ||
-                        entitlement.sku_id?.toString().includes('1387037988558606457');
-      
-      const isNotDeleted = !entitlement.deleted;
-      const isNotExpired = !entitlement.ends_at || new Date(entitlement.ends_at) > new Date();
-      const isStarted = !entitlement.starts_at || new Date(entitlement.starts_at) <= new Date();
-      const isValidType = [1, 3, 4, 5, 7, 8].includes(entitlement.type);
-      
-      const isActive = isNotDeleted && isNotExpired && isStarted && isValidType;
-      console.log('STATUS: Checking entitlement:', {
-        skuId: entitlement.sku_id,
-        matchesSku,
-        isNotDeleted,
-        isNotExpired,
-        isStarted,
-        isValidType,
-        isActive
-      });
-      // Log the entitlement check
-      if (matchesSku) {
-        console.log('STATUS: Found matching entitlement:', entitlement);
-      }
-      
-      return matchesSku && isActive;
-    });
-
-    // Minimal cache data
+    // Store the new status with timestamp
     const cacheData = {
-      hasEntitlement,
-      checkedAt: new Date().toISOString()
+      status: newStatus,
+      timestamp: new Date().toISOString()
     };
-    await kv.put(cacheKey, JSON.stringify(cacheData), { expirationTtl: 120 });
+    
+    await kv.put(cacheKey, JSON.stringify(cacheData), {
+      expirationTtl: 120 // 2 minutes
+    });
   } catch (error) {
     // Silently handle cache errors
+    console.warn('Cache write error:', error);
   }
 }
 
@@ -240,6 +195,7 @@ async function clearUserStatusCache(kv: KVNamespace, userId: string) {
     await kv.delete(cacheKey);
   } catch (error) {
     // Silently handle cache errors
+    console.warn('Cache delete error:', error);
   }
 }
 
@@ -370,8 +326,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       lastTested,
       isRelay: false,
       maxIntensity,
-      maxDuration,
-      hasControllerPlus
+      maxDuration
     };
     
     await setCachedUserStatus(env.PISHOCK_KV, userId, result);
