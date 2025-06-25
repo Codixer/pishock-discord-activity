@@ -346,6 +346,31 @@ function MainApp() {
   // Make user status available globally for PiShockController
   (window as any).userPiShockStatus = userPiShockStatus;
 
+  // Function to manually refresh participants
+  const refreshParticipants = useCallback(async () => {
+    if (!isEmbedded || !discordSdk || !auth) {
+      console.log('Cannot refresh participants: not embedded or no auth');
+      return;
+    }
+
+    try {
+      console.log('Manually refreshing participants...');
+      const participantsData = await discordSdk.commands.getInstanceConnectedParticipants();
+      updateParticipants(participantsData.participants);
+      
+      // Also refresh user statuses after updating participants
+      setTimeout(() => {
+        checkAllUserPiShockStatus();
+      }, 1000); // Small delay to ensure participants are updated first
+      
+      addNotification('success', 'Participants Refreshed', `Found ${participantsData.participants.length} participant${participantsData.participants.length !== 1 ? 's' : ''}`);
+      console.log('✓ Participants refreshed:', participantsData.participants.length);
+    } catch (error) {
+      console.error('Failed to refresh participants:', error);
+      addNotification('error', 'Refresh Failed', 'Failed to refresh participant list');
+    }
+  }, [isEmbedded, discordSdk, auth, updateParticipants, checkAllUserPiShockStatus, addNotification]);
+
   useEffect(() => {
     const initializeDiscord = async () => {
       try {
@@ -810,6 +835,8 @@ function MainApp() {
                 currentUser={auth?.user}
                 instanceData={instanceData}
                 userPiShockStatus={userPiShockStatus}
+                refreshParticipants={refreshParticipants}
+                isEmbedded={isEmbedded}
               />
             </div>
 

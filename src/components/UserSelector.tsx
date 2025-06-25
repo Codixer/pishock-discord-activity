@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, User, Crown, Zap, ZapOff, Smartphone, Lock, AlertTriangle } from 'lucide-react';
+import { Users, User, Crown, Zap, ZapOff, Smartphone, Lock, AlertTriangle, RefreshCw } from 'lucide-react';
 import { InstanceData } from '../hooks/useInstanceData';
 
 interface UserSelectorProps {
@@ -9,6 +9,8 @@ interface UserSelectorProps {
   currentUser: any;
   instanceData: InstanceData;
   userPiShockStatus: Record<string, any>;
+  refreshParticipants?: () => void;
+  isEmbedded?: boolean;
 }
 
 export function UserSelector({ 
@@ -17,7 +19,9 @@ export function UserSelector({
   onUserSelect, 
   currentUser, 
   instanceData, 
-  userPiShockStatus 
+  userPiShockStatus,
+  refreshParticipants,
+  isEmbedded = false
 }: UserSelectorProps) {
   // Safe BigInt conversion with fallback for development mock IDs
   const getDefaultAvatarIndex = (userId: string) => {
@@ -52,12 +56,26 @@ export function UserSelector({
 
   return (
     <div className="h-full bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex flex-col">
-      <div className="flex items-center space-x-2 mb-4 flex-shrink-0">
+      <div className="flex items-center justify-between mb-4 flex-shrink-0">
+        <div className="flex items-center space-x-2 min-w-0 flex-1">
         <Users className="h-5 w-5 text-blue-400" />
-        <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1">
           <h2 className="text-base sm:text-lg font-semibold truncate">Activity Participants</h2>
+          </div>
+          <span className="text-xs sm:text-sm text-gray-400 flex-shrink-0">({members.length})</span>
         </div>
-        <span className="text-xs sm:text-sm text-gray-400 flex-shrink-0">({members.length})</span>
+        
+        {/* Refresh Button */}
+        {isEmbedded && refreshParticipants && (
+          <button
+            onClick={refreshParticipants}
+            className="flex items-center space-x-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors text-xs font-medium ml-2"
+            title="Refresh participant list"
+          >
+            <RefreshCw className="h-3 w-3" />
+            <span className="hidden sm:inline">Refresh</span>
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0">
