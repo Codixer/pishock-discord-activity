@@ -982,6 +982,37 @@ function MainApp() {
               </div>
             </div>
             <div className="flex items-center space-x-4">
+              {/* Multi-Select Toggle in Header */}
+              {participants.filter(p => p.id !== auth?.user?.id).length > 0 && (
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={handleToggleMultiSelect}
+                    className={`flex items-center space-x-2 px-3 py-2 rounded-lg border transition-all text-sm ${
+                      isMultiSelectMode
+                        ? 'bg-purple-600/20 border-purple-500/50 text-purple-300'
+                        : 'bg-gray-800/50 border-gray-600/50 text-gray-300 hover:bg-gray-700/50'
+                    }`}
+                  >
+                    <Users className="h-4 w-4" />
+                    <span className="hidden sm:inline">Multi-Select</span>
+                    <div className="flex items-center space-x-1">
+                      {currentUserHasControllerPlus ? (
+                        <Crown className="h-3 w-3 text-yellow-400" />
+                      ) : (
+                        <Crown className="h-3 w-3 text-gray-400" />
+                      )}
+                      <div className={`w-8 h-4 rounded-full transition-colors ${
+                        isMultiSelectMode ? 'bg-purple-600' : 'bg-gray-600'
+                      }`}>
+                        <div className={`w-3 h-3 bg-white rounded-full transition-transform mt-0.5 ${
+                          isMultiSelectMode ? 'translate-x-4' : 'translate-x-0.5'
+                        }`} />
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              )}
+              
               {instanceId && (
                 <div className="text-xs text-gray-400">
                   Instance: {instanceId.slice(-8)}

@@ -97,45 +97,6 @@ export function UserSelector({
         )}
       </div>
 
-      {/* Multi-Select Toggle */}
-      {otherParticipants.length > 0 && onToggleMultiSelect && (
-        <div className="mb-4 flex-shrink-0">
-          <button
-            onClick={onToggleMultiSelect}
-            className={`w-full flex items-center justify-between p-3 rounded-lg border transition-all ${
-              isMultiSelectMode
-                ? 'bg-purple-600/20 border-purple-500/50 text-purple-300'
-                : 'bg-gray-800/50 border-gray-600/50 text-gray-300 hover:bg-gray-700/50'
-            }`}
-          >
-            <div className="flex items-center space-x-3">
-              <Users className="h-5 w-5" />
-              <span className="font-medium">Multi-Select Mode</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              {hasControllerPlus ? (
-                <div className="flex items-center space-x-1 px-2 py-1 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30 rounded-full">
-                  <Crown className="h-3 w-3 text-yellow-400" />
-                  <span className="text-xs text-yellow-300 font-semibold">Controller+</span>
-                </div>
-              ) : (
-                <div className="flex items-center space-x-1 px-2 py-1 bg-gray-600/20 border border-gray-500/30 rounded-full">
-                  <Crown className="h-3 w-3 text-gray-400" />
-                  <span className="text-xs text-gray-400">Premium</span>
-                </div>
-              )}
-              <div className={`w-10 h-6 rounded-full transition-colors ${
-                isMultiSelectMode ? 'bg-purple-600' : 'bg-gray-600'
-              }`}>
-                <div className={`w-4 h-4 bg-white rounded-full transition-transform mt-1 ${
-                  isMultiSelectMode ? 'translate-x-5' : 'translate-x-1'
-                }`} />
-              </div>
-            </div>
-          </button>
-        </div>
-      )}
-
       <div className="flex-1 overflow-y-auto min-h-0">
         <div className="space-y-3">
           {members.length === 0 ? (
