@@ -138,19 +138,30 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
 async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: string): Promise<boolean> {
   if (!skuId) {
     console.log('ENTITLEMENT_CHECK: No SKU ID configured, allowing access for development');
-    return true; // Allow access if no SKU is configured (development mode)
+    return false; // In production, require proper SKU configuration
   }
 
   try {
-    // Use a different cache key that includes user identification
-    const userIdHash = token.slice(-12); // Use more characters for better uniqueness
-    const cacheKey = `entitlement:${token.slice(-8)}:${skuId}`;
+    // Get user ID first for proper cache keying
+    const userResponse = await fetch('https://discord.com/api/users/@me', {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    
+    if (!userResponse.ok) {
+      console.error('ENTITLEMENT_CHECK: Failed to get user info for cache key');
+      return false;
+    }
+    
+    const userData = await userResponse.json();
+    const userId = userData.id;
+    
+    const cacheKey = `entitlement:${userId}:${skuId}`;
     const cached = await kv.get(cacheKey);
     if (cached) {
       const cachedResult = JSON.parse(cached);
       const cacheAge = Date.now() - new Date(cachedResult.checkedAt).getTime();
-      // Use shorter cache for more responsive updates (30 seconds instead of 2 minutes)
-      if (cacheAge < 30000) {
+      // Use very short cache for more responsive updates (15 seconds)
+      if (cacheAge < 15000) { // 15 seconds
         console.log('ENTITLEMENT_CHECK: Using cached entitlement result:', cachedResult.hasEntitlement, `(${Math.floor(cacheAge/1000)}s old)`);
         return cachedResult.hasEntitlement;
       } else {
@@ -158,27 +169,50 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
       }
     }
 
-    console.log('ENTITLEMENT_CHECK: Fetching fresh entitlements for SKU:', skuId);
+    console.log('ENTITLEMENT_CHECK: Fetching fresh entitlements for user:', userId, 'SKU:', skuId);
     
-    const response = await fetch('https://discord.com/api/users/@me/entitlements?exclude_ended=true', {
+    // Use the correct entitlements endpoint with proper parameters
+    const entitlementsUrl = new URL('https://discord.com/api/users/@me/entitlements');
+    entitlementsUrl.searchParams.set('exclude_ended', 'true');
+    entitlementsUrl.searchParams.set('exclude_deleted', 'true');
+    
+    const response = await fetch(entitlementsUrl.toString(), {
       headers: {
         'Authorization': `Bearer ${token}`,
-        'User-Agent': 'PiShock-Discord-Activity/1.0'
+        'User-Agent': 'PiShock-Discord-Activity/1.0',
+        'Accept': 'application/json'
       },
     });
 
     if (!response.ok) {
-      console.error('ENTITLEMENT_CHECK: Failed to fetch entitlements:', response.status, response.statusText);
-      return cachedResult.hasEntitlement;
+      const errorText = await response.text();
+      console.error('ENTITLEMENT_CHECK: Failed to fetch entitlements:', response.status, response.statusText, errorText);
+      
+      // Try to use stale cache if available
+      if (cached) {
+        const cachedResult = JSON.parse(cached);
+        console.log('ENTITLEMENT_CHECK: Using stale cache due to API error:', cachedResult.hasEntitlement);
+        return cachedResult.hasEntitlement;
+      }
+      return false;
     }
 
     const entitlements = await response.json();
     console.log('ENTITLEMENT_CHECK: Fetched', entitlements.length, 'active entitlements');
     
-    // Log all entitlements for debugging
+    // Log all entitlements for debugging (only first few to avoid spam)
     entitlements.forEach((entitlement: any, index: number) => {
-      console.log(`ENTITLEMENT_CHECK: [${index}] SKU: ${entitlement.sku_id}, Type: ${entitlement.type}, Deleted: ${entitlement.deleted}, Ends: ${entitlement.ends_at || 'never'}`);
+      if (index < 5) { // Only log first 5 to avoid spam
+        console.log(`ENTITLEMENT_CHECK: [${index}] SKU: ${entitlement.sku_id}, Type: ${entitlement.type}, Deleted: ${entitlement.deleted}, Ends: ${entitlement.ends_at || 'never'}`);
+      }
     });
+    
+    if (entitlements.length > 5) {
+      console.log(`ENTITLEMENT_CHECK: ... and ${entitlements.length - 5} more entitlements`);
+    }
+    
+    // Special logging for our target SKU
+    console.log('ENTITLEMENT_CHECK: Looking for SKU:', skuId);
     
     const hasEntitlement = entitlements.some((entitlement: any) => {
       // Check for exact SKU match or pattern matches
@@ -187,7 +221,15 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
                         entitlement.sku_id?.toString().includes('multishock') ||
                         entitlement.sku_id?.toString().includes('1387037988558606457'); // Hardcoded fallback
       
-      // Entitlement is active if not deleted and not expired
+      // More comprehensive validation according to Discord docs
+      const isNotDeleted = !entitlement.deleted;
+      const isNotExpired = !entitlement.ends_at || new Date(entitlement.ends_at) > new Date();
+      const isStarted = !entitlement.starts_at || new Date(entitlement.starts_at) <= new Date();
+      const isValidType = [1, 3, 4, 5, 7, 8].includes(entitlement.type); // Valid entitlement types
+      
+      const isActive = isNotDeleted && isNotExpired && isStarted && isValidType;
+      
+      // Old simple check for comparison
       const isActive = !entitlement.deleted && 
                       (!entitlement.ends_at || new Date(entitlement.ends_at) > new Date());
       
@@ -195,7 +237,8 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
         console.log('ENTITLEMENT_CHECK: Found matching SKU:', entitlement.sku_id, 
                    'Active:', isActive, 
                    'Deleted:', entitlement.deleted,
-                   'Ends:', entitlement.ends_at || 'never');
+                   'Ends:', entitlement.ends_at || 'never',
+                   'Type:', entitlement.type);
       }
       
       return matchesSku && isActive;
@@ -207,9 +250,9 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
       entitlementCount: entitlements.length
     };
     
-    // Cache for 30 seconds for more responsive updates
+    // Cache for 15 seconds for more responsive updates
     await kv.put(cacheKey, JSON.stringify(cacheData), {
-      expirationTtl: 30
+      expirationTtl: 15
     });
 
     console.log('ENTITLEMENT_CHECK: Final result for user:', hasEntitlement, 
@@ -238,9 +281,11 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
 // Alternative entitlement check that tries multiple approaches
 async function checkDiscordEntitlementRobust(token: string, kv: KVNamespace, skuId?: string): Promise<boolean> {
   if (!skuId) {
-    console.log('ENTITLEMENT_ROBUST: No SKU ID configured, allowing access for development');
-    return true;
+    console.log('ENTITLEMENT_ROBUST: No SKU ID configured, denying access in production');
+    return false;
   }
+
+  console.log('ENTITLEMENT_ROBUST: Starting robust entitlement check for SKU:', skuId);
 
   try {
     // First try the standard approach
@@ -251,11 +296,20 @@ async function checkDiscordEntitlementRobust(token: string, kv: KVNamespace, sku
     }
 
     // Try fetching all entitlements including ended ones
-    console.log('ENTITLEMENT_ROBUST: Standard check failed, trying comprehensive check...');
-    const response = await fetch('https://discord.com/api/users/@me/entitlements', {
+    console.log('ENTITLEMENT_ROBUST: Standard check failed, trying comprehensive check (including ended)...');
+    
+    // Get user info for better logging
+    const userResponse = await fetch('https://discord.com/api/users/@me', {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    const userData = userResponse.ok ? await userResponse.json() : { id: 'unknown' };
+    console.log('ENTITLEMENT_ROBUST: Checking comprehensive entitlements for user:', userData.id);
+    
+    const response = await fetch('https://discord.com/api/users/@me/entitlements?limit=100', {
       headers: {
         'Authorization': `Bearer ${token}`,
-        'User-Agent': 'PiShock-Discord-Activity/1.0'
+        'User-Agent': 'PiShock-Discord-Activity/1.0',
+        'Accept': 'application/json'
       },
     });
 
@@ -267,36 +321,83 @@ async function checkDiscordEntitlementRobust(token: string, kv: KVNamespace, sku
     const entitlements = await response.json();
     console.log('ENTITLEMENT_ROBUST: Fetched', entitlements.length, 'total entitlements');
     
+    // Log comprehensive data for debugging
+    console.log('ENTITLEMENT_ROBUST: All entitlements for debugging:');
+    entitlements.forEach((entitlement: any, index: number) => {
+      console.log(`  [${index}] SKU: ${entitlement.sku_id}, Type: ${entitlement.type}, Deleted: ${entitlement.deleted}`);
+      console.log(`      Starts: ${entitlement.starts_at || 'immediately'}, Ends: ${entitlement.ends_at || 'never'}`);
+    });
+    
     // Try multiple matching strategies
+    console.log('ENTITLEMENT_ROBUST: Trying multiple matching strategies for SKU:', skuId);
     const hasEntitlement = entitlements.some((entitlement: any) => {
       // More aggressive matching
       const skuString = entitlement.sku_id?.toString() || '';
       const targetSkuString = skuId?.toString() || '';
       
-      const matchesSku = skuString === targetSkuString || 
+      // Try exact match first
+      const exactMatch = skuString === targetSkuString;
+      
+      // Try pattern matches
+      const patternMatch = skuString.includes('controller') ||
                         skuString.includes('controller') ||
                         skuString.includes('multishock') ||
                         skuString.includes('plus') ||
-                        targetSkuString.includes(skuString) ||
-                        skuString.includes('1387037988558606457'); // Known Controller+ SKU
+                        skuString.includes('1387037988558606457'); // Known Controller+ SKU ID
       
-      // More lenient active check - only require not deleted
-      const isActive = !entitlement.deleted;
+      // Try reverse pattern match
+      const reverseMatch = targetSkuString.includes(skuString);
+      
+      const matchesSku = exactMatch || patternMatch || reverseMatch;
+      
+      // Comprehensive validation
+      const isNotDeleted = !entitlement.deleted;
+      const isNotExpired = !entitlement.ends_at || new Date(entitlement.ends_at) > new Date();
+      const isStarted = !entitlement.starts_at || new Date(entitlement.starts_at) <= new Date();
+      const hasValidType = entitlement.type !== undefined && entitlement.type !== null;
+      
+      const isActive = isNotDeleted && isNotExpired && isStarted && hasValidType;
       
       if (matchesSku) {
-        console.log('ENTITLEMENT_ROBUST: Found potential match:', entitlement.sku_id, 
-                   'Active:', isActive,
-                   'Type:', entitlement.type,
-                   'Ends:', entitlement.ends_at || 'never');
+        console.log('ENTITLEMENT_ROBUST: *** FOUND POTENTIAL MATCH ***');
+        console.log(`  SKU: ${entitlement.sku_id} (target: ${skuId})`);
+        console.log(`  Exact match: ${exactMatch}`);
+        console.log(`  Pattern match: ${patternMatch}`);
+        console.log(`  Reverse match: ${reverseMatch}`);
+        console.log(`  Is active: ${isActive}`);
+        console.log(`  Not deleted: ${isNotDeleted}`);
+        console.log(`  Not expired: ${isNotExpired}`);
+        console.log(`  Is started: ${isStarted}`);
+        console.log(`  Valid type: ${hasValidType} (type: ${entitlement.type})`);
+        console.log(`  Starts: ${entitlement.starts_at || 'immediately'}`);
+        console.log(`  Ends: ${entitlement.ends_at || 'never'}`);
       }
       
       return matchesSku && isActive;
     });
 
-    console.log('ENTITLEMENT_ROBUST: Comprehensive check result:', hasEntitlement);
+    console.log('ENTITLEMENT_ROBUST: *** FINAL COMPREHENSIVE CHECK RESULT ***');
+    console.log(`  User: ${userData.id}`);
+    console.log(`  Target SKU: ${skuId}`);
+    console.log(`  Total entitlements checked: ${entitlements.length}`);
+    console.log(`  Has Controller+ entitlement: ${hasEntitlement}`);
+    
+    // Cache the result with user ID for consistency
+    const cacheKey = `entitlement_robust:${userData.id}:${skuId}`;
+    const cacheData = {
+      hasEntitlement,
+      checkedAt: new Date().toISOString(),
+      method: 'comprehensive',
+      entitlementCount: entitlements.length
+    };
+    
+    await kv.put(cacheKey, JSON.stringify(cacheData), {
+      expirationTtl: 30 // Cache comprehensive check for 30 seconds
+    });
+    
     return hasEntitlement;
   } catch (error) {
-    console.error('ENTITLEMENT_ROBUST: Error in robust check:', error);
+    console.error('ENTITLEMENT_ROBUST: *** ERROR IN ROBUST CHECK ***', error);
     return false;
   }
 }

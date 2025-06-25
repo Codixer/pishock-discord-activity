@@ -465,7 +465,9 @@ function MainApp() {
   useEffect(() => {
     if (auth?.user?.id && userPiShockStatus[auth.user.id]) {
       const userStatus = userPiShockStatus[auth.user.id];
-      setCurrentUserHasControllerPlus(userStatus.hasControllerPlus || false);
+      const hasControllerPlus = userStatus.hasControllerPlus || false;
+      console.log('APP: Updating current user Controller+ status:', hasControllerPlus, 'for user:', auth.user.id);
+      setCurrentUserHasControllerPlus(hasControllerPlus);
     }
   }, [auth?.user?.id, userPiShockStatus]);
 

@@ -70,30 +70,59 @@ async function decrypt(data: string): Promise<any> {
 
 async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: string): Promise<boolean> {
   if (!skuId) {
-    console.log('ENTITLEMENT: No SKU ID configured, allowing access for development');
-    return true; // Allow access if no SKU is configured (development mode)
+    console.log('ENTITLEMENT: No SKU ID configured, denying access in production');
+    return false; // In production, require proper SKU configuration
   }
 
   try {
-    const cacheKey = `entitlement:${token.slice(-8)}:${skuId}`;
+    // Get user ID first for proper cache keying
+    const userResponse = await fetch('https://discord.com/api/users/@me', {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    
+    if (!userResponse.ok) {
+      console.error('ENTITLEMENT: Failed to get user info for cache key');
+      return false;
+    }
+    
+    const userData = await userResponse.json();
+    const userId = userData.id;
+    
+    const cacheKey = `entitlement:${userId}:${skuId}`;
     const cached = await kv.get(cacheKey);
     if (cached) {
       const cachedResult = JSON.parse(cached);
-      console.log('ENTITLEMENT: Using cached entitlement result:', cachedResult.hasEntitlement);
-      return cachedResult.hasEntitlement;
+      const cacheAge = Date.now() - new Date(cachedResult.checkedAt).getTime();
+      if (cacheAge < 15000) { // 15 seconds cache
+        console.log('ENTITLEMENT: Using cached entitlement result:', cachedResult.hasEntitlement, `(${Math.floor(cacheAge/1000)}s old)`);
+        return cachedResult.hasEntitlement;
+      }
     }
 
-    console.log('ENTITLEMENT: Checking Discord entitlements for SKU:', skuId);
+    console.log('ENTITLEMENT: Checking Discord entitlements for user:', userId, 'SKU:', skuId);
     
-    const response = await fetch('https://discord.com/api/users/@me/entitlements', {
+    const entitlementsUrl = new URL('https://discord.com/api/users/@me/entitlements');
+    entitlementsUrl.searchParams.set('exclude_ended', 'true');
+    entitlementsUrl.searchParams.set('exclude_deleted', 'true');
+    
+    const response = await fetch(entitlementsUrl.toString(), {
       headers: {
         'Authorization': `Bearer ${token}`,
-        'User-Agent': 'PiShock-Discord-Activity/1.0'
+        'User-Agent': 'PiShock-Discord-Activity/1.0',
+        'Accept': 'application/json'
       },
     });
 
     if (!response.ok) {
-      console.error('ENTITLEMENT: Failed to fetch entitlements:', response.status);
+      const errorText = await response.text();
+      console.error('ENTITLEMENT: Failed to fetch entitlements:', response.status, response.statusText, errorText);
+      
+      // Try to use stale cache if available
+      if (cached) {
+        const cachedResult = JSON.parse(cached);
+        console.log('ENTITLEMENT: Using stale cache due to API error:', cachedResult.hasEntitlement);
+        return cachedResult.hasEntitlement;
+      }
       return false;
     }
 
@@ -117,11 +146,12 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
 
     const cacheData = {
       hasEntitlement,
-      checkedAt: new Date().toISOString()
+      checkedAt: new Date().toISOString(),
+      entitlementCount: entitlements.length
     };
     
     await kv.put(cacheKey, JSON.stringify(cacheData), {
-      expirationTtl: 120
+      expirationTtl: 15 // Much shorter cache for faster updates
     });
 
     console.log('ENTITLEMENT: Final result:', hasEntitlement);
@@ -135,8 +165,8 @@ async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: s
 // Alternative entitlement check that tries multiple approaches  
 async function checkDiscordEntitlementRobust(token: string, kv: KVNamespace, skuId?: string): Promise<boolean> {
   if (!skuId) {
-    console.log('ENTITLEMENT_ROBUST: No SKU ID configured, allowing access for development');
-    return true;
+    console.log('ENTITLEMENT_ROBUST: No SKU ID configured, denying access in production');
+    return false;
   }
 
   try {
@@ -149,10 +179,11 @@ async function checkDiscordEntitlementRobust(token: string, kv: KVNamespace, sku
 
     // Try fetching all entitlements including ended ones
     console.log('ENTITLEMENT_ROBUST: Standard check failed, trying comprehensive check...');
-    const response = await fetch('https://discord.com/api/users/@me/entitlements', {
+    const response = await fetch('https://discord.com/api/users/@me/entitlements?limit=100', {
       headers: {
         'Authorization': `Bearer ${token}`,
-        'User-Agent': 'PiShock-Discord-Activity/1.0'
+        'User-Agent': 'PiShock-Discord-Activity/1.0',
+        'Accept': 'application/json'
       },
     });
 
