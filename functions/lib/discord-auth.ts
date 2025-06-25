@@ -16,7 +16,7 @@ interface StoredTokenData {
 // Get stored valid token for a user, or null if expired/not found
 export async function getValidTokenForUser(kv: KVNamespace, userId: string): Promise<string | null> {
   try {
-    const tokenData = await kv.get(`discord_token:${userId}`);
+    const tokenData = await kv.get(`discord_auth:access_token:${userId}`);
     if (!tokenData) {
       console.log('TOKEN_CACHE: No stored token found for user:', userId);
       return null;
@@ -27,7 +27,7 @@ export async function getValidTokenForUser(kv: KVNamespace, userId: string): Pro
     
     if (now >= stored.expires_at) {
       console.log('TOKEN_CACHE: Stored token expired for user:', userId);
-      await kv.delete(`discord_token:${userId}`);
+      await kv.delete(`discord_auth:access_token:${userId}`);
       return null;
     }
 
@@ -97,7 +97,7 @@ export async function refreshUserToken(kv: KVNamespace, userId: string, env: Env
     };
 
     await Promise.all([
-      kv.put(`discord_token:${userId}`, JSON.stringify(storedData), { 
+      kv.put(`discord_auth:access_token:${userId}`, JSON.stringify(storedData), { 
         expirationTtl: expires_in - 60 
       }),
       kv.put(`discord_auth:refresh_token:${userId}`, refresh_token)
@@ -149,7 +149,7 @@ export async function validateDiscordToken(token: string, kv: KVNamespace, env?:
 export async function getUserInfo(kv: KVNamespace, userId: string, token?: string): Promise<{ username: string; avatar?: string } | null> {
   try {
     // First, try to get from cached token data
-    const tokenData = await kv.get(`discord_token:${userId}`);
+    const tokenData = await kv.get(`discord_auth:access_token:${userId}`);
     if (tokenData) {
       const stored: StoredTokenData = JSON.parse(tokenData);
       const now = Date.now();

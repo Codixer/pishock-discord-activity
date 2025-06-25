@@ -119,7 +119,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     await Promise.all([
       // Store structured token data instead of just the token
-      env.PISHOCK_KV.put(`discord_token:${user.id}`, JSON.stringify(tokenData), { 
+      env.PISHOCK_KV.put(`discord_auth:access_token:${user.id}`, JSON.stringify(tokenData), { 
         expirationTtl: expires_in - 60 // Expire 1 minute early for safety
       }),
       env.PISHOCK_KV.put(`discord_auth:refresh_token:${user.id}`, refresh_token),
