@@ -29,6 +29,8 @@ export function useEntitlements({
   const [loading, setLoading] = useState(false);
   const [hasControllerPlus, setHasControllerPlus] = useState(false);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
+  const [isRateLimited, setIsRateLimited] = useState(false);
+  const [retryAfter, setRetryAfter] = useState<number | null>(null);
 
   // Check if user has Controller+ entitlement
   const checkControllerPlusAccess = useCallback((userEntitlements: Entitlement[] = entitlements) => {
@@ -80,18 +82,40 @@ export function useEntitlements({
 
   // Load entitlements from Discord SDK (for Activities)
   const loadEntitlementsFromSDK = useCallback(async () => {
-    if (!discordSdk || !isEmbedded) return [];
+    if (!discordSdk || !isEmbedded) {
+      console.log('ENTITLEMENTS: SDK not available or not embedded');
+      return [];
+    }
 
     try {
       console.log('ENTITLEMENTS: Loading from Discord SDK...');
       const response = await discordSdk.commands.getEntitlements();
       console.log('ENTITLEMENTS: SDK response:', response);
       
-      if (response.entitlements) {
+      // Handle the case where entitlements might be undefined due to rate limiting
+      if (response && response.entitlements && Array.isArray(response.entitlements)) {
+        setIsRateLimited(false);
+        setRetryAfter(null);
         return response.entitlements;
+      } else if (response && response.entitlements === undefined) {
+        console.warn('ENTITLEMENTS: SDK returned undefined entitlements (likely rate limited)');
+        setIsRateLimited(true);
+        // Set a default retry after 60 seconds if not specified
+        setRetryAfter(Date.now() + 60000);
+        return [];
       }
       return [];
     } catch (error) {
+      // Check if it's a rate limiting error
+      if (error && typeof error === 'object' && 'message' in error) {
+        const errorMessage = error.message.toLowerCase();
+        if (errorMessage.includes('429') || errorMessage.includes('rate limit')) {
+          console.warn('ENTITLEMENTS: Rate limited by Discord SDK');
+          setIsRateLimited(true);
+          setRetryAfter(Date.now() + 60000); // Retry after 1 minute
+          return [];
+        }
+      }
       console.error('ENTITLEMENTS: Failed to load from SDK:', error);
       return [];
     }
@@ -99,22 +123,44 @@ export function useEntitlements({
 
   // Load entitlements from HTTP API (fallback)
   const loadEntitlementsFromAPI = useCallback(async () => {
-    if (!auth) return [];
+    if (!auth) {
+      console.log('ENTITLEMENTS: No auth token for API fallback');
+      return [];
+    }
 
     try {
       console.log('ENTITLEMENTS: Loading from HTTP API...');
-      const response = await fetch('https://discord.com/api/users/@me/entitlements', {
+      
+      // Add parameters to reduce load and avoid rate limiting
+      const url = new URL('https://discord.com/api/users/@me/entitlements');
+      url.searchParams.set('exclude_ended', 'true');
+      url.searchParams.set('exclude_deleted', 'true');
+      url.searchParams.set('exclude_consumed', 'true');
+      
+      const response = await fetch(url.toString(), {
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
         },
       });
 
+      if (response.status === 429) {
+        const retryAfterHeader = response.headers.get('retry-after');
+        const retryAfterMs = retryAfterHeader ? parseInt(retryAfterHeader) * 1000 : 60000;
+        console.warn('ENTITLEMENTS: Rate limited by Discord API, retry after:', retryAfterMs);
+        setIsRateLimited(true);
+        setRetryAfter(Date.now() + retryAfterMs);
+        return [];
+      }
+      
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        console.error('ENTITLEMENTS: API error:', response.status, response.statusText);
+        return [];
       }
 
       const data = await response.json();
       console.log('ENTITLEMENTS: API response:', data);
+      setIsRateLimited(false);
+      setRetryAfter(null);
       return Array.isArray(data) ? data : [];
     } catch (error) {
       console.error('ENTITLEMENTS: Failed to load from API:', error);
@@ -134,6 +180,13 @@ export function useEntitlements({
     setLoading(true);
     try {
       let loadedEntitlements: Entitlement[] = [];
+      
+      // Check if we're currently rate limited
+      if (isRateLimited && retryAfter && Date.now() < retryAfter) {
+        console.log('ENTITLEMENTS: Currently rate limited, skipping load');
+        setLoading(false);
+        return [];
+      }
 
       // Try SDK first if available (preferred for Activities)
       if (isEmbedded && discordSdk) {
@@ -141,7 +194,7 @@ export function useEntitlements({
       }
 
       // Fallback to HTTP API if SDK fails or unavailable (only in embedded mode)
-      if (loadedEntitlements.length === 0 && auth && isEmbedded) {
+      if (loadedEntitlements.length === 0 && auth && isEmbedded && !isRateLimited) {
         loadedEntitlements = await loadEntitlementsFromAPI();
       }
 
@@ -202,8 +255,8 @@ export function useEntitlements({
 
   // Auto-load entitlements when dependencies change
   useEffect(() => {
-    // Only auto-load in embedded mode or when explicitly requested
-    if (isEmbedded && ((discordSdk) || auth)) {
+    // Only auto-load in embedded mode and if not rate limited
+    if (isEmbedded && ((discordSdk) || auth) && !isRateLimited) {
       loadEntitlements();
     }
   }, [isEmbedded, discordSdk, auth, loadEntitlements]);
@@ -212,23 +265,27 @@ export function useEntitlements({
   useEffect(() => {
     if (!isEmbedded || !discordSdk) return;
 
-    // Note: This would require Discord SDK to support Gateway events
-    // Currently Discord Activities don't directly receive Gateway events
-    // But we can poll periodically or refresh on user action
+    // Only set up polling if not rate limited
+    if (!isRateLimited) {
+      const intervalId = setInterval(() => {
+        // Check if we're still rate limited before trying to refresh
+        if (!isRateLimited) {
+          console.log('ENTITLEMENTS: Periodic refresh');
+          loadEntitlements();
+        }
+      }, 10 * 60 * 1000); // Increased to 10 minutes to reduce rate limiting
 
-    const intervalId = setInterval(() => {
-      // Refresh entitlements every 5 minutes to catch changes
-      loadEntitlements();
-    }, 5 * 60 * 1000);
-
-    return () => clearInterval(intervalId);
-  }, [isEmbedded, discordSdk, loadEntitlements]);
+      return () => clearInterval(intervalId);
+    }
+  }, [isEmbedded, discordSdk, loadEntitlements, isRateLimited]);
 
   return {
     entitlements,
     hasControllerPlus,
     loading,
     lastChecked,
+    isRateLimited,
+    retryAfter,
     loadEntitlements,
     refreshEntitlements,
     purchaseControllerPlus,

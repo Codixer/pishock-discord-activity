@@ -28,7 +28,9 @@ export function ControllerPlusPurchaseModal({
   const { 
     purchaseControllerPlus, 
     refreshEntitlements,
-    hasControllerPlus 
+    hasControllerPlus,
+    isRateLimited,
+    retryAfter
   } = useEntitlements({
     discordSdk,
     isEmbedded,
@@ -197,10 +199,29 @@ export function ControllerPlusPurchaseModal({
           
           {/* Purchase Error */}
           {purchaseError && (
-            <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-3">
-              <div className="flex items-center space-x-2 text-red-300 text-sm">
+            <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4">
+              <div className="flex items-start space-x-2 text-red-300 text-sm">
                 <X className="h-4 w-4 flex-shrink-0" />
-                <p>{purchaseError}</p>
+                <div>
+                  <p className="font-semibold mb-1">Purchase Error</p>
+                  <p>{purchaseError}</p>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Rate Limiting Notice */}
+          {isRateLimited && retryAfter && (
+            <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-4">
+              <div className="flex items-start space-x-2 text-yellow-300 text-sm">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                <div>
+                  <p className="font-semibold mb-1">Discord API Rate Limited</p>
+                  <p>
+                    Discord is temporarily limiting entitlement checks. This won't affect the core app functionality.
+                    The system will automatically retry in a few minutes.
+                  </p>
+                </div>
               </div>
             </div>
           )}
@@ -219,7 +240,7 @@ export function ControllerPlusPurchaseModal({
             <button
               onClick={handlePurchase}
               disabled={purchasing}
-              className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center space-x-2 transition-all shadow-lg"
+              className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center space-x-2 transition-all shadow-lg disabled:opacity-50"
             >
               {purchasing ? (
                 <>
@@ -229,7 +250,7 @@ export function ControllerPlusPurchaseModal({
               ) : (
                 <>
                   <Crown className="h-5 w-5" />
-                  <span>Get Controller+</span>
+                  <span>{isRateLimited ? 'Try Again Later' : 'Get Controller+'}</span>
                 </>
               )}
             </button>
