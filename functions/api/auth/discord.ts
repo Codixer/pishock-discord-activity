@@ -108,7 +108,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     // Store tokens in KV with proper TTL and structured data
     const expiresAt = Date.now() + (expires_in * 1000) - 60000; // 1 minute early for safety
-    const tokenData = {
+    const storedTokenData = {
       access_token,
       expires_at: expiresAt,
       user_id: user.id,
@@ -119,7 +119,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     await Promise.all([
       // Store structured token data instead of just the token
-      env.PISHOCK_KV.put(`discord_auth:access_token:${user.id}`, JSON.stringify(tokenData), { 
+      env.PISHOCK_KV.put(`discord_auth:access_token:${user.id}`, JSON.stringify(storedTokenData), { 
         expirationTtl: expires_in - 60 // Expire 1 minute early for safety
       }),
       env.PISHOCK_KV.put(`discord_auth:refresh_token:${user.id}`, refresh_token),
