@@ -11,6 +11,12 @@ interface UserSelectorProps {
   userPiShockStatus: Record<string, any>;
   refreshParticipants?: () => void;
   isEmbedded?: boolean;
+  // New props for multishock
+  isMultiSelectMode?: boolean;
+  selectedUsers?: any[];
+  onToggleMultiSelect?: () => void;
+  onParticipantClick?: (user: any) => void;
+  hasControllerPlus?: boolean;
 }
 
 export function UserSelector({ 
@@ -21,7 +27,12 @@ export function UserSelector({
   instanceData, 
   userPiShockStatus,
   refreshParticipants,
-  isEmbedded = false
+  isEmbedded = false,
+  isMultiSelectMode = false,
+  selectedUsers = [],
+  onToggleMultiSelect,
+  onParticipantClick,
+  hasControllerPlus = false
 }: UserSelectorProps) {
   // Safe BigInt conversion with fallback for development mock IDs
   const getDefaultAvatarIndex = (userId: string) => {
@@ -53,6 +64,14 @@ export function UserSelector({
 
   const isCurrentUserSelected = selectedUser?.id === currentUser?.id;
   const otherParticipants = members.filter(member => member.id !== currentUser?.id);
+  
+  const handleParticipantClick = (member: any) => {
+    if (isMultiSelectMode && onParticipantClick) {
+      onParticipantClick(member);
+    } else {
+      onUserSelect(member);
+    }
+  };
 
   return (
     <div className="h-full bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4 flex flex-col">
@@ -77,6 +96,45 @@ export function UserSelector({
           </button>
         )}
       </div>
+
+      {/* Multi-Select Toggle */}
+      {otherParticipants.length > 1 && onToggleMultiSelect && (
+        <div className="mb-4 flex-shrink-0">
+          <button
+            onClick={onToggleMultiSelect}
+            className={`w-full flex items-center justify-between p-3 rounded-lg border transition-all ${
+              isMultiSelectMode
+                ? 'bg-purple-600/20 border-purple-500/50 text-purple-300'
+                : 'bg-gray-800/50 border-gray-600/50 text-gray-300 hover:bg-gray-700/50'
+            }`}
+          >
+            <div className="flex items-center space-x-3">
+              <Users className="h-5 w-5" />
+              <span className="font-medium">Multi-Select Mode</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              {hasControllerPlus ? (
+                <div className="flex items-center space-x-1 px-2 py-1 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30 rounded-full">
+                  <Crown className="h-3 w-3 text-yellow-400" />
+                  <span className="text-xs text-yellow-300 font-semibold">Controller+</span>
+                </div>
+              ) : (
+                <div className="flex items-center space-x-1 px-2 py-1 bg-gray-600/20 border border-gray-500/30 rounded-full">
+                  <Crown className="h-3 w-3 text-gray-400" />
+                  <span className="text-xs text-gray-400">Premium</span>
+                </div>
+              )}
+              <div className={`w-10 h-6 rounded-full transition-colors ${
+                isMultiSelectMode ? 'bg-purple-600' : 'bg-gray-600'
+              }`}>
+                <div className={`w-4 h-4 bg-white rounded-full transition-transform mt-1 ${
+                  isMultiSelectMode ? 'translate-x-5' : 'translate-x-1'
+                }`} />
+              </div>
+            </div>
+          </button>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto min-h-0">
         <div className="space-y-3">
@@ -159,7 +217,12 @@ export function UserSelector({
               {/* Other Participants */}
               {otherParticipants.length > 0 && (
                 <div>
-                  <h3 className="text-xs sm:text-sm font-medium text-gray-400 mb-2">Select Target</h3>
+                  <h3 className="text-xs sm:text-sm font-medium text-gray-400 mb-2">
+                    {isMultiSelectMode ? 'Select Targets' : 'Select Target'}
+                    {isMultiSelectMode && selectedUsers.length > 0 && (
+                      <span className="ml-2 text-purple-400">({selectedUsers.length} selected)</span>
+                    )}
+                  </h3>
                   <div className="space-y-2">
                     {otherParticipants.map((member) => {
                       const userStatus = userPiShockStatus[member.id];
@@ -167,6 +230,9 @@ export function UserSelector({
                       const hasDevice = userStatus?.hasDevice;
                       const hasCredentials = userStatus?.hasCredentials;
                       const isDisabled = !isConnected;
+                      const isSelected = isMultiSelectMode 
+                        ? selectedUsers.some(u => u.id === member.id)
+                        : selectedUser?.id === member.id;
                       
                       // Check if current user has banned this participant
                       const currentUserStatus = userPiShockStatus[currentUser?.id];
@@ -176,18 +242,33 @@ export function UserSelector({
                       return (
                         <button
                           key={member.id}
-                          onClick={() => !isDisabled && onUserSelect(member)}
+                          onClick={() => !isDisabled && handleParticipantClick(member)}
                           disabled={isDisabled}
                           className={`w-full p-3 rounded-lg border transition-all text-left ${
                             isDisabled
                               ? 'bg-gray-800/30 border-gray-600/30 opacity-60 cursor-not-allowed'
-                              : selectedUser?.id === member.id
-                              ? 'bg-purple-600/20 border-purple-500/50 ring-2 ring-purple-500/20'
+                              : isSelected
+                              ? isMultiSelectMode
+                                ? 'bg-purple-600/30 border-purple-500/60 ring-2 ring-purple-500/40'
+                                : 'bg-purple-600/20 border-purple-500/50 ring-2 ring-purple-500/20'
                               : 'bg-gray-800/50 border-gray-600/50 hover:bg-gray-700/50 hover:border-gray-500/50'
                           }`}
                           title={isDisabled ? `${getDisplayName(member)} needs to configure their PiShock device before receiving commands` : ''}
                         >
                           <div className="flex items-center space-x-2 sm:space-x-3">
+                            {/* Selection Indicator for Multi-Select */}
+                            {isMultiSelectMode && (
+                              <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                                isSelected
+                                  ? 'bg-purple-600 border-purple-500'
+                                  : 'border-gray-400'
+                              }`}>
+                                {isSelected && (
+                                  <div className="w-2 h-2 bg-white rounded-full" />
+                                )}
+                              </div>
+                            )}
+                            
                             <img
                               src={getAvatarUrl(member)}
                               alt={`${getDisplayName(member)}'s avatar`}
@@ -270,7 +351,7 @@ export function UserSelector({
                                 )}
                               </div>
                             </div>
-                            {selectedUser?.id === member.id && !isDisabled && (
+                            {!isMultiSelectMode && selectedUser?.id === member.id && !isDisabled && (
                               <div className="w-2 h-2 bg-purple-400 rounded-full flex-shrink-0"></div>
                             )}
                             {isDisabled && (
@@ -311,7 +392,8 @@ export function UserSelector({
         </div>
       </div>
 
-      {selectedUser && (
+      {/* Single Selection Display */}
+      {selectedUser && !isMultiSelectMode && (
         <div className="mt-4 p-2 sm:p-3 bg-green-900/20 border border-green-500/30 rounded-lg flex-shrink-0">
           <div className="flex items-center space-x-3">
             <img
@@ -328,6 +410,26 @@ export function UserSelector({
                 <span className="font-semibold">Target:</span> {getDisplayName(selectedUser)}
               </p>
             </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Multi-Selection Summary */}
+      {isMultiSelectMode && selectedUsers.length > 0 && (
+        <div className="mt-4 p-2 sm:p-3 bg-purple-900/20 border border-purple-500/30 rounded-lg flex-shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Crown className="h-4 w-4 text-yellow-400" />
+              <span className="text-purple-300 text-xs sm:text-sm font-semibold">
+                {selectedUsers.length} target{selectedUsers.length !== 1 ? 's' : ''} selected
+              </span>
+            </div>
+            <button
+              onClick={() => selectedUsers.forEach(user => onParticipantClick?.(user))}
+              className="text-xs text-purple-400 hover:text-purple-300 transition-colors"
+            >
+              Clear All
+            </button>
           </div>
         </div>
       )}

@@ -16,6 +16,8 @@ interface ActivityLogEntry {
   duration: number;
   guildId?: string;
   guildName?: string;
+  isMultishock?: boolean;
+  multishockId?: string;
 }
 
 interface ActivityLogProps {
@@ -263,12 +265,21 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
             {entries.map((entry) => (
               <div
                 key={entry.id}
-                className={`p-3 rounded-lg border transition-all ${getActionColor(entry.action)}`}
+                className={`p-3 rounded-lg border transition-all ${getActionColor(entry.action)} ${
+                  entry.isMultishock ? 'ring-2 ring-purple-500/30' : ''
+                }`}
               >
                 <div className="flex items-start space-x-3">
                   {/* Action Icon */}
                   <div className="flex-shrink-0 mt-1">
-                    {getActionIcon(entry.action)}
+                    <div className="relative">
+                      {getActionIcon(entry.action)}
+                      {entry.isMultishock && (
+                        <div className="absolute -top-1 -right-1 w-3 h-3 bg-purple-500 rounded-full flex items-center justify-center">
+                          <Users className="h-1.5 w-1.5 text-white" />
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Main Content */}
@@ -315,6 +326,12 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
 
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-3 text-xs">
+                        {entry.isMultishock && (
+                          <div className="flex items-center space-x-1 px-2 py-0.5 bg-purple-500/20 border border-purple-500/30 rounded-full">
+                            <Users className="h-2.5 w-2.5 text-purple-400" />
+                            <span className="text-purple-300 font-semibold text-xs">Multi</span>
+                          </div>
+                        )}
                         <span className="capitalize font-medium">
                           {entry.action}
                         </span>

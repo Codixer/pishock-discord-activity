@@ -30,7 +30,23 @@ const getDiscordClientId = () => {
   return clientId;
 };
 
+// Check for Controller+ SKU ID
+const getControllerPlusSkuId = () => {
+  const viteEnv = process.env.VITE_CONTROLLER_PLUS_SKU_ID;
+  const directEnv = process.env.CONTROLLER_PLUS_SKU_ID;
+  
+  const skuId = viteEnv || directEnv;
+  
+  console.log('🎯 Controller+ SKU ID Detection:');
+  console.log('  VITE_CONTROLLER_PLUS_SKU_ID:', viteEnv ? '✅ Set' : '❌ Not set');
+  console.log('  CONTROLLER_PLUS_SKU_ID:', directEnv ? '✅ Set' : '❌ Not set');
+  console.log('  Final SKU ID:', skuId ? '✅ Found' : '❌ Missing (optional)');
+  
+  return skuId;
+};
+
 const discordClientId = getDiscordClientId();
+const controllerPlusSkuId = getControllerPlusSkuId();
 
 // Generate a proper version identifier
 const generateBuildVersion = () => {
@@ -77,5 +93,7 @@ export default defineConfig({
     __BUILD_VERSION__: JSON.stringify(buildVersion),
     // Inject Discord Client ID at build time from any available source
     'import.meta.env.VITE_DISCORD_CLIENT_ID': JSON.stringify(discordClientId || ''),
+    // Inject Controller+ SKU ID at build time
+    'import.meta.env.VITE_CONTROLLER_PLUS_SKU_ID': JSON.stringify(controllerPlusSkuId || ''),
   },
 });

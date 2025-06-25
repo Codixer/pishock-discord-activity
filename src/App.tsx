@@ -10,6 +10,8 @@ import { NotificationSystem } from './components/NotificationSystem';
 import { ActivityLog } from './components/ActivityLog';
 import { PrivacyPolicy } from './components/PrivacyPolicy';
 import { TermsOfService } from './components/TermsOfService';
+import { ControllerPlusPurchaseModal } from './components/ControllerPlusPurchaseModal';
+import { MultishockController } from './components/MultishockController';
 import { useNotifications } from './hooks/useNotifications';
 import { useInstanceData } from './hooks/useInstanceData';
 import { useParticipants } from './hooks/useParticipants';
@@ -91,6 +93,7 @@ function getApiBaseUrl(): string {
 function MainApp() {
   const [auth, setAuth] = useState<any>(null);
   const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [selectedUsers, setSelectedUsers] = useState<any[]>([]);
   const [piShockConnected, setPiShockConnected] = useState(false);
   const [safetyAccepted, setSafetyAccepted] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -100,6 +103,9 @@ function MainApp() {
   const [isInstanceValid, setIsInstanceValid] = useState(true);
   const [layoutMode, setLayoutMode] = useState<number>(Common.LayoutModeTypeObject.FOCUSED);
   const [isPipMode, setIsPipMode] = useState(false);
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+  const [currentUserHasControllerPlus, setCurrentUserHasControllerPlus] = useState(false);
+  const [showControllerPlusPurchase, setShowControllerPlusPurchase] = useState(false);
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
   
@@ -112,6 +118,108 @@ function MainApp() {
   // Custom hooks for managing instance data and participants
   const { instanceData, updateInstanceData } = useInstanceData(instanceId);
   const { participants, updateParticipants } = useParticipants(discordSdk, isEmbedded);
+
+  // Toggle multi-select mode
+  const handleToggleMultiSelect = () => {
+    if (!isMultiSelectMode && !currentUserHasControllerPlus) {
+      setShowControllerPlusPurchase(true);
+      return;
+    }
+    
+    setIsMultiSelectMode(!isMultiSelectMode);
+    
+    // Clear selections when switching modes
+    if (isMultiSelectMode) {
+      setSelectedUsers([]);
+    } else {
+      setSelectedUser(null);
+    }
+  };
+
+  // Handle participant selection in multi-select mode
+  const handleParticipantClick = (user: any) => {
+    if (selectedUsers.some(u => u.id === user.id)) {
+      // Remove from selection
+      setSelectedUsers(selectedUsers.filter(u => u.id !== user.id));
+    } else {
+      // Add to selection
+      setSelectedUsers([...selectedUsers, user]);
+    }
+  };
+
+  // Handle multishock execution
+  const handleMultishock = async (operation: number) => {
+    if (!auth || selectedUsers.length === 0) return;
+
+    try {
+      const operationNames = ['shock', 'vibrate', 'beep'];
+      const operationName = operationNames[operation];
+      
+      // Get current intensity and duration from the controller
+      const intensity = (document.querySelector('input[type="range"]') as HTMLInputElement)?.value || '1';
+      const duration = (document.querySelectorAll('input[type="range"]')[1] as HTMLInputElement)?.value || '1';
+      
+      const response = await fetch(`${getApiBaseUrl()}/multishock-execute`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({
+          targetUserIds: selectedUsers.map(u => u.id),
+          intensity: parseInt(intensity),
+          duration: parseInt(duration),
+          operation,
+          instanceId,
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          addNotification(
+            'success',
+            'Multishock Complete',
+            `${operationName} sent to ${result.successfulTargets}/${result.totalTargets} targets`
+          );
+          
+          if (result.failedTargets > 0) {
+            addNotification(
+              'warning',
+              'Some Commands Failed',
+              `${result.failedTargets} commands failed. Check individual target settings.`
+            );
+          }
+        } else {
+          throw new Error(result.error || 'Multishock failed');
+        }
+      } else {
+        const errorData = await response.json();
+        if (errorData.requiresControllerPlus) {
+          setShowControllerPlusPurchase(true);
+          return;
+        }
+        throw new Error(errorData.error || 'Multishock request failed');
+      }
+    } catch (error) {
+      console.error('Multishock error:', error);
+      addNotification(
+        'error',
+        'Multishock Failed',
+        error instanceof Error ? error.message : 'Failed to execute multishock command'
+      );
+    }
+  };
+
+  // Handle Controller+ purchase attempt
+  const handleControllerPlusPurchase = () => {
+    addNotification(
+      'info',
+      'Coming Soon',
+      'Controller+ purchases will be available soon! Check back for updates.'
+    );
+    setShowControllerPlusPurchase(false);
+  };
 
   // Handle layout mode updates
   const handleLayoutModeUpdate = useCallback((update: { layout_mode: number }) => {
@@ -283,7 +391,9 @@ function MainApp() {
             isRelay: false,
             maxIntensity: 100,
             maxDuration: 15,
-            bannedExecutors: []
+            bannedExecutors: [],
+            hasControllerPlus: false
+            hasControllerPlus: status.hasControllerPlus || false
           }
         };
       });
@@ -305,6 +415,7 @@ function MainApp() {
           prevStatus[userId].hasCredentials !== statusMap[userId].hasCredentials ||
           prevStatus[userId].maxIntensity !== statusMap[userId].maxIntensity ||
           prevStatus[userId].maxDuration !== statusMap[userId].maxDuration
+          prevStatus[userId].hasControllerPlus !== statusMap[userId].hasControllerPlus
         );
         
         if (hasChanges) {
@@ -317,6 +428,14 @@ function MainApp() {
       console.error('Failed to check user PiShock statuses:', error);
     }
   };
+
+  // Update current user's Controller+ status when user status changes
+  useEffect(() => {
+    if (auth?.user?.id && userPiShockStatus[auth.user.id]) {
+      const userStatus = userPiShockStatus[auth.user.id];
+      setCurrentUserHasControllerPlus(userStatus.hasControllerPlus || false);
+    }
+  }, [auth?.user?.id, userPiShockStatus]);
 
   // Load ban lists for current user (who can be banned from shocking them)
   const loadCurrentUserBanList = async () => {
@@ -614,6 +733,13 @@ function MainApp() {
     }
   }, [instanceId, auth, participants, updateInstanceData, addNotification]);
 
+  // Clear selections when switching users or modes
+  useEffect(() => {
+    if (!isMultiSelectMode) {
+      setSelectedUsers([]);
+    }
+  }, [isMultiSelectMode]);
+
   // Check PiShock status for all participants
   useEffect(() => {
     if (instanceId && auth && participants.length > 0) {
@@ -787,6 +913,13 @@ function MainApp() {
         onDismiss={dismissNotification} 
       />
       
+      {/* Controller+ Purchase Modal */}
+      <ControllerPlusPurchaseModal
+        isOpen={showControllerPlusPurchase}
+        onClose={() => setShowControllerPlusPurchase(false)}
+        onPurchase={handleControllerPlusPurchase}
+      />
+      
       {/* Header */}
       <div className="bg-black/20 backdrop-blur-sm border-b border-white/10 flex-shrink-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
@@ -856,24 +989,69 @@ function MainApp() {
                 userPiShockStatus={userPiShockStatus}
                 refreshParticipants={refreshParticipants}
                 isEmbedded={isEmbedded}
+                isMultiSelectMode={isMultiSelectMode}
+                selectedUsers={selectedUsers}
+                onToggleMultiSelect={handleToggleMultiSelect}
+                onParticipantClick={handleParticipantClick}
+                hasControllerPlus={currentUserHasControllerPlus}
               />
             </div>
 
             {/* Main Controller */}
             <div className={`${showActivityLog ? 'lg:col-span-2' : 'lg:col-span-2'} flex flex-col min-h-0 order-1 lg:order-none`}>
-              <PiShockController
-                selectedUser={selectedUser}
-                onConnectionChange={setPiShockConnected}
-                isConnected={piShockConnected}
-                addNotification={addNotification}
-                instanceId={instanceId}
-                auth={auth}
-                currentUser={auth?.user}
-                discordSdk={discordSdk}
-                isEmbedded={isEmbedded}
-                layoutMode={layoutMode}
-                participants={participants}
-              />
+              {isMultiSelectMode ? (
+                <div className="space-y-4 h-full flex flex-col">
+                  <MultishockController
+                    selectedUsers={selectedUsers}
+                    hasControllerPlus={currentUserHasControllerPlus}
+                    effectiveLimits={{
+                      maxIntensity: selectedUsers.length > 0 
+                        ? Math.min(...selectedUsers.map(u => userPiShockStatus[u.id]?.maxIntensity || 100))
+                        : 100,
+                      maxDuration: selectedUsers.length > 0
+                        ? Math.min(...selectedUsers.map(u => userPiShockStatus[u.id]?.maxDuration || 15))
+                        : 15
+                    }}
+                    isExecuting={false}
+                    onMultishock={handleMultishock}
+                  />
+                  <PiShockController
+                    selectedUser={selectedUser}
+                    onConnectionChange={setPiShockConnected}
+                    isConnected={piShockConnected}
+                    addNotification={addNotification}
+                    instanceId={instanceId}
+                    auth={auth}
+                    currentUser={auth?.user}
+                    discordSdk={discordSdk}
+                    isEmbedded={isEmbedded}
+                    layoutMode={layoutMode}
+                    participants={participants}
+                    isMultiSelectMode={isMultiSelectMode}
+                    selectedUsers={selectedUsers}
+                    hasControllerPlus={currentUserHasControllerPlus}
+                    onMultishock={handleMultishock}
+                  />
+                </div>
+              ) : (
+                <PiShockController
+                  selectedUser={selectedUser}
+                  onConnectionChange={setPiShockConnected}
+                  isConnected={piShockConnected}
+                  addNotification={addNotification}
+                  instanceId={instanceId}
+                  auth={auth}
+                  currentUser={auth?.user}
+                  discordSdk={discordSdk}
+                  isEmbedded={isEmbedded}
+                  layoutMode={layoutMode}
+                  participants={participants}
+                  isMultiSelectMode={isMultiSelectMode}
+                  selectedUsers={selectedUsers}
+                  hasControllerPlus={currentUserHasControllerPlus}
+                  onMultishock={handleMultishock}
+                />
+              )}
             </div>
 
             {/* Activity Log */}

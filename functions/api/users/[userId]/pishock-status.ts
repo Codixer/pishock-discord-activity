@@ -1,5 +1,6 @@
 interface Env {
   PISHOCK_KV: KVNamespace;
+  CONTROLLER_PLUS_SKU_ID?: string;
 }
 
 function jsonResponse(body: any, status = 200) {
@@ -131,6 +132,58 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
   } catch (error) {
     console.error('STATUS: PiShock credential validation error:', error);
     return { valid: false };
+  }
+}
+
+async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: string): Promise<boolean> {
+  if (!skuId) {
+    return false; // No entitlement if no SKU configured
+  }
+
+  try {
+    const cacheKey = `entitlement:${token.slice(-8)}:${skuId}`;
+    const cached = await kv.get(cacheKey);
+    if (cached) {
+      const cachedResult = JSON.parse(cached);
+      return cachedResult.hasEntitlement;
+    }
+
+    const response = await fetch('https://discord.com/api/users/@me/entitlements', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'User-Agent': 'PiShock-Discord-Activity/1.0'
+      },
+    });
+
+    if (!response.ok) {
+      return false;
+    }
+
+    const entitlements = await response.json();
+    const hasEntitlement = entitlements.some((entitlement: any) => {
+      const matchesSku = entitlement.sku_id === skuId || 
+                        entitlement.sku_id?.includes('controller_plus') ||
+                        entitlement.sku_id?.includes('multishock');
+      
+      const isActive = !entitlement.deleted && 
+                      (!entitlement.ends_at || new Date(entitlement.ends_at) > new Date());
+      
+      return matchesSku && isActive;
+    });
+
+    const cacheData = {
+      hasEntitlement,
+      checkedAt: new Date().toISOString()
+    };
+    
+    await kv.put(cacheKey, JSON.stringify(cacheData), {
+      expirationTtl: 120 // 2 minutes
+    });
+
+    return hasEntitlement;
+  } catch (error) {
+    console.error('Error checking entitlements:', error);
+    return false;
   }
 }
 
@@ -294,6 +347,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
     }
     
+    // Check Controller+ entitlement
+    const hasControllerPlus = await checkDiscordEntitlement(token, env.PISHOCK_KV, env.CONTROLLER_PLUS_SKU_ID);
+    
     // Get all user data from single key
     console.log('STATUS API: Loading fresh data for user:', userId);
     const userDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
@@ -373,7 +429,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       lastTested,
       isRelay: false, // Personal accounts are never relay
       maxIntensity,
-      maxDuration
+      maxDuration,
+      hasControllerPlus
     };
     
     console.log('STATUS: Final result for user', userId, ':', result);

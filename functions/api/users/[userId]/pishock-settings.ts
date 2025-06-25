@@ -1,5 +1,6 @@
 interface Env {
   PISHOCK_KV: KVNamespace;
+  CONTROLLER_PLUS_SKU_ID?: string;
 }
 
 function jsonResponse(body: any, status = 200) {
@@ -65,6 +66,58 @@ async function encrypt(data: any): Promise<string> {
 async function decrypt(data: string): Promise<any> {
   // Simple base64 decoding for now - in production, use proper decryption
   return JSON.parse(atob(data));
+}
+
+async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: string): Promise<boolean> {
+  if (!skuId) {
+    return false;
+  }
+
+  try {
+    const cacheKey = `entitlement:${token.slice(-8)}:${skuId}`;
+    const cached = await kv.get(cacheKey);
+    if (cached) {
+      const cachedResult = JSON.parse(cached);
+      return cachedResult.hasEntitlement;
+    }
+
+    const response = await fetch('https://discord.com/api/users/@me/entitlements', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'User-Agent': 'PiShock-Discord-Activity/1.0'
+      },
+    });
+
+    if (!response.ok) {
+      return false;
+    }
+
+    const entitlements = await response.json();
+    const hasEntitlement = entitlements.some((entitlement: any) => {
+      const matchesSku = entitlement.sku_id === skuId || 
+                        entitlement.sku_id?.includes('controller_plus') ||
+                        entitlement.sku_id?.includes('multishock');
+      
+      const isActive = !entitlement.deleted && 
+                      (!entitlement.ends_at || new Date(entitlement.ends_at) > new Date());
+      
+      return matchesSku && isActive;
+    });
+
+    const cacheData = {
+      hasEntitlement,
+      checkedAt: new Date().toISOString()
+    };
+    
+    await kv.put(cacheKey, JSON.stringify(cacheData), {
+      expirationTtl: 120
+    });
+
+    return hasEntitlement;
+  } catch (error) {
+    console.error('Error checking entitlements:', error);
+    return false;
+  }
 }
 
 async function validatePiShockCredentials(apiKey: string, username: string): Promise<{ valid: boolean; userId?: string; error?: string; debugInfo?: any }> {
@@ -371,6 +424,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (method === 'GET') {
       // Get all user data from single key
       console.log('SETTINGS API: Loading settings for user:', userId);
+      
+      // Check Controller+ entitlement
+      const hasControllerPlus = await checkDiscordEntitlement(token, env.PISHOCK_KV, env.CONTROLLER_PLUS_SKU_ID);
+      
       const userDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
       const userData = userDataStr ? JSON.parse(userDataStr) : null;
       
@@ -388,7 +445,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         return jsonResponse({ 
           hasSettings: false,
           settings: null,
-          bannedExecutors: []
+          bannedExecutors: [],
+          hasControllerPlus
         });
       }
 
@@ -420,14 +478,16 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         return jsonResponse({ 
           hasSettings: true,
           settings,
-          bannedExecutors: userData.bannedExecutors || []
+          bannedExecutors: userData.bannedExecutors || [],
+          hasControllerPlus
         });
       } catch (error) {
         console.error('Failed to decrypt user settings:', error);
         return jsonResponse({ 
           hasSettings: false,
           settings: null,
-          bannedExecutors: []
+          bannedExecutors: [],
+          hasControllerPlus
         });
       }
     }
@@ -453,6 +513,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
 
       // Get existing user data to check if this is an update
+      const existingUserDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
       const existingUserData = existingUserDataStr ? JSON.parse(existingUserDataStr) : null;
       const isExistingUser = !!existingUserData?.credentials;
       

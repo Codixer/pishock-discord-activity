@@ -15,6 +15,11 @@ interface PiShockControllerProps {
   isEmbedded: boolean;
   layoutMode?: number;
   participants?: any[];
+  // New props for multishock
+  isMultiSelectMode?: boolean;
+  selectedUsers?: any[];
+  hasControllerPlus?: boolean;
+  onMultishock?: (operation: number) => void;
 }
 
 // Helper function to get the correct API base URL
@@ -42,7 +47,11 @@ export function PiShockController({
   discordSdk,
   isEmbedded,
   layoutMode = Common.LayoutModeTypeObject.FOCUSED,
-  participants = []
+  participants = [],
+  isMultiSelectMode = false,
+  selectedUsers = [],
+  hasControllerPlus = false,
+  onMultishock
 }: PiShockControllerProps) {
   const [intensity, setIntensity] = useState(1);
   const [duration, setDuration] = useState(1);
@@ -62,7 +71,27 @@ export function PiShockController({
 
   // Get the effective limits based on selected user
   const getEffectiveLimits = () => {
-    if (!selectedUser) return { maxIntensity: 100, maxDuration: 15 };
+    if (isMultiSelectMode && selectedUsers.length > 0) {
+      // For multishock, use the most restrictive limits across all selected users
+      let minIntensity = 100;
+      let minDuration = 15;
+      
+      selectedUsers.forEach(user => {
+        const userStatus = (window as any).userPiShockStatus?.[user.id];
+        if (userStatus) {
+          if (userStatus.maxIntensity < minIntensity) {
+            minIntensity = userStatus.maxIntensity;
+          }
+          if (userStatus.maxDuration < minDuration) {
+            minDuration = userStatus.maxDuration;
+          }
+        }
+      });
+      
+      return { maxIntensity: minIntensity, maxDuration: minDuration };
+    } else if (!selectedUser) {
+      return { maxIntensity: 100, maxDuration: 15 };
+    }
     
     // Get the user's PiShock status which includes their sharecode limits
     const userStatus = (window as any).userPiShockStatus?.[selectedUser.id];
@@ -136,6 +165,24 @@ export function PiShockController({
       }
     } catch (error) {
       console.error('Failed to check stored credentials:', error);
+    }
+  };
+
+  const handleMultishockCommand = async (operation: number) => {
+    if (!isMultiSelectMode || !onMultishock) {
+      return handleShock(operation);
+    }
+
+    if (selectedUsers.length === 0) {
+      addNotification('warning', 'No Targets Selected', 'Please select participants for multishock');
+      return;
+    }
+
+    setIsShocking(true);
+    try {
+      await onMultishock(operation);
+    } finally {
+      setIsShocking(false);
     }
   };
 
@@ -223,6 +270,14 @@ export function PiShockController({
     return user?.guildDisplayName || user?.displayName || user?.global_name || user?.username || 'Unknown User';
   };
 
+  const getTargetDisplay = () => {
+    if (isMultiSelectMode) {
+      return selectedUsers.length > 0 
+        ? `${selectedUsers.length} participant${selectedUsers.length !== 1 ? 's' : ''}`
+        : 'Select participants';
+    }
+    return selectedUser ? getDisplayName(selectedUser) : 'Select a participant';
+  };
   return (
     <>
       {/* Settings Modal */}
@@ -278,14 +333,37 @@ export function PiShockController({
             </div>
           </div>
 
-        {!selectedUser ? (
+        {(!selectedUser && !isMultiSelectMode) || (isMultiSelectMode && selectedUsers.length === 0) ? (
           <div className="text-center py-12 text-gray-400 flex-1 flex flex-col justify-center">
             <AlertTriangle className="h-16 w-16 mx-auto mb-4 opacity-50" />
-            <p className="text-lg mb-2">Please select a participant to continue</p>
-            <p className="text-sm opacity-75">Only users with PiShock accounts can be targeted</p>
+            <p className="text-lg mb-2">
+              {isMultiSelectMode 
+                ? 'Please select participants to continue' 
+                : 'Please select a participant to continue'
+              }
+            </p>
+            <p className="text-sm opacity-75">
+              {isMultiSelectMode 
+                ? 'Select multiple users for multishock commands' 
+                : 'Only users with PiShock accounts can be targeted'
+              }
+            </p>
           </div>
         ) : (
           <div className="flex-1 flex flex-col space-y-6 min-h-0">
+            {/* Target Display */}
+            <div className="p-3 bg-gray-800/50 rounded-lg border border-gray-600/50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  {isMultiSelectMode ? <Users className="h-4 w-4 text-purple-400" /> : <User className="h-4 w-4 text-blue-400" />}
+                  <span className="text-sm font-medium text-gray-300">
+                    {isMultiSelectMode ? 'Multishock Targets:' : 'Target:'}
+                  </span>
+                </div>
+                <span className="text-sm text-white font-medium">{getTargetDisplay()}</span>
+              </div>
+            </div>
+            
             {/* Controls Container */}
             <div className="flex-1 flex flex-col space-y-4 min-h-0">
               {/* Intensity Control */}
@@ -359,7 +437,7 @@ export function PiShockController({
               {/* Action Buttons */}
               <div className={`grid gap-3 flex-shrink-0 ${isPipMode ? 'grid-cols-3 gap-2' : 'grid-cols-1 sm:grid-cols-3 sm:gap-3'}`}>
                 <button
-                  onClick={() => handleShock(0)}
+                  onClick={() => handleMultishockCommand(0)}
                   disabled={isShocking}
                   className={`bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
                     isPipMode 
@@ -368,11 +446,11 @@ export function PiShockController({
                   }`}
                 >
                   <Zap className={isPipMode ? 'h-3 w-3' : 'h-5 w-5 sm:h-6 sm:w-6'} />
-                  <span>Shock</span>
+                  <span>{isMultiSelectMode && selectedUsers.length > 1 ? 'Shock All' : 'Shock'}</span>
                 </button>
 
                 <button
-                  onClick={() => handleShock(1)}
+                  onClick={() => handleMultishockCommand(1)}
                   disabled={isShocking}
                   className={`bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
                     isPipMode 
@@ -381,11 +459,11 @@ export function PiShockController({
                   }`}
                 >
                   <Play className={isPipMode ? 'h-3 w-3' : 'h-5 w-5 sm:h-6 sm:w-6'} />
-                  <span>Vibrate</span>
+                  <span>{isMultiSelectMode && selectedUsers.length > 1 ? 'Vibrate All' : 'Vibrate'}</span>
                 </button>
 
                 <button
-                  onClick={() => handleShock(2)}
+                  onClick={() => handleMultishockCommand(2)}
                   disabled={isShocking}
                   className={`bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
                     isPipMode 
@@ -394,12 +472,12 @@ export function PiShockController({
                   }`}
                 >
                   <Square className={isPipMode ? 'h-3 w-3' : 'h-5 w-5 sm:h-6 sm:w-6'} />
-                  <span>Beep</span>
+                  <span>{isMultiSelectMode && selectedUsers.length > 1 ? 'Beep All' : 'Beep'}</span>
                 </button>
               </div>
 
               {/* No PiShock Device Warning */}
-              {!isPipMode && selectedUser && !(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected && (
+              {!isPipMode && !isMultiSelectMode && selectedUser && !(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected && (
                 <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex-shrink-0">
                   <div className="flex items-start space-x-3">
                     <AlertTriangle className="h-5 w-5 text-yellow-400 flex-shrink-0 mt-0.5" />
@@ -416,11 +494,28 @@ export function PiShockController({
                   </div>
                 </div>
               )}
+              
+              {/* Multishock Limits Warning */}
+              {!isPipMode && isMultiSelectMode && selectedUsers.length > 0 && (effectiveLimits.maxIntensity < 100 || effectiveLimits.maxDuration < 15) && (
+                <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex-shrink-0">
+                  <div className="flex items-start space-x-3">
+                    <Lock className="h-5 w-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-yellow-300 mb-2">Limited by Target Restrictions</p>
+                      <p className="text-sm text-yellow-200">
+                        Commands are limited to {effectiveLimits.maxIntensity}% intensity and {effectiveLimits.maxDuration}s duration 
+                        to respect the most restrictive participant's safety settings.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
               {isShocking && (
                 <div className={`text-center flex-shrink-0 ${isPipMode ? 'mt-1' : 'mt-2'}`}>
                   <div className={`inline-flex items-center space-x-3 text-yellow-400 ${isPipMode ? 'text-xs' : 'text-base'}`}>
                     <div className={`animate-spin rounded-full border-b-2 border-yellow-400 ${isPipMode ? 'h-4 w-4' : 'h-6 w-6'}`}></div>
-                    <span>Executing command...</span>
+                    <span>{isMultiSelectMode && selectedUsers.length > 1 ? 'Executing multishock...' : 'Executing command...'}</span>
                   </div>
                 </div>
               )}
