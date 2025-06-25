@@ -105,6 +105,48 @@ async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
   }
 }
 
+async function getUserInfo(kv: KVNamespace, userId: string, token: string): Promise<{ username: string; avatar?: string } | null> {
+  try {
+    // First try to get from KV cache
+    const cachedData = await kv.get(`discord_user:${userId}`);
+    if (cachedData) {
+      const user = JSON.parse(cachedData);
+      return {
+        username: user.global_name || user.username || 'Unknown User',
+        avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${userId}/${user.avatar}.png` : undefined
+      };
+    }
+    
+    // If not in cache, fetch from Discord API
+    console.log('USER_INFO: Fetching user data from Discord API for:', userId);
+    const response = await fetch(`https://discord.com/api/users/${userId}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    
+    if (response.ok) {
+      const user = await response.json();
+      
+      // Cache the user data for 24 hours (longer than original 1 hour)
+      await kv.put(`discord_user:${userId}`, JSON.stringify(user), {
+        expirationTtl: 86400 // 24 hours
+      });
+      
+      console.log('USER_INFO: ✓ Fetched and cached user data for:', user.username || user.global_name);
+      
+      return {
+        username: user.global_name || user.username || 'Unknown User',
+        avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${userId}/${user.avatar}.png` : undefined
+      };
+    } else {
+      console.warn('USER_INFO: Failed to fetch user from Discord API:', response.status, response.statusText);
+    }
+  } catch (error) {
+    console.error('USER_INFO: Error fetching user info:', error);
+  }
+  
+  return null;
+}
+
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env, params } = context;
   const method = request.method;
@@ -396,12 +438,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         }
       }
 
-      // Get user info for logging
-      const executorUserData = await env.PISHOCK_KV.get(`discord_user:${executorUserId}`);
-      const executorUser = executorUserData ? JSON.parse(executorUserData) : null;
-      
-      const targetUserData = await env.PISHOCK_KV.get(`discord_user:${targetUserId}`);
-      const targetUser = targetUserData ? JSON.parse(targetUserData) : null;
+      // Get user info for logging with fallback to Discord API
+      console.log('EXECUTE: Getting user info for activity log...');
+      const executorInfo = await getUserInfo(env.PISHOCK_KV, executorUserId, token);
+      const targetInfo = await getUserInfo(env.PISHOCK_KV, targetUserId, token);
 
       // Create activity log entry
       const logEntry: ActivityLogEntry = {
@@ -409,11 +449,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         timestamp: new Date().toISOString(),
         instanceId: 'global', // Global activity log for user-to-user actions
         executorUserId,
-        executorUsername: executorUser?.global_name || executorUser?.username || 'Unknown User',
-        executorAvatar: executorUser?.avatar ? `https://cdn.discordapp.com/avatars/${executorUserId}/${executorUser.avatar}.png` : undefined,
+        executorUsername: executorInfo?.username || 'Unknown User',
+        executorAvatar: executorInfo?.avatar,
         targetUserId,
-        targetUsername: targetUser?.global_name || targetUser?.username || 'Unknown User',
-        targetAvatar: targetUser?.avatar ? `https://cdn.discordapp.com/avatars/${targetUserId}/${targetUser.avatar}.png` : undefined,
+        targetUsername: targetInfo?.username || 'Unknown User',
+        targetAvatar: targetInfo?.avatar,
         action: operationName as 'shock' | 'vibrate' | 'beep',
         intensity,
         duration,
