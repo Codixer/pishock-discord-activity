@@ -46,6 +46,8 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     return userData;
   } catch (error) {
     return null;
+  }
+}
 
 async function decrypt(data: string): Promise<any> {
   // Simple base64 decoding for now - in production, use proper decryption
