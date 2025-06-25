@@ -8,8 +8,18 @@ async function requireAuth(request: Request): Promise<string | null> {
   return auth.slice(7);
 }
 
-async function validateDiscordToken(token: string): Promise<any> {
+async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
   try {
+    // Try to get cached validation result first
+    const cacheKey = `discord_token_validation:${token.slice(-8)}`; // Use last 8 chars to avoid storing full token
+    const cached = await kv.get(cacheKey);
+    if (cached) {
+      const cachedData = JSON.parse(cached);
+      console.log('TOKEN_VALIDATION: Using cached Discord token validation');
+      return cachedData;
+    }
+    
+    console.log('TOKEN_VALIDATION: Fetching fresh Discord token validation');
     const response = await fetch('https://discord.com/api/users/@me', {
       headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -18,7 +28,15 @@ async function validateDiscordToken(token: string): Promise<any> {
       throw new Error('Invalid Discord token');
     }
     
-    return await response.json();
+    const userData = await response.json();
+    
+    // Cache the validation result for 5 minutes
+    await kv.put(cacheKey, JSON.stringify(userData), {
+      expirationTtl: 300 // 5 minutes
+    });
+    
+    console.log('TOKEN_VALIDATION: ✓ Cached fresh Discord token validation');
+    return userData;
   } catch (error) {
     return null;
   }
@@ -63,7 +81,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const token = await requireAuth(request);
   if (!token) return new Response('Unauthorized', { status: 401 });
 
-  const user = await validateDiscordToken(token);
+  const user = await validateDiscordToken(token, env.PISHOCK_KV);
   if (!user) return new Response('Invalid token', { status: 401 });
 
   try {
