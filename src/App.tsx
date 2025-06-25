@@ -1120,6 +1120,7 @@ function MainApp() {
                   <MultishockController
                     selectedUsers={selectedUsers}
                     hasControllerPlus={hasControllerPlus}
+                    isRateLimited={isRateLimited}
                     effectiveLimits={{
                       maxIntensity: selectedUsers.length > 0 
                         ? Math.min(...selectedUsers.map(u => userPiShockStatus[u.id]?.maxIntensity || 100))
