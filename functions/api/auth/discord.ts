@@ -118,12 +118,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       env.PISHOCK_KV.put(`discord_token_validation:${access_token.slice(-8)}`, JSON.stringify(user), {
         expirationTtl: Math.min(expires_in - 60, 1800) // Cache for 30 minutes or token expiry, whichever is shorter
       }),
-      // Store instance-user mapping with shorter keys
-      env.PISHOCK_KV.put(`instance_user:${instanceId.slice(-8)}:${user.id}`, JSON.stringify({
-        instanceId,
-        userId: user.id,
-        authenticatedAt: new Date().toISOString()
-      }), { expirationTtl: 21600 }), // 6 hours
       // Mark instance as active when user successfully authenticates
       env.PISHOCK_KV.put(`instance:${instanceId}:status`, JSON.stringify({
         status: 'active',

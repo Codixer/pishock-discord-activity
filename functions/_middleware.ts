@@ -12,6 +12,46 @@ async function getCachedResponse(request: Request, cacheKey: string): Promise<Re
   }
 }
 
+// Compress large response bodies to reduce storage
+async function compressResponse(responseBody: string): Promise<string> {
+  // Only compress if body is larger than 1KB
+  if (responseBody.length < 1024) {
+    return responseBody;
+  }
+  
+  try {
+    // Use built-in compression for large responses
+    const compressed = new CompressionStream('gzip');
+    const writer = compressed.writable.getWriter();
+    const reader = compressed.readable.getReader();
+    
+    writer.write(new TextEncoder().encode(responseBody));
+    writer.close();
+    
+    const chunks = [];
+    let done = false;
+    
+    while (!done) {
+      const { value, done: readerDone } = await reader.read();
+      done = readerDone;
+      if (value) chunks.push(value);
+    }
+    
+    // Convert compressed data to base64 for storage
+    const compressedArray = new Uint8Array(chunks.reduce((acc, chunk) => acc + chunk.length, 0));
+    let offset = 0;
+    for (const chunk of chunks) {
+      compressedArray.set(chunk, offset);
+      offset += chunk.length;
+    }
+    
+    return btoa(String.fromCharCode(...compressedArray));
+  } catch (error) {
+    console.warn('Compression failed, using original:', error);
+    return responseBody;
+  }
+}
+
 async function setCachedResponse(request: Request, response: Response, cacheKey: string, maxAge: number): Promise<void> {
   try {
     const cache = caches.default;
@@ -21,6 +61,12 @@ async function setCachedResponse(request: Request, response: Response, cacheKey:
     // Add cache headers
     responseToCache.headers.set('Cache-Control', `public, max-age=${maxAge}`);
     responseToCache.headers.set('X-Cache-Status', 'MISS');
+    
+    // Add compression header if response is large
+    const responseText = await responseToCache.text();
+    if (responseText.length > 1024) {
+      responseToCache.headers.set('X-Compressed', 'true');
+    }
     
     await cache.put(cacheRequest, responseToCache);
   } catch (error) {
@@ -61,7 +107,7 @@ export async function onRequest(context: any) {
   // Cache successful GET responses
   if (request.method === 'GET' && response.status === 200) {
     const cachePaths = [
-      { path: '/api/users/', maxAge: 120 }, // 2 minutes
+      { path: '/api/users/', maxAge: 60 }, // 1 minute (faster updates)
       { path: '/api/discord/guilds/', maxAge: 300 }, // 5 minutes  
       { path: '/api/activity-log', maxAge: 30 } // 30 seconds
     ];

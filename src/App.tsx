@@ -13,6 +13,7 @@ import { TermsOfService } from './components/TermsOfService';
 import { useNotifications } from './hooks/useNotifications';
 import { useInstanceData } from './hooks/useInstanceData';
 import { useParticipants } from './hooks/useParticipants';
+import { useUserStatusCache } from './hooks/useUserStatusCache';
 
 // Global function to refresh user statuses
 declare global {
@@ -101,6 +102,9 @@ function MainApp() {
   const [isPipMode, setIsPipMode] = useState(false);
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
+  
+  // Client-side cache for user status
+  const userStatusCache = useUserStatusCache();
   
   // Get current version from build
   const currentVersion = __BUILD_VERSION__;
@@ -225,6 +229,13 @@ function MainApp() {
     try {
       const statusPromises = participants.map(async (participant) => {
         try {
+          // Check client-side cache first
+          const cachedStatus = userStatusCache.getCachedStatus(participant.id);
+          if (cachedStatus) {
+            console.log(`Using cached status for ${participant.username}`);
+            return { userId: participant.id, status: cachedStatus };
+          }
+          
           console.log(`Checking status for ${participant.username} (${participant.id})`);
           const response = await fetch(`${getApiBaseUrl()}/users/${participant.id}/pishock-status`, {
             headers: {
@@ -235,7 +246,8 @@ function MainApp() {
           if (response.ok) {
             const status = await response.json();
             console.log(`Status for ${participant.username}:`, status);
-            return { 
+            
+            const processedStatus = {
               userId: participant.id, 
               status: {
                 isConnected: status.isConnected,
@@ -249,6 +261,11 @@ function MainApp() {
                 bannedExecutors: []
               }
             };
+            
+            // Cache the result on client side
+            userStatusCache.setCachedStatus(participant.id, processedStatus.status);
+            
+            return processedStatus;
           } else {
             console.warn(`Failed to check status for ${participant.username}: ${response.status} ${response.statusText}`);
           }
@@ -608,13 +625,15 @@ function MainApp() {
   useEffect(() => {
     if (!instanceId || !auth || participants.length === 0) return;
 
-    // Optimized frequency: Check status every 2 minutes to align with backend cache TTL (120 seconds)
+    // Optimized frequency: Check status every 90 seconds with client-side caching
     const interval = setInterval(() => {
+      // Clean up expired cache entries first
+      userStatusCache.cleanupExpired();
       checkAllUserPiShockStatus();
-    }, 120000); // 2 minutes - matches backend cache duration
+    }, 90000); // 90 seconds with client cache helping reduce load
 
     return () => clearInterval(interval);
-  }, [instanceId, auth, participants]);
+  }, [instanceId, auth, participants, userStatusCache]);
 
   // Save instance data when selectedUser changes
   useEffect(() => {

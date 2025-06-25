@@ -324,6 +324,20 @@ async function validateShareCode(username: string, apiKey: string, sharecode: st
   }
 }
 
+// Helper function to check if settings data has changed
+function hasSettingsChanged(existing: any, newData: any): boolean {
+  if (!existing) return true;
+  
+  // Compare key fields that would affect functionality
+  const existingCreds = existing.credentials ? JSON.parse(atob(existing.credentials)) : {};
+  
+  return existing.maxIntensity !== newData.maxIntensity ||
+         existing.maxDuration !== newData.maxDuration ||
+         JSON.stringify(existing.bannedExecutors || []) !== JSON.stringify(newData.bannedExecutors || []) ||
+         existingCreds.username !== newData.username ||
+         existingCreds.sharecode !== newData.sharecode;
+}
+
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env, params } = context;
   const method = request.method;
@@ -625,7 +639,16 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : []
       };
       
-      await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
+      // Only write if data has actually changed to reduce unnecessary KV operations
+      const existingUserDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
+      const existingUserData = existingUserDataStr ? JSON.parse(existingUserDataStr) : null;
+      
+      if (hasSettingsChanged(existingUserData, userData)) {
+        await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
+        console.log('SETTINGS: ✓ Settings updated for user:', userId);
+      } else {
+        console.log('SETTINGS: No changes detected, skipping write for user:', userId);
+      }
 
       console.log('✓ Settings saved successfully for user:', userId);
       

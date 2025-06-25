@@ -139,16 +139,16 @@ function getUserStatusCacheKey(userId: string): string {
   return `cache:user_status:${userId}`;
 }
 
-// Cache user status for 2 minutes to reduce API calls
+// Optimized cache management with conditional writes
 async function getCachedUserStatus(kv: KVNamespace, userId: string) {
   try {
     const cacheKey = getUserStatusCacheKey(userId);
     const cached = await kv.get(cacheKey);
     if (cached) {
       const cachedData = JSON.parse(cached);
-      // Check if cache is still valid (2 minutes)
+      // Check if cache is still valid (1 minute for faster updates)
       const cacheAge = Date.now() - new Date(cachedData.timestamp).getTime();
-      if (cacheAge < 120000) { // 2 minutes
+      if (cacheAge < 60000) { // 1 minute
         console.log('STATUS: Using cached status for user:', userId);
         return cachedData.status;
       }
@@ -159,16 +159,34 @@ async function getCachedUserStatus(kv: KVNamespace, userId: string) {
   return null;
 }
 
-async function setCachedUserStatus(kv: KVNamespace, userId: string, status: any) {
+// Only write to cache if data has actually changed
+async function setCachedUserStatus(kv: KVNamespace, userId: string, newStatus: any) {
   try {
     const cacheKey = getUserStatusCacheKey(userId);
+    
+    // Check existing cache to avoid unnecessary writes
+    const existing = await kv.get(cacheKey);
+    if (existing) {
+      const existingData = JSON.parse(existing);
+      // Compare key status fields to see if update is needed
+      const hasChanges = existingData.status?.isConnected !== newStatus.isConnected ||
+                        existingData.status?.hasCredentials !== newStatus.hasCredentials ||
+                        existingData.status?.maxIntensity !== newStatus.maxIntensity ||
+                        existingData.status?.maxDuration !== newStatus.maxDuration;
+      
+      if (!hasChanges) {
+        console.log('STATUS: No changes detected, skipping cache write for user:', userId);
+        return;
+      }
+    }
+    
     const cacheData = {
-      status,
+      status: newStatus,
       timestamp: new Date().toISOString()
     };
-    // Cache for 5 minutes with TTL
-    await kv.put(cacheKey, JSON.stringify(cacheData), { expirationTtl: 300 });
-    console.log('STATUS: Cached status for user:', userId, status);
+    // Cache for 2 minutes with TTL
+    await kv.put(cacheKey, JSON.stringify(cacheData), { expirationTtl: 120 });
+    console.log('STATUS: Updated cache for user:', userId, 'isConnected:', newStatus.isConnected);
   } catch (error) {
     console.warn('STATUS: Cache write error:', error);
   }

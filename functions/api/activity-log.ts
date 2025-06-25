@@ -98,13 +98,13 @@ async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
     batchData.lastUpdated = entry.timestamp;
     batchData.totalCount++;
     
-    // Limit entries per batch to prevent value size issues
-    if (batchData.entries.length > 200) {
-      batchData.entries = batchData.entries.slice(0, 200);
+    // Limit entries per batch to prevent value size issues (reduced from 200 to 150 for better performance)
+    if (batchData.entries.length > 150) {
+      batchData.entries = batchData.entries.slice(0, 150);
     }
     
-    // Store with 30-day TTL to auto-cleanup old logs
-    await kv.put(batchKey, JSON.stringify(batchData), { expirationTtl: 2592000 });
+    // Store with 7-day TTL to auto-cleanup old logs (reduced from 30 days for better KV management)
+    await kv.put(batchKey, JSON.stringify(batchData), { expirationTtl: 604800 });
   } catch (error) {
     console.error('Failed to update activity batch:', error);
   }
