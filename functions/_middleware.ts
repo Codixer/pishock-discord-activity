@@ -35,45 +35,6 @@ async function compressResponse(responseBody: string): Promise<string> {
       const { value, done: readerDone } = await reader.read();
       done = readerDone;
       if (value) chunks.push(value);
-    }
-    
-    // Convert compressed data to base64 for storage
-    const compressedArray = new Uint8Array(chunks.reduce((acc, chunk) => acc + chunk.length, 0));
-    let offset = 0;
-    for (const chunk of chunks) {
-      compressedArray.set(chunk, offset);
-      offset += chunk.length;
-    }
-    
-    return btoa(String.fromCharCode(...compressedArray));
-  } catch (error) {
-    console.warn('Compression failed, using original:', error);
-    return responseBody;
-  }
-}
-
-async function setCachedResponse(request: Request, response: Response, cacheKey: string, maxAge: number): Promise<void> {
-  try {
-    const cache = caches.default;
-    const cacheRequest = new Request(cacheKey, request);
-    const responseToCache = response.clone();
-    
-    // Add cache headers
-    responseToCache.headers.set('Cache-Control', `public, max-age=${maxAge}`);
-    responseToCache.headers.set('X-Cache-Status', 'MISS');
-    
-    // Add compression header if response is large
-    const responseText = await responseToCache.text();
-    if (responseText.length > 1024) {
-      responseToCache.headers.set('X-Compressed', 'true');
-    }
-    
-    await cache.put(cacheRequest, responseToCache);
-  } catch (error) {
-    console.warn('Cache write error:', error);
-  }
-}
-
 export async function onRequest(context: any) {
   const { request } = context;
   const url = new URL(request.url);
