@@ -56,19 +56,31 @@ async function setCachedResponse(request: Request, response: Response, cacheKey:
   try {
     const cache = caches.default;
     const cacheRequest = new Request(cacheKey, request);
+    
+    // Clone the response first
     const responseToCache = response.clone();
     
-    // Add cache headers
-    responseToCache.headers.set('Cache-Control', `public, max-age=${maxAge}`);
-    responseToCache.headers.set('X-Cache-Status', 'MISS');
+    // Get the response text from a separate clone to avoid consuming the body
+    const responseForSizeCheck = response.clone();
+    const responseText = await responseForSizeCheck.text();
+    
+    // Create a new response with the original body and modified headers
+    const newHeaders = new Headers(responseToCache.headers);
+    newHeaders.set('Cache-Control', `public, max-age=${maxAge}`);
+    newHeaders.set('X-Cache-Status', 'MISS');
     
     // Add compression header if response is large
-    const responseText = await responseToCache.text();
     if (responseText.length > 1024) {
-      responseToCache.headers.set('X-Compressed', 'true');
+      newHeaders.set('X-Compressed', 'true');
     }
     
-    await cache.put(cacheRequest, responseToCache);
+    const finalResponse = new Response(responseText, {
+      status: responseToCache.status,
+      statusText: responseToCache.statusText,
+      headers: newHeaders
+    });
+    
+    await cache.put(cacheRequest, finalResponse);
   } catch (error) {
     console.warn('Cache write error:', error);
   }

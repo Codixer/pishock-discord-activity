@@ -1,16 +1,33 @@
-interface Env {
-  PISHOCK_KV: KVNamespace;
+// Type declarations for Cloudflare Workers
+declare global {
+  interface KVNamespace {
+    get(key: string): Promise<string | null>;
+    put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+    delete(key: string): Promise<void>;
+  }
 }
 
-function jsonResponse(body: any, status = 200) {
+interface Env {
+  PISHOCK_KV: KVNamespace;
+  CONTROLLER_PLUS_SKU_ID?: string;
+}
+
+interface PagesFunction<Env = unknown> {
+  (context: { request: Request; env: Env; params: Record<string, string>; waitUntil: (promise: Promise<any>) => void; passThroughOnException: () => void; }): Promise<Response> | Response;
+}
+
+function jsonResponse(body: any, status = 200, additionalHeaders: Record<string, string> = {}) {
+  const headers = { 
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    ...additionalHeaders
+  };
+  
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    },
+    headers,
   });
 }
 
@@ -20,6 +37,7 @@ async function requireAuth(request: Request): Promise<string | null> {
   return auth.slice(7);
 }
 
+// Optimized token validation with user-ID based caching
 async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
   try {
     const cacheKey = `discord_token_validation:${token.slice(-8)}`; // Use last 8 chars to avoid storing full token
@@ -34,10 +52,12 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     });
     
     if (!response.ok) {
+      console.log('TOKEN_VALIDATION: Token validation failed:', response.status);
       throw new Error('Invalid Discord token');
     }
     
     const userData = await response.json();
+    console.log('TOKEN_VALIDATION: ✓ Token validation successful for user:', userData.id);
     
     await kv.put(cacheKey, JSON.stringify(userData), {
       expirationTtl: 300 // 5 minutes
@@ -45,6 +65,7 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     
     return userData;
   } catch (error) {
+    console.error('TOKEN_VALIDATION: Error validating token:', error);
     return null;
   }
 }
@@ -86,6 +107,8 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       }
       return { valid: false };
     }
+      // Look for UserID field as specified in documentation
+    let userId: string | null = null;
     
     let userId = null;
     
@@ -103,6 +126,9 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
     
     if (userId && /^\d+$/.test(userId)) {
       return { valid: true, userId };
+    } else {
+      console.log('STATUS: No valid user ID found in response');
+      return { valid: false };
     }
     
     return { valid: false };
@@ -117,7 +143,24 @@ function getUserStatusCacheKey(userId: string): string {
 
 async function getCachedUserStatus(kv: KVNamespace, userId: string) {
   try {
-    const cacheKey = getUserStatusCacheKey(userId);
+    let finalUserId = userId;
+    
+    // Only fetch user ID if not provided
+    if (!finalUserId) {
+      const userResponse = await fetch('https://discord.com/api/users/@me', {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      
+      if (!userResponse.ok) {
+        return false;
+      }
+      
+      const userData = await userResponse.json();
+      finalUserId = userData.id;
+    }
+    
+    // Much shorter cache to prevent accumulation
+    const cacheKey = `ent:${finalUserId}`;
     const cached = await kv.get(cacheKey);
     if (cached) {
       const cachedData = JSON.parse(cached);
@@ -147,11 +190,45 @@ async function setCachedUserStatus(kv: KVNamespace, userId: string, newStatus: a
       if (!hasChanges) {
         return;
       }
+      return false;
     }
+
+    const entitlements = await response.json();
     
+    // Check for entitlement
+    const hasEntitlement = entitlements.some((entitlement: any) => {
+      const matchesSku = entitlement.sku_id === skuId || 
+                        entitlement.sku_id?.toString().includes('controller_plus') ||
+                        entitlement.sku_id?.toString().includes('multishock') ||
+                        entitlement.sku_id?.toString().includes('1387037988558606457');
+      
+      const isNotDeleted = !entitlement.deleted;
+      const isNotExpired = !entitlement.ends_at || new Date(entitlement.ends_at) > new Date();
+      const isStarted = !entitlement.starts_at || new Date(entitlement.starts_at) <= new Date();
+      const isValidType = [1, 3, 4, 5, 7, 8].includes(entitlement.type);
+      
+      const isActive = isNotDeleted && isNotExpired && isStarted && isValidType;
+      console.log('STATUS: Checking entitlement:', {
+        skuId: entitlement.sku_id,
+        matchesSku,
+        isNotDeleted,
+        isNotExpired,
+        isStarted,
+        isValidType,
+        isActive
+      });
+      // Log the entitlement check
+      if (matchesSku) {
+        console.log('STATUS: Found matching entitlement:', entitlement);
+      }
+      
+      return matchesSku && isActive;
+    });
+
+    // Minimal cache data
     const cacheData = {
-      status: newStatus,
-      timestamp: new Date().toISOString()
+      hasEntitlement,
+      checkedAt: new Date().toISOString()
     };
     await kv.put(cacheKey, JSON.stringify(cacheData), { expirationTtl: 120 });
   } catch (error) {
@@ -295,14 +372,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       lastTested,
       isRelay: false,
       maxIntensity,
-      maxDuration
+      maxDuration,
+      hasControllerPlus
     };
     
     await setCachedUserStatus(env.PISHOCK_KV, userId, result);
     
     return jsonResponse(result, 200, {
-      'Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
-      'X-Cache-Status': 'MISS'
+      'Cache-Control': 'public, max-age=30, stale-while-revalidate=15',
     });
   } catch (error) {
     return jsonResponse({ 

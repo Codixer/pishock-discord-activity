@@ -1,5 +1,14 @@
 import { v4 as uuidv4 } from 'uuid';
 
+// Type declarations for Cloudflare Workers
+declare global {
+  interface KVNamespace {
+    get(key: string): Promise<string | null>;
+    put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+    delete(key: string): Promise<void>;
+  }
+}
+
 interface Env {
   PISHOCK_KV: KVNamespace;
   DISCORD_CLIENT_ID: string;
@@ -7,15 +16,22 @@ interface Env {
   DISCORD_REDIRECT_URI?: string;
 }
 
-function jsonResponse(body: any, status = 200) {
+interface PagesFunction<Env = unknown> {
+  (context: { request: Request; env: Env; params: Record<string, string>; waitUntil: (promise: Promise<any>) => void; passThroughOnException: () => void; }): Promise<Response> | Response;
+}
+
+function jsonResponse(body: any, status = 200, additionalHeaders: Record<string, string> = {}) {
+  const headers = { 
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    ...additionalHeaders
+  };
+  
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    },
+    headers,
   });
 }
 
@@ -101,7 +117,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       env.PISHOCK_KV.put(`discord_token:${user.id}`, access_token, { 
         expirationTtl: expires_in - 60
       }),
-      env.PISHOCK_KV.put(`discord_auth:refresh_token:${user.id}`, refresh_token),
       env.PISHOCK_KV.put(`discord_user:${user.id}`, JSON.stringify(user), {
         expirationTtl: 86400
       }),
