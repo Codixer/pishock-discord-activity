@@ -10,34 +10,28 @@ async function requireAuth(request: Request): Promise<string | null> {
 
 async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
   try {
-    // Try to get cached validation result first
-    const cacheKey = `discord_token_validation:${token.slice(-8)}`; // Use last 8 chars to avoid storing full token
-    const cached = await kv.get(cacheKey);
-    if (cached) {
-      const cachedData = JSON.parse(cached);
-      console.log('TOKEN_VALIDATION: Using cached Discord token validation');
-      return cachedData;
-    }
-    
-    console.log('TOKEN_VALIDATION: Fetching fresh Discord token validation');
+    console.log('TOKEN_VALIDATION: Validating Discord token');
     const response = await fetch('https://discord.com/api/users/@me', {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     
     if (!response.ok) {
+      console.log('TOKEN_VALIDATION: Token validation failed:', response.status);
       throw new Error('Invalid Discord token');
     }
     
     const userData = await response.json();
+    console.log('TOKEN_VALIDATION: ✓ Token validation successful for user:', userData.id);
     
-    // Cache the validation result for 5 minutes
-    await kv.put(cacheKey, JSON.stringify(userData), {
-      expirationTtl: 300 // 5 minutes
+    // Cache user data using stable user ID (not token-based)
+    await kv.put(`discord_user:${userData.id}`, JSON.stringify(userData), {
+      expirationTtl: 86400 // 24 hours
     });
     
-    console.log('TOKEN_VALIDATION: ✓ Cached fresh Discord token validation');
+    console.log('TOKEN_VALIDATION: ✓ Cached user data for:', userData.id);
     return userData;
   } catch (error) {
+    console.error('TOKEN_VALIDATION: Error validating token:', error);
     return null;
   }
 }

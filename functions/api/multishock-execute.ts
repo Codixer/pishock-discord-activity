@@ -45,17 +45,28 @@ async function requireAuth(request: Request): Promise<string | null> {
 // Streamlined token validation
 async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
   try {
+    console.log('TOKEN_VALIDATION: Validating Discord token');
     const response = await fetch('https://discord.com/api/users/@me', {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     
     if (!response.ok) {
+      console.log('TOKEN_VALIDATION: Token validation failed:', response.status);
       throw new Error('Invalid Discord token');
     }
     
     const userData = await response.json();
+    console.log('TOKEN_VALIDATION: ✓ Token validation successful for user:', userData.id);
+    
+    // Cache user data using stable user ID (not token-based)
+    await kv.put(`discord_user:${userData.id}`, JSON.stringify(userData), {
+      expirationTtl: 86400 // 24 hours
+    });
+    
+    console.log('TOKEN_VALIDATION: ✓ Cached user data for:', userData.id);
     return userData;
   } catch (error) {
+    console.error('TOKEN_VALIDATION: Error validating token:', error);
     return null;
   }
 }
