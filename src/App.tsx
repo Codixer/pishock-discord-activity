@@ -42,7 +42,6 @@ const envCheck = {
   dev_mode: import.meta.env.DEV,
   env_keys: Object.keys(import.meta.env).filter(key => key.startsWith('VITE_')),
 };
-console.log('Environment check:', envCheck);
 
 // Initialize Discord SDK with dummy parameters if not embedded
 let discordSdk: DiscordSDK;
@@ -50,13 +49,10 @@ let discordSdk: DiscordSDK;
 if (isEmbedded) {
   const clientId = import.meta.env.VITE_DISCORD_CLIENT_ID;
   if (!clientId || clientId === 'YOUR_DISCORD_CLIENT_ID_HERE') {
-    console.error('❌ VITE_DISCORD_CLIENT_ID is not set or still using placeholder value');
-    console.error('💡 Solution: Set VITE_DISCORD_CLIENT_ID in Cloudflare Pages Dashboard → Settings → Environment variables');
     throw new Error('Discord Client ID is required. Please set VITE_DISCORD_CLIENT_ID in Cloudflare Pages Dashboard');
   }
   discordSdk = new DiscordSDK(clientId, {disableConsoleLogOverride: true});
 } else {
-  // Add dummy query parameters for development
   const dummyParams = new URLSearchParams({
     frame_id: 'dummy_frame_id',
     instance_id: 'dummy_instance_id',
@@ -64,7 +60,6 @@ if (isEmbedded) {
     sdk_version: '1.0.0'
   });
   
-  // Temporarily modify the URL for SDK initialization
   const originalSearch = window.location.search;
   const newUrl = `${window.location.pathname}?${dummyParams.toString()}`;
   window.history.replaceState({}, '', newUrl);
@@ -73,7 +68,6 @@ if (isEmbedded) {
   const clientId = import.meta.env.VITE_DISCORD_CLIENT_ID || 'dev_dummy_client_id';
   discordSdk = new DiscordSDK(clientId, {disableConsoleLogOverride: true});
   
-  // Restore original URL
   window.history.replaceState({}, '', `${window.location.pathname}${originalSearch}`);
 }
 
@@ -115,26 +109,20 @@ function MainApp() {
 
   // Handle layout mode updates
   const handleLayoutModeUpdate = useCallback((update: { layout_mode: number }) => {
-    console.log('Layout mode update:', update);
     setLayoutMode(update.layout_mode);
     setIsPipMode(update.layout_mode === Common.LayoutModeTypeObject.PIP);
   }, []);
 
   // Graceful shutdown handler
   const handleGracefulShutdown = useCallback(() => {
-    console.log('Starting graceful shutdown...');
-    
-    // Clean up Discord SDK subscriptions
     if (isEmbedded && discordSdk) {
       try {
         discordSdk.unsubscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
         discordSdk.unsubscribeFromLayoutModeUpdatesCompat(handleLayoutModeUpdate);
       } catch (error) {
-        console.warn('Error unsubscribing from Discord events:', error);
+        // Silently handle cleanup errors
       }
     }
-    
-    console.log('Graceful shutdown completed');
   }, [isEmbedded, updateParticipants, handleLayoutModeUpdate]);
 
   // Show Discord-only message for direct visits
@@ -219,24 +207,18 @@ function MainApp() {
 
   // Function to check PiShock status for all participants
   const checkAllUserPiShockStatus = async () => {
-    // Don't check PiShock status in development mode
     if (!isEmbedded) return;
     
     if (!instanceId || !auth || participants.length === 0) return;
 
-    console.log('Checking PiShock status for participants:', participants.map(p => ({ id: p.id, username: p.username })));
-
     try {
       const statusPromises = participants.map(async (participant) => {
         try {
-          // Check client-side cache first
           const cachedStatus = userStatusCache.getCachedStatus(participant.id);
           if (cachedStatus) {
-            console.log(`Using cached status for ${participant.username}`);
             return { userId: participant.id, status: cachedStatus };
           }
           
-          console.log(`Checking status for ${participant.username} (${participant.id})`);
           const response = await fetch(`${getApiBaseUrl()}/users/${participant.id}/pishock-status`, {
             headers: {
               'Authorization': `Bearer ${auth.access_token}`,
@@ -245,7 +227,6 @@ function MainApp() {
           
           if (response.ok) {
             const status = await response.json();
-            console.log(`Status for ${participant.username}:`, status);
             
             const processedStatus = {
               userId: participant.id, 
@@ -262,15 +243,14 @@ function MainApp() {
               }
             };
             
-            // Cache the result on client side
             userStatusCache.setCachedStatus(participant.id, processedStatus.status);
             
             return processedStatus;
           } else {
-            console.warn(`Failed to check status for ${participant.username}: ${response.status} ${response.statusText}`);
+            // Silently handle failed status checks
           }
         } catch (error) {
-          console.error(`Failed to check PiShock status for ${participant.username}:`, error);
+          // Silently handle individual user errors
         }
         return { 
           userId: participant.id, 
@@ -294,10 +274,8 @@ function MainApp() {
         statusMap[userId] = status;
       });
       
-      console.log('Final status map:', statusMap);
       
       setUserPiShockStatus(prevStatus => {
-        // Only update if there are actual changes
         const hasChanges = Object.keys(statusMap).some(userId => 
           !prevStatus[userId] || 
           prevStatus[userId].isConnected !== statusMap[userId].isConnected ||
@@ -307,20 +285,15 @@ function MainApp() {
           prevStatus[userId].maxDuration !== statusMap[userId].maxDuration
         );
         
-        if (hasChanges) {
-          console.log('PiShock status updated:', statusMap);
-        }
-        
         return statusMap;
       });
     } catch (error) {
-      console.error('Failed to check user PiShock statuses:', error);
+      // Silently handle status check errors
     }
   };
 
   // Load ban lists for current user (who can be banned from shocking them)
   const loadCurrentUserBanList = async () => {
-    // Don't load ban list in development mode
     if (!isEmbedded) return;
     
     if (!auth?.user?.id) return;
@@ -335,7 +308,6 @@ function MainApp() {
       if (response.ok) {
         const result = await response.json();
         if (result.bannedExecutors) {
-          // Update the current user's banned executors in the status map
           setUserPiShockStatus(prevStatus => ({
             ...prevStatus,
             [auth.user.id]: {
@@ -346,44 +318,36 @@ function MainApp() {
         }
       }
     } catch (error) {
-      console.error('Failed to load ban list:', error);
+      // Silently handle ban list errors
     }
   };
 
   // Make the refresh function available globally
   window.refreshAllUserStatuses = checkAllUserPiShockStatus;
   
-  // Load ban list when auth changes
   useEffect(() => {
     if (auth?.user?.id) {
       loadCurrentUserBanList();
     }
   }, [auth?.user?.id]);
   
-  // Make user status available globally for PiShockController
   (window as any).userPiShockStatus = userPiShockStatus;
 
-  // Function to manually refresh participants
   const refreshParticipants = useCallback(async () => {
     if (!isEmbedded || !discordSdk || !auth) {
-      console.log('Cannot refresh participants: not embedded or no auth');
       return;
     }
 
     try {
-      console.log('Manually refreshing participants...');
       const participantsData = await discordSdk.commands.getInstanceConnectedParticipants();
       updateParticipants(participantsData.participants);
       
-      // Also refresh user statuses after updating participants
       setTimeout(() => {
         checkAllUserPiShockStatus();
-      }, 1000); // Small delay to ensure participants are updated first
+      }, 1000);
       
       addNotification('success', 'Participants Refreshed', `Found ${participantsData.participants.length} participant${participantsData.participants.length !== 1 ? 's' : ''}`);
-      console.log('✓ Participants refreshed:', participantsData.participants.length);
     } catch (error) {
-      console.error('Failed to refresh participants:', error);
       addNotification('error', 'Refresh Failed', 'Failed to refresh participant list');
     }
   }, [isEmbedded, discordSdk, auth, updateParticipants, checkAllUserPiShockStatus, addNotification]);
@@ -394,36 +358,28 @@ function MainApp() {
         if (isEmbedded) {
           await discordSdk.ready();
           
-          // Configure orientation for PIP mode
           try {
             await discordSdk.commands.setOrientationLockState({
               lock_state: Common.OrientationLockStateTypeObject.UNLOCKED,
               picture_in_picture_lock_state: Common.OrientationLockStateTypeObject.LANDSCAPE,
               grid_lock_state: Common.OrientationLockStateTypeObject.LANDSCAPE,
             });
-            console.log('✓ Orientation lock state configured for PIP mode');
           } catch (orientationError) {
-            console.warn('Failed to set orientation lock state:', orientationError);
+            // Silently handle orientation errors
           }
 
-          // Subscribe to layout mode updates
           try {
             discordSdk.subscribeToLayoutModeUpdatesCompat(handleLayoutModeUpdate);
-            console.log('✓ Subscribed to layout mode updates');
           } catch (layoutError) {
-            console.warn('Failed to subscribe to layout mode updates:', layoutError);
+            // Silently handle layout subscription errors
           }
 
-          // Get instance ID immediately after SDK construction
           const currentInstanceId = discordSdk.instanceId;
           setInstanceId(currentInstanceId);
 
-          // Verify instance with Discord's API before proceeding
-          console.log('Verifying Discord instance:', currentInstanceId);
           const verifyResponse = await fetch(`${getApiBaseUrl()}/verify-instance?application_id=${import.meta.env.VITE_DISCORD_CLIENT_ID}&instance_id=${currentInstanceId}`);
           
           if (!verifyResponse.ok) {
-            console.error('Instance verification failed:', verifyResponse.status);
             setIsInstanceValid(false);
             setLoading(false);
             addNotification('error', 'Invalid Session', 'This Discord Activity session is not valid or has expired.');
@@ -432,14 +388,12 @@ function MainApp() {
 
           const verifyData = await verifyResponse.json();
           if (!verifyData.valid) {
-            console.error('Instance not valid:', verifyData.error);
             setIsInstanceValid(false);
             setLoading(false);
             addNotification('error', 'Invalid Session', verifyData.error || 'This Discord Activity session is not valid.');
             return;
           }
 
-          // Authenticate with Discord
           const { code } = await discordSdk.commands.authorize({
             client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
             response_type: 'code',
@@ -453,7 +407,6 @@ function MainApp() {
             ],
           });
 
-          // Exchange code for access token via backend using proxy
           const response = await fetch(`${getApiBaseUrl()}/auth/discord`, {
             method: 'POST',
             headers: {
@@ -473,12 +426,10 @@ function MainApp() {
 
           setAuth(authResult);
 
-          // Subscribe to participant updates
           discordSdk.subscribe(
             Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE,
             (data: any) => {
               updateParticipants(data.participants);
-              // Update global participants for ban management
               (window as any).discordParticipants = data.participants;
             }
           );
@@ -487,13 +438,10 @@ function MainApp() {
           const initialParticipants = await discordSdk.commands.getInstanceConnectedParticipants();
           updateParticipants(initialParticipants.participants);
 
-          // Make participants available globally for ban management
           (window as any).discordParticipants = initialParticipants.participants;
 
           addNotification('success', 'Connected', 'Successfully connected to Discord');
         } else {
-          // Development environment - only allow in actual dev mode
-          console.log('Development mode: Using mock Discord data');
           const mockInstanceId = 'dev_instance_123';
           setInstanceId(mockInstanceId);
           
@@ -527,7 +475,6 @@ function MainApp() {
           setAuth(mockAuth);
           updateParticipants(mockParticipants);
           
-          // Make participants available globally for ban management
           (window as any).discordParticipants = mockParticipants;
           
           addNotification('info', 'Development Mode', 'Running in development mode with mock data');
@@ -535,10 +482,7 @@ function MainApp() {
 
         setLoading(false);
       } catch (error) {
-        console.error('Discord initialization error:', error);
-        // Silently ignore BigInt conversion errors in development mode
         if (!isEmbedded && error instanceof Error && error.message.includes('Cannot convert')) {
-          console.warn('Ignoring BigInt conversion error in development mode:', error.message);
           setLoading(false);
           return;
         }
@@ -549,11 +493,9 @@ function MainApp() {
 
     initializeDiscord();
 
-    // Cleanup subscriptions on unmount
     return () => {
       if (isEmbedded && discordSdk) {
         discordSdk.unsubscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
-        // Layout mode cleanup - check if method exists before calling
         if (typeof discordSdk.unsubscribeFromLayoutModeUpdatesCompat === 'function') {
           discordSdk.unsubscribeFromLayoutModeUpdatesCompat(handleLayoutModeUpdate);
         }
@@ -561,10 +503,8 @@ function MainApp() {
     };
   }, [addNotification, updateParticipants, handleLayoutModeUpdate]);
 
-  // Load instance data when instanceId changes
   useEffect(() => {
     if (instanceId && auth) {
-      // Load instance-specific data from backend using proxy
       fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
@@ -575,14 +515,10 @@ function MainApp() {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
           }
           
-          // Check if response is actually JSON
           const contentType = response.headers.get('content-type');
           if (!contentType || !contentType.includes('application/json')) {
             const responseText = await response.text();
-            console.warn('Expected JSON response but received:', responseText.substring(0, 200));
-            // Silently ignore non-JSON responses in development mode
             if (!isEmbedded) {
-              console.warn('Ignoring non-JSON response in development mode');
               return {};
             }
             throw new Error('Response is not JSON');
@@ -600,13 +536,9 @@ function MainApp() {
           }
         })
         .catch(error => {
-          console.error('Failed to load instance data:', error);
-          // Silently ignore JSON parsing errors in development mode
           if (!isEmbedded && (error.message.includes('Unexpected token') || error.message.includes('not valid JSON'))) {
-            console.warn('Ignoring JSON parsing error in development mode:', error.message);
             return;
           }
-          // Only show notification for non-development errors
           if (isEmbedded) {
             addNotification('warning', 'Data Load Failed', 'Could not load instance data');
           }
@@ -614,28 +546,23 @@ function MainApp() {
     }
   }, [instanceId, auth, participants, updateInstanceData, addNotification]);
 
-  // Check PiShock status for all participants
   useEffect(() => {
     if (instanceId && auth && participants.length > 0) {
       checkAllUserPiShockStatus();
     }
   }, [instanceId, auth, participants]);
 
-  // Set up periodic status checking for real-time updates
   useEffect(() => {
     if (!instanceId || !auth || participants.length === 0) return;
 
-    // Optimized frequency: Check status every 90 seconds with client-side caching
     const interval = setInterval(() => {
-      // Clean up expired cache entries first
       userStatusCache.cleanupExpired();
       checkAllUserPiShockStatus();
-    }, 90000); // 90 seconds with client cache helping reduce load
+    }, 90000);
 
     return () => clearInterval(interval);
   }, [instanceId, auth, participants, userStatusCache]);
 
-  // Save instance data when selectedUser changes
   useEffect(() => {
     if (instanceId && auth && selectedUser) {
       fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
@@ -649,8 +576,6 @@ function MainApp() {
           lastUpdated: new Date().toISOString(),
         }),
       }).catch(error => {
-        console.error('Failed to save instance data:', error);
-        // Silently ignore save errors in development mode
         if (isEmbedded) {
           addNotification('warning', 'Save Failed', 'Could not save instance data');
         }
@@ -706,7 +631,6 @@ function MainApp() {
 
   // Render minimal PIP interface
   if (isPipMode) {
-    console.log('Rendering PIP mode interface');
     return (
       <div className="h-screen w-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white overflow-hidden flex items-center justify-center">
         <NotificationSystem 
@@ -715,7 +639,6 @@ function MainApp() {
         />
         
         <div className="w-full h-full max-w-sm mx-auto p-4 flex flex-col">
-          {/* PIP Header */}
           <div className="text-center mb-4 flex-shrink-0">
             <div className="w-12 h-12 mx-auto bg-purple-500/20 rounded-full flex items-center justify-center mb-2">
               <Zap className="h-6 w-6 text-purple-400" />
@@ -726,7 +649,6 @@ function MainApp() {
             </p>
           </div>
 
-          {/* Minimal Controller */}
           <div className="flex-1 flex flex-col min-h-0">
             <PiShockController
               selectedUser={selectedUser}
@@ -742,7 +664,6 @@ function MainApp() {
             />
           </div>
 
-          {/* PIP Target Selection */}
           {participants.length > 1 && (
             <div className="mt-4 flex-shrink-0">
               <select
@@ -787,7 +708,6 @@ function MainApp() {
         onDismiss={dismissNotification} 
       />
       
-      {/* Header */}
       <div className="bg-black/20 backdrop-blur-sm border-b border-white/10 flex-shrink-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
           <div className="flex items-center justify-between">
@@ -841,11 +761,9 @@ function MainApp() {
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 overflow-hidden">
         <div className="h-full max-w-7xl mx-auto px-4 sm:px-6 py-4">
           <div className={`h-full grid gap-2 sm:gap-4 ${showActivityLog ? 'grid-cols-1 lg:grid-cols-4' : 'grid-cols-1 lg:grid-cols-3'}`}>
-            {/* User Selection */}
             <div className="lg:col-span-1 flex flex-col min-h-0">
               <UserSelector
                 members={participants}
@@ -859,7 +777,6 @@ function MainApp() {
               />
             </div>
 
-            {/* Main Controller */}
             <div className={`${showActivityLog ? 'lg:col-span-2' : 'lg:col-span-2'} flex flex-col min-h-0 order-1 lg:order-none`}>
               <PiShockController
                 selectedUser={selectedUser}
@@ -876,7 +793,6 @@ function MainApp() {
               />
             </div>
 
-            {/* Activity Log */}
             {showActivityLog && (
               <div className="lg:col-span-1 flex flex-col min-h-0 order-2 lg:order-none">
                 <ActivityLog
@@ -890,7 +806,6 @@ function MainApp() {
         </div>
       </div>
 
-      {/* Footer Safety Information */}
       <div className="flex-shrink-0 bg-red-900/20 border-t border-red-500/30 px-4 sm:px-6 py-2">
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center justify-between">
@@ -911,7 +826,6 @@ function MainApp() {
         </div>
       </div>
       
-      {/* Version Indicator - Bottom Right */}
       <div className="fixed bottom-4 right-4 z-40 flex items-center space-x-2 bg-black/40 backdrop-blur-sm border border-white/10 rounded-lg px-3 py-2 text-xs">
         <div className="flex items-center space-x-2">
           <div className="w-2 h-2 rounded-full bg-green-400"></div>
@@ -925,10 +839,8 @@ function MainApp() {
 }
 
 function App() {
-  const location = useLocation();
   const navigate = useNavigate();
 
-  // Handle navigation back to main app
   const handleBackToApp = () => {
     navigate('/');
   };
@@ -938,7 +850,6 @@ function App() {
       <Route path="/" element={<MainApp />} />
       <Route path="/privacy" element={<PrivacyPolicy onBack={handleBackToApp} />} />
       <Route path="/terms" element={<TermsOfService onBack={handleBackToApp} />} />
-      {/* Fallback route for any unmatched paths */}
       <Route path="*" element={<MainApp />} />
     </Routes>
   );

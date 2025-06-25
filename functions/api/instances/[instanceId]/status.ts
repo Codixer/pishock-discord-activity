@@ -22,16 +22,13 @@ async function requireAuth(request: Request): Promise<string | null> {
 
 async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
   try {
-    // Try to get cached validation result first
     const cacheKey = `discord_token_validation:${token.slice(-8)}`; // Use last 8 chars to avoid storing full token
     const cached = await kv.get(cacheKey);
     if (cached) {
       const cachedData = JSON.parse(cached);
-      console.log('TOKEN_VALIDATION: Using cached Discord token validation');
       return cachedData;
     }
     
-    console.log('TOKEN_VALIDATION: Fetching fresh Discord token validation');
     const response = await fetch('https://discord.com/api/users/@me', {
       headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -42,12 +39,10 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     
     const userData = await response.json();
     
-    // Cache the validation result for 5 minutes
     await kv.put(cacheKey, JSON.stringify(userData), {
       expirationTtl: 300 // 5 minutes
     });
     
-    console.log('TOKEN_VALIDATION: ✓ Cached fresh Discord token validation');
     return userData;
   } catch (error) {
     return null;
@@ -80,11 +75,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   try {
     if (method === 'GET') {
-      // Get instance status
       const statusData = await env.PISHOCK_KV.get(`instance:${instanceId}:status`);
       
       if (!statusData) {
-        // Instance doesn't exist or has expired
         return new Response('Instance not found or expired', { status: 404 });
       }
 
@@ -93,7 +86,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     if (method === 'PUT') {
-      // Update instance status
       const { status: newStatus, participant_count = 0 } = await request.json();
       
       if (!['active', 'inactive'].includes(newStatus)) {
@@ -120,14 +112,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         } : {})
       };
 
-      // Store with 7-day TTL for cleanup
       await env.PISHOCK_KV.put(
         `instance:${instanceId}:status`, 
         JSON.stringify(statusData), 
-        { expirationTtl: 21600 } // 6 hours
+        { expirationTtl: 21600 }
       );
-
-      console.log(`Instance ${instanceId} status updated to ${newStatus} by user ${user.id}`);
 
       return jsonResponse({ 
         success: true, 

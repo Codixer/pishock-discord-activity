@@ -85,9 +85,7 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
         setEntries(data.entries);
         setLastRefresh(new Date());
 
-        // Don't notify about new entries - removed notification
         if (silent && data.entries.length > previousCount) {
-          // Auto-scroll to bottom to show new entries
           setTimeout(() => {
             if (logContainerRef.current) {
               logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
@@ -98,7 +96,6 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
         throw new Error('Failed to load activity log');
       }
     } catch (error) {
-      console.error('Failed to load activity log:', error);
       if (!silent) {
         addNotification('error', 'Load Failed', 'Failed to load activity log');
       }
@@ -156,14 +153,11 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
     return 'text-red-400';
   };
 
-  // Safe BigInt conversion with fallback for development mock IDs
   const getDefaultAvatarIndex = (userId: string) => {
     try {
-      // Check if the ID is a valid number string
       if (/^\d+$/.test(userId)) {
         return (BigInt(userId) >> 22n) % 6n;
       } else {
-        // For non-numeric IDs (like dev_user_123), use a simple hash
         let hash = 0;
         for (let i = 0; i < userId.length; i++) {
           hash = ((hash << 5) - hash + userId.charCodeAt(i)) & 0xffffffff;
@@ -171,7 +165,6 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
         return Math.abs(hash) % 6;
       }
     } catch (error) {
-      // Fallback to index 0 if any error occurs
       return 0;
     }
   };
@@ -237,13 +230,11 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
         </div>
       </div>
 
-      {/* Last Refresh Info */}
       <div className="text-xs text-gray-400 px-4 pb-3 flex-shrink-0">
         Last updated: {lastRefresh.toLocaleTimeString()}
         {autoRefresh && <span className="ml-2 text-green-400">(Auto-refresh enabled)</span>}
       </div>
 
-      {/* Activity Log Content */}
       <div className="flex-1 overflow-hidden px-4 pb-4">
         {loading ? (
           <div className="flex items-center justify-center h-full">
@@ -266,15 +257,12 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
                 className={`p-3 rounded-lg border transition-all ${getActionColor(entry.action)}`}
               >
                 <div className="flex items-start space-x-3">
-                  {/* Action Icon */}
                   <div className="flex-shrink-0 mt-1">
                     {getActionIcon(entry.action)}
                   </div>
 
-                  {/* Main Content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center space-x-2 mb-2">
-                      {/* Executor Avatar */}
                       <img
                         src={entry.executorAvatar || `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(entry.executorUserId)}.png`}
                         alt={`${entry.executorUsername}'s avatar`}
@@ -293,7 +281,6 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
                         </span>
                       </span>
                       <span className="text-xs text-gray-400">→</span>
-                      {/* Target Avatar */}
                       <img
                         src={entry.targetAvatar || `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(entry.targetUserId)}.png`}
                         alt={`${entry.targetUsername}'s avatar`}

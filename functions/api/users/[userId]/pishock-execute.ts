@@ -41,16 +41,13 @@ async function requireAuth(request: Request): Promise<string | null> {
 
 async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
   try {
-    // Try to get cached validation result first
     const cacheKey = `discord_token_validation:${token.slice(-8)}`; // Use last 8 chars to avoid storing full token
     const cached = await kv.get(cacheKey);
     if (cached) {
       const cachedData = JSON.parse(cached);
-      console.log('TOKEN_VALIDATION: Using cached Discord token validation');
       return cachedData;
     }
     
-    console.log('TOKEN_VALIDATION: Fetching fresh Discord token validation');
     const response = await fetch('https://discord.com/api/users/@me', {
       headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -61,12 +58,10 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     
     const userData = await response.json();
     
-    // Cache the validation result for 5 minutes
     await kv.put(cacheKey, JSON.stringify(userData), {
       expirationTtl: 300 // 5 minutes
     });
     
-    console.log('TOKEN_VALIDATION: ✓ Cached fresh Discord token validation');
     return userData;
   } catch (error) {
     return null;
@@ -84,7 +79,6 @@ async function decrypt(encryptedData: string): Promise<any> {
 
 async function getUserInfo(kv: KVNamespace, userId: string, token: string): Promise<{ username: string; avatar?: string } | null> {
   try {
-    // First try to get from KV cache
     const cachedData = await kv.get(`discord_user:${userId}`);
     if (cachedData) {
       const user = JSON.parse(cachedData);
@@ -94,8 +88,6 @@ async function getUserInfo(kv: KVNamespace, userId: string, token: string): Prom
       };
     }
     
-    // If not in cache, fetch from Discord API
-    console.log('USER_INFO: Fetching user data from Discord API for:', userId);
     const response = await fetch(`https://discord.com/api/users/${userId}`, {
       headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -103,22 +95,19 @@ async function getUserInfo(kv: KVNamespace, userId: string, token: string): Prom
     if (response.ok) {
       const user = await response.json();
       
-      // Cache the user data for 24 hours (longer than original 1 hour)
       await kv.put(`discord_user:${userId}`, JSON.stringify(user), {
-        expirationTtl: 86400 // 24 hours
+        expirationTtl: 86400
       });
-      
-      console.log('USER_INFO: ✓ Fetched and cached user data for:', user.username || user.global_name);
       
       return {
         username: user.global_name || user.username || 'Unknown User',
         avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${userId}/${user.avatar}.png` : undefined
       };
     } else {
-      console.warn('USER_INFO: Failed to fetch user from Discord API:', response.status, response.statusText);
+      // Silently handle failed user fetch
     }
   } catch (error) {
-    console.error('USER_INFO: Error fetching user info:', error);
+    // Silently handle user info errors
   }
   
   return null;
@@ -126,13 +115,8 @@ async function getUserInfo(kv: KVNamespace, userId: string, token: string): Prom
 
 async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
   try {
-    console.log('ACTIVITY_LOG: Adding entry to batch for date:', new Date(entry.timestamp).toISOString().split('T')[0]);
-    
-    // Use date-based batching to reduce key count
     const date = new Date(entry.timestamp).toISOString().split('T')[0]; // YYYY-MM-DD
     const batchKey = `activity:batch:${date}`;
-    
-    console.log('ACTIVITY_LOG: Using batch key:', batchKey);
     
     let batch = await kv.get(batchKey);
     let batchData = batch ? JSON.parse(batch) : {
@@ -141,27 +125,18 @@ async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
       totalCount: 0
     };
     
-    console.log('ACTIVITY_LOG: Current batch has', batchData.entries.length, 'entries');
-    
-    // Add new entry at the beginning (newest first)
     batchData.entries.unshift(entry);
     batchData.lastUpdated = entry.timestamp;
     batchData.totalCount++;
     
-    console.log('ACTIVITY_LOG: Added entry, batch now has', batchData.entries.length, 'entries');
-    
-    // Limit entries per batch to prevent value size issues
     if (batchData.entries.length > 200) {
       batchData.entries = batchData.entries.slice(0, 200);
-      console.log('ACTIVITY_LOG: Trimmed batch to 200 entries');
     }
     
-    // Store with 30-day TTL to auto-cleanup old logs
     await kv.put(batchKey, JSON.stringify(batchData), { expirationTtl: 2592000 });
-    console.log('ACTIVITY_LOG: ✓ Successfully stored batch with', batchData.entries.length, 'entries');
   } catch (error) {
     console.error('Failed to update activity batch:', error);
-    throw error; // Re-throw to ensure calling code knows about the failure
+    throw error;
   }
 }
 
@@ -196,14 +171,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   try {
     const { executorUserId, intensity, duration, operation } = await request.json();
 
-    console.log('EXECUTE: Starting PiShock command execution');
-    console.log('EXECUTE: Target user:', targetUserId);
-    console.log('EXECUTE: Executor user:', executorUserId);
-    console.log('EXECUTE: Operation:', operation, '(0=shock, 1=vibrate, 2=beep)');
-    console.log('EXECUTE: Intensity:', intensity);
-    console.log('EXECUTE: Duration:', duration);
-
-    // Validate parameters
     if (!executorUserId || intensity < 1 || intensity > 100 || duration < 1 || duration > 15 || ![0, 1, 2].includes(operation)) {
       return jsonResponse({ 
         success: false, 
@@ -211,26 +178,17 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }, 400);
     }
 
-    // Check if the executor is banned by the target user
-    console.log('EXECUTE: Checking ban status for executor:', executorUserId, 'targeting:', targetUserId);
-    
     try {
       const targetUserDataStr = await env.PISHOCK_KV.get(`user:${targetUserId}:data`);
       if (targetUserDataStr) {
         const targetUserData = JSON.parse(targetUserDataStr);
         const bannedExecutors = targetUserData.bannedExecutors || [];
         
-        console.log('EXECUTE: Target user banned executors:', bannedExecutors);
-        
         if (bannedExecutors.includes(executorUserId)) {
-          console.log('EXECUTE: ❌ Executor is banned by target user');
-          
-          // Get executor username for the error message
           const executorUserData = await env.PISHOCK_KV.get(`discord_user:${executorUserId}`);
           const executorUser = executorUserData ? JSON.parse(executorUserData) : null;
           const executorName = executorUser?.global_name || executorUser?.username || 'Unknown User';
           
-          // Get target username for the error message  
           const targetUserData2 = await env.PISHOCK_KV.get(`discord_user:${targetUserId}`);
           const targetUser = targetUserData2 ? JSON.parse(targetUserData2) : null;
           const targetName = targetUser?.global_name || targetUser?.username || 'Unknown User';
@@ -242,65 +200,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
             executorUserId,
             targetUserId
           }, 403);
-        } else {
-          console.log('EXECUTE: ✓ Executor is not banned by target user');
         }
-      } else {
-        console.log('EXECUTE: No target user data found, proceeding without ban check');
       }
     } catch (banCheckError) {
-      console.error('EXECUTE: Failed to check ban status (non-critical):', banCheckError);
       // Continue with command execution if ban check fails
     }
 
-    // First, let's check what data exists for this user
-    console.log('EXECUTE: Checking all possible data locations for user:', targetUserId);
-    
-    // Check all possible keys for this user
-    const possibleKeys = [
-      `user:${targetUserId}:data`,
-      `user:${targetUserId}:pishock`,
-      `user:${targetUserId}:pishock:credentials`,
-      `discord_user:${targetUserId}`,
-      `instance:${targetUserId}:pishock`
-    ];
-    
-    for (const key of possibleKeys) {
-      const data = await env.PISHOCK_KV.get(key);
-      console.log(`EXECUTE: Key "${key}":`, data ? 'EXISTS' : 'NOT FOUND');
-      if (data && key.includes('data')) {
-        try {
-          const parsed = JSON.parse(data);
-          console.log(`EXECUTE: Parsed data for "${key}":`, {
-            hasCredentials: !!parsed.credentials,
-            hasOldFormat: !!parsed.apiKey,
-            keys: Object.keys(parsed)
-          });
-        } catch (e) {
-          console.log(`EXECUTE: Failed to parse data for "${key}":`, e.message);
-        }
-      }
-    }
-    // Get target user's PiShock credentials
-    // Get all user data from single key (new format)
-    console.log('EXECUTE: Looking for credentials for target user:', targetUserId);
     const userDataStr = await env.PISHOCK_KV.get(`user:${targetUserId}:data`);
     let userData = userDataStr ? JSON.parse(userDataStr) : null;
     let encrypted = userData?.credentials;
     
-    console.log('EXECUTE: User data found:', !!userData);
-    console.log('EXECUTE: Credentials found in new format:', !!encrypted);
-    if (userData) {
-      console.log('EXECUTE: User data structure:', Object.keys(userData));
-    }
-    
-    // Migration: Check old format if new format not found
     if (!encrypted) {
-      console.log('EXECUTE: Checking old format for user:', targetUserId);
       const oldEncrypted = await env.PISHOCK_KV.get(`user:${targetUserId}:pishock`);
       if (oldEncrypted) {
-        console.log('EXECUTE: Found data in old format, migrating...');
-        // Migrate old data to new format
         userData = {
           credentials: oldEncrypted,
           lastTested: await env.PISHOCK_KV.get(`user:${targetUserId}:pishock:lastTested`) || new Date().toISOString(),
@@ -310,10 +222,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           lastUpdated: new Date().toISOString()
         };
         
-        // Save in new format
         await env.PISHOCK_KV.put(`user:${targetUserId}:data`, JSON.stringify(userData));
         
-        // Clean up old keys
         await Promise.all([
           env.PISHOCK_KV.delete(`user:${targetUserId}:pishock`),
           env.PISHOCK_KV.delete(`user:${targetUserId}:pishock:lastTested`),
@@ -323,62 +233,23 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         ]);
         
         encrypted = userData.credentials;
-        console.log('EXECUTE: Migration completed for user:', targetUserId);
       }
-    } else {
-      console.log('EXECUTE: Using credentials from new format');
     }
     
-    // List all keys with this user ID to see what exists
-    const allUserKeys = await env.PISHOCK_KV.list({ prefix: `user:${targetUserId}` });
-    console.log('EXECUTE: All keys for user:', allUserKeys.keys.map(k => k.name));
-    
-    // Also check if this might be a different user ID format issue
-    const allKeysPrefix = await env.PISHOCK_KV.list({ prefix: 'user:' });
-    const userIds = allKeysPrefix.keys
-      .map(k => k.name.match(/^user:(\d+):/)?.[1])
-      .filter(Boolean)
-      .filter((id, index, arr) => arr.indexOf(id) === index); // unique IDs
-    console.log('EXECUTE: All user IDs in storage:', userIds);
-    console.log('EXECUTE: Target user ID to find:', targetUserId);
-    console.log('EXECUTE: User ID exists in storage:', userIds.includes(targetUserId));
-    
     if (!encrypted) {
-      console.error('EXECUTE: No credentials found for user:', targetUserId);
-      console.error('EXECUTE: Checked keys:', possibleKeys);
-      console.error('EXECUTE: Available user IDs:', userIds);
-      
       return jsonResponse({ 
         success: false, 
         error: `Target user (${targetUserId}) has no PiShock device configured. They need to set up their PiShock credentials first in the application.`,
-        debug: {
-          targetUserId,
-          executorUserId,
-          userDataFound: !!userData,
-          credentialsFound: !!encrypted,
-          checkedKeys: possibleKeys,
-          availableUserKeys: allUserKeys?.keys?.map(k => k.name) || [],
-          allUserIds: userIds,
-          userIdInStorage: userIds.includes(targetUserId)
-        }
       });
     }
 
     try {
       const creds = await decrypt(encrypted);
-      console.log('EXECUTE: Successfully decrypted target user credentials');
-      console.log('EXECUTE: Username:', creds.username);
-      console.log('EXECUTE: Share code:', creds.sharecode);
       
-      // Get target user's max limits
       const targetMaxIntensity = creds.maxIntensity || 100;
       const targetMaxDuration = creds.maxDuration || 15;
       
-      console.log('EXECUTE: Target user limits:', { maxIntensity: targetMaxIntensity, maxDuration: targetMaxDuration });
-      
-      // Validate against target user's limits
       if (intensity > targetMaxIntensity) {
-        console.error('EXECUTE: Intensity exceeds target user limit:', intensity, '>', targetMaxIntensity);
         return jsonResponse({ 
           success: false, 
           error: `Intensity ${intensity}% exceeds target user's maximum of ${targetMaxIntensity}%` 
@@ -386,20 +257,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
       
       if (duration > targetMaxDuration) {
-        console.error('EXECUTE: Duration exceeds target user limit:', duration, '>', targetMaxDuration);
         return jsonResponse({ 
           success: false, 
           error: `Duration ${duration}s exceeds target user's maximum of ${targetMaxDuration}s` 
         });
       }
       
-      // Execute PiShock command using Legacy API
       const operationNames = ['shock', 'vibrate', 'beep'];
       const operationName = operationNames[operation];
       
-      console.log('EXECUTE: Sending', operationName, 'command via Legacy API');
-      
-      // Use exact endpoint and format from V3 API documentation
       const payload = {
         username: creds.username,
         apikey: creds.apiKey,
@@ -410,8 +276,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         name: 'DiscordActivity',
       };
       
-      console.log('EXECUTE: Request payload:', { ...payload, apikey: '***' });
-      
       const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
         method: 'POST',
         headers: { 
@@ -421,20 +285,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         body: JSON.stringify(payload),
       });
 
-      console.log('EXECUTE: Response status:', response.status);
-      
       const responseText = await response.text();
-      console.log('EXECUTE: Response text:', responseText);
 
       if (!response.ok) {
         throw new Error(`PiShock API error: HTTP ${response.status} - ${responseText}`);
       }
 
-      // Check for success responses as per Legacy API documentation
       if (responseText.includes('Operation Succeeded')) {
-        console.log('EXECUTE: ✓ Command executed successfully');
+        // Command successful
       } else {
-        // Log specific error messages from V3 API documentation
         if (responseText.includes("This code doesn't exist")) {
           throw new Error('Share code not found. Please check device configuration.');
         } else if (responseText.includes('Not Authorized')) {
@@ -452,20 +311,17 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         } else if (responseText.includes('Duration must be between')) {
           throw new Error('Invalid duration specified.');
         } else {
-          console.log('EXECUTE: Warning - unexpected response but will proceed:', responseText);
+          // Unexpected response but proceed
         }
       }
 
-      // Get user info for logging with fallback to Discord API
-      console.log('EXECUTE: Getting user info for activity log...');
       const executorInfo = await getUserInfo(env.PISHOCK_KV, executorUserId, token);
       const targetInfo = await getUserInfo(env.PISHOCK_KV, targetUserId, token);
 
-      // Create activity log entry
       const logEntry: ActivityLogEntry = {
         id: uuidv4(),
         timestamp: new Date().toISOString(),
-        instanceId: 'global', // Global activity log for user-to-user actions
+        instanceId: 'global',
         executorUserId,
         executorUsername: executorInfo?.username || 'Unknown User',
         executorAvatar: executorInfo?.avatar,
@@ -477,18 +333,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         duration,
       };
 
-      // Store activity log entry
-      // Store activity log entry (blocking to ensure logging works)
       try {
-        console.log('EXECUTE: Logging activity entry with ID:', logEntry.id);
         await addToActivityBatch(env.PISHOCK_KV, logEntry);
-        console.log('EXECUTE: ✓ Activity logged successfully');
       } catch (logError) {
-        console.error('EXECUTE: ❌ Failed to log activity (CRITICAL):', logError);
-        // Don't fail the entire operation, but log the error clearly
+        console.error('Failed to log activity (CRITICAL):', logError);
       }
-
-      console.log('EXECUTE: Activity logged with ID:', logEntry.id);
 
       return jsonResponse({ 
         success: true, 
@@ -497,14 +346,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
 
     } catch (error) {
-      console.error('EXECUTE: PiShock execution failed:', error);
       return jsonResponse({ 
         success: false, 
         error: error instanceof Error ? error.message : 'Command execution failed' 
       });
     }
   } catch (error) {
-    console.error('EXECUTE: User PiShock execute error:', error);
     return jsonResponse({ 
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error'

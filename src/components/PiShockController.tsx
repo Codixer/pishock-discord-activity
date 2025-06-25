@@ -100,8 +100,6 @@ export function PiShockController({
   }, [currentUser, auth]);
 
   const checkCurrentUserCredentials = async () => {
-    console.log('STATUS: Checking current user credentials for:', currentUser?.id);
-    
     try {
       const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-status`, {
         headers: {
@@ -109,21 +107,11 @@ export function PiShockController({
         },
       });
 
-      console.log('STATUS: Response status:', response.status);
-      
       if (response.ok) {
         const status = await response.json();
-        console.log('STATUS: Response data:', {
-          hasCredentials: status.hasCredentials,
-          isConnected: status.isConnected,
-          maxIntensity: status.maxIntensity,
-          maxDuration: status.maxDuration
-        });
         
         setCurrentUserPiShockConnected(status.isConnected);
         onConnectionChange(status.isConnected);
-        
-        console.log('STATUS: ✓ Status check completed - isConnected:', status.isConnected);
         
         if (status.hasCredentials && !status.isConnected) {
           addNotification('warning', 'Connection Issue', 'Your PiShock credentials found but connection failed. Please check your settings.');
@@ -131,11 +119,10 @@ export function PiShockController({
           addNotification('success', 'Connected', 'Your PiShock account is connected and ready');
         }
       } else {
-        const errorText = await response.text();
-        console.error('STATUS: Failed to check credentials:', response.status, errorText);
+        // Silently handle failed status check
       }
     } catch (error) {
-      console.error('Failed to check stored credentials:', error);
+      // Silently handle credential check errors
     }
   };
 
@@ -189,9 +176,7 @@ export function PiShockController({
         throw new Error('Shock command failed');
       }
     } catch (error) {
-      console.error('Shock error:', error);
       
-      // Enhanced error reporting
       let errorMessage = 'Failed to send shock command. Please try again.';
       
       if (error instanceof Error) {
@@ -211,7 +196,6 @@ export function PiShockController({
   };
 
   const handleSettingsSaved = () => {
-    // Refresh current user credentials and trigger global status refresh
     checkCurrentUserCredentials();
     if (window.refreshAllUserStatuses) {
       window.refreshAllUserStatuses();
@@ -238,15 +222,12 @@ export function PiShockController({
       />
 
       <div className="h-full flex flex-col space-y-4 overflow-y-auto">
-        {/* Control Panel */}
         <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6 flex-1 flex flex-col min-h-0 ${isPipMode ? 'p-2' : ''}`}>
-          {/* Header with Settings Button and Connection Status */}
           <div className="flex items-center justify-between mb-6 flex-shrink-0">
             <h3 className={`font-semibold ${isPipMode ? 'text-sm' : 'text-lg sm:text-xl'}`}>
               Control Panel
             </h3>
             <div className="flex items-center space-x-4">
-              {/* Connection Status */}
               <div className="flex items-center space-x-4">
                 <div className="flex items-center space-x-2">
                   <div className={`w-2 h-2 rounded-full ${discordConnected ? 'bg-green-400' : 'bg-red-400'}`} />
@@ -265,7 +246,6 @@ export function PiShockController({
                 </div>
               </div>
 
-              {/* Settings Button */}
               {!isPipMode && (
                 <button
                   onClick={() => setShowSettings(true)}
@@ -286,9 +266,7 @@ export function PiShockController({
           </div>
         ) : (
           <div className="flex-1 flex flex-col space-y-6 min-h-0">
-            {/* Controls Container */}
             <div className="flex-1 flex flex-col space-y-4 min-h-0">
-              {/* Intensity Control */}
               <div>
                 <label className={`block font-medium text-gray-300 mb-3 ${isPipMode ? 'text-xs' : 'text-sm sm:text-base'}`}>
                   <div className="flex items-center justify-between">
@@ -322,7 +300,6 @@ export function PiShockController({
                 )}
               </div>
 
-              {/* Duration Control */}
               <div>
                 <label className={`block font-medium text-gray-300 mb-3 ${isPipMode ? 'text-xs' : 'text-sm sm:text-base'}`}>
                   <div className="flex items-center justify-between">
@@ -356,7 +333,6 @@ export function PiShockController({
                 )}
               </div>
 
-              {/* Action Buttons */}
               <div className={`grid gap-3 flex-shrink-0 ${isPipMode ? 'grid-cols-3 gap-2' : 'grid-cols-1 sm:grid-cols-3 sm:gap-3'}`}>
                 <button
                   onClick={() => handleShock(0)}
@@ -398,7 +374,6 @@ export function PiShockController({
                 </button>
               </div>
 
-              {/* No PiShock Device Warning */}
               {!isPipMode && selectedUser && !(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected && (
                 <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex-shrink-0">
                   <div className="flex items-start space-x-3">

@@ -25,16 +25,13 @@ async function requireAuth(request: Request): Promise<string | null> {
 
 async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
   try {
-    // Try to get cached validation result first
     const cacheKey = `discord_token_validation:${token.slice(-8)}`; // Use last 8 chars to avoid storing full token
     const cached = await kv.get(cacheKey);
     if (cached) {
       const cachedData = JSON.parse(cached);
-      console.log('TOKEN_VALIDATION: Using cached Discord token validation');
       return cachedData;
     }
     
-    console.log('TOKEN_VALIDATION: Fetching fresh Discord token validation');
     const response = await fetch('https://discord.com/api/users/@me', {
       headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -45,12 +42,10 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     
     const userData = await response.json();
     
-    // Cache the validation result for 5 minutes
     await kv.put(cacheKey, JSON.stringify(userData), {
       expirationTtl: 300 // 5 minutes
     });
     
-    console.log('TOKEN_VALIDATION: ✓ Cached fresh Discord token validation');
     return userData;
   } catch (error) {
     return null;
@@ -58,24 +53,16 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
 }
 
 async function encrypt(data: any): Promise<string> {
-  // Simple base64 encoding for now - in production, use proper encryption
   return btoa(JSON.stringify(data));
 }
 
 async function decrypt(data: string): Promise<any> {
-  // Simple base64 decoding for now - in production, use proper decryption
   return JSON.parse(atob(data));
 }
 
 async function validatePiShockCredentials(apiKey: string, username: string): Promise<{ valid: boolean; userId?: string; error?: string; debugInfo?: any }> {
   try {
-    console.log('=== PiShock Legacy API Validation ===');
-    console.log('Username:', username);
-    console.log('API Key length:', apiKey.length);
-
-    // Use the exact endpoint from Legacy API documentation
     const url = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
-    console.log('Making request to:', url);
 
     const response = await fetch(url, {
       method: 'GET',
@@ -85,12 +72,8 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       }
     });
 
-    console.log('Response status:', response.status);
-    console.log('Response headers:', Object.fromEntries(response.headers.entries()));
-
     if (!response.ok) {
       const errorText = await response.text();
-      console.log('Error response:', errorText);
       return { 
         valid: false, 
         error: `Authentication failed: HTTP ${response.status}`,
@@ -99,20 +82,13 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
     }
 
     const responseText = await response.text();
-    console.log('Raw response text:', responseText);
 
-    // Parse the response
     let authData;
     try {
       authData = JSON.parse(responseText);
-      console.log('Parsed JSON response:', authData);
     } catch (parseError) {
-      console.log('Failed to parse as JSON, trying as plain text');
-      
-      // Sometimes the API returns just a plain number (user ID)
       if (/^\d+$/.test(responseText.trim())) {
         const userId = responseText.trim();
-        console.log('Found plain text user ID:', userId);
         return { 
           valid: true, 
           userId,
@@ -127,36 +103,25 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       };
     }
 
-    // Look for UserID field as specified in documentation
     let userId = null;
     
-    // Check for UserID field variations (the API actually returns "UserId")
     if (authData.UserId !== undefined && authData.UserId !== null) {
       userId = authData.UserId.toString();
-      console.log('Found UserId in response:', userId);
     }
-    // Check for UserID field (exact field name from documentation)
     else if (authData.UserID !== undefined && authData.UserID !== null) {
       userId = authData.UserID.toString();
-      console.log('Found UserID in response:', userId);
     }
-    // Fallback checks for common variations
     else if (authData.userId !== undefined && authData.userId !== null) {
       userId = authData.userId.toString();
-      console.log('Found userId in response:', userId);
     }
     else if (authData.id !== undefined && authData.id !== null) {
       userId = authData.id.toString();
-      console.log('Found id in response:', userId);
     }
-    // Check if the response itself is just a number
     else if (typeof authData === 'number') {
       userId = authData.toString();
-      console.log('Response is a number:', userId);
     }
 
     if (userId && /^\d+$/.test(userId)) {
-      console.log('✓ Successfully validated PiShock credentials');
       return { 
         valid: true, 
         userId,
@@ -164,7 +129,6 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
       };
     }
 
-    console.log('No valid UserID found in response');
     return { 
       valid: false, 
       error: 'No UserID found in API response',
@@ -172,7 +136,6 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
     };
 
   } catch (error) {
-    console.error('PiShock credential validation error:', error);
     return { 
       valid: false, 
       error: `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -183,12 +146,7 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
 
 async function checkUserDevices(userId: string, apiKey: string): Promise<{ hasDevices: boolean; devices?: any[]; error?: string; debugInfo?: any }> {
   try {
-    console.log('=== Checking user devices (Legacy API) ===');
-    console.log('User ID:', userId);
-    
-    // Use exact endpoint from Legacy API documentation
     const url = `https://ps.pishock.com/PiShock/GetUserDevices?UserId=${userId}&Token=${encodeURIComponent(apiKey)}&api=true`;
-    console.log('Making devices request to:', url);
     
     const response = await fetch(url, {
       method: 'GET',
@@ -198,11 +156,8 @@ async function checkUserDevices(userId: string, apiKey: string): Promise<{ hasDe
       }
     });
     
-    console.log('Devices response status:', response.status);
-    
     if (!response.ok) {
       const errorText = await response.text();
-      console.log('Devices error response:', errorText);
       return { 
         hasDevices: false, 
         error: `Device check failed: HTTP ${response.status}`,
@@ -211,14 +166,11 @@ async function checkUserDevices(userId: string, apiKey: string): Promise<{ hasDe
     }
     
     const responseText = await response.text();
-    console.log('Devices raw response:', responseText.substring(0, 500));
     
     let devices;
     try {
       devices = JSON.parse(responseText);
-      console.log('Parsed devices data:', devices);
     } catch (parseError) {
-      console.log('Failed to parse devices JSON:', parseError);
       return { 
         hasDevices: false, 
         error: 'Invalid devices response format',
@@ -226,12 +178,8 @@ async function checkUserDevices(userId: string, apiKey: string): Promise<{ hasDe
       };
     }
     
-    // Check if user has any devices with shockers (as per documentation format)
     const hasDevices = Array.isArray(devices) && devices.length > 0 && 
                       devices.some(device => device.shockers && Array.isArray(device.shockers) && device.shockers.length > 0);
-    
-    console.log('Has devices result:', hasDevices);
-    console.log('Device count:', devices?.length || 0);
     
     return { 
       hasDevices, 
@@ -240,7 +188,6 @@ async function checkUserDevices(userId: string, apiKey: string): Promise<{ hasDe
     };
     
   } catch (error) {
-    console.error('Failed to check user devices:', error);
     return { 
       hasDevices: false, 
       error: `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -251,10 +198,6 @@ async function checkUserDevices(userId: string, apiKey: string): Promise<{ hasDe
 
 async function validateShareCode(username: string, apiKey: string, sharecode: string): Promise<{ valid: boolean; error?: string; debugInfo?: any }> {
   try {
-    console.log('=== Validating share code (V3 API) ===');
-    console.log('Share code:', sharecode);
-    
-    // Use V3 API Operate endpoint with minimal test command (1% beep for 1 second)
     const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
       method: 'POST',
       headers: { 
@@ -272,10 +215,7 @@ async function validateShareCode(username: string, apiKey: string, sharecode: st
       }),
     });
     
-    console.log('Share code validation response status:', response.status);
-    
     const responseText = await response.text();
-    console.log('Share code validation response:', responseText);
     
     if (!response.ok) {
       return { 
@@ -285,13 +225,10 @@ async function validateShareCode(username: string, apiKey: string, sharecode: st
       };
     }
     
-    // Check for success responses as per documentation
     if (responseText.includes('Operation Succeeded') || responseText.includes('Operation Attempted.')) {
-      console.log('✓ Share code validation successful');
       return { valid: true, debugInfo: { response: responseText } };
     }
     
-    // Check for specific error messages from V3 API documentation
     if (responseText.includes("This code doesn't exist")) {
       return { valid: false, error: 'Share code not found. Please check your share code.', debugInfo: { response: responseText } };
     }
@@ -315,7 +252,6 @@ async function validateShareCode(username: string, apiKey: string, sharecode: st
     };
     
   } catch (error) {
-    console.error('Share code validation error:', error);
     return { 
       valid: false, 
       error: `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -324,11 +260,9 @@ async function validateShareCode(username: string, apiKey: string, sharecode: st
   }
 }
 
-// Helper function to check if settings data has changed
 function hasSettingsChanged(existing: any, newData: any): boolean {
   if (!existing) return true;
   
-  // Compare key fields that would affect functionality
   const existingCreds = existing.credentials ? JSON.parse(atob(existing.credentials)) : {};
   
   return existing.maxIntensity !== newData.maxIntensity ||
@@ -369,22 +303,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   try {
     if (method === 'GET') {
-      // Get all user data from single key
-      console.log('SETTINGS API: Loading settings for user:', userId);
       const userDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
       const userData = userDataStr ? JSON.parse(userDataStr) : null;
       
-      console.log('SETTINGS API: User data found:', !!userData);
-      if (userData) {
-        console.log('SETTINGS API: User data keys:', Object.keys(userData));
-        console.log('SETTINGS API: Has credentials:', !!userData?.credentials);
-        if (userData.credentials) {
-          console.log('SETTINGS API: Credentials length:', userData.credentials.length);
-        }
-      }
-      
       if (!userData?.credentials) {
-        console.log('SETTINGS API: No credentials found in user data');
         return jsonResponse({ 
           hasSettings: false,
           settings: null,
@@ -393,29 +315,18 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
 
       try {
-        console.log('SETTINGS API: Decrypting credentials...');
         const creds = await decrypt(userData.credentials);
         
-        console.log('SETTINGS API: Decrypted credential fields:', Object.keys(creds));
-        
-        // Return settings without sensitive data (API key)
         const settings = {
           username: creds.username || '',
           sharecode: creds.sharecode || '',
-          hasOwnDevice: true, // Always true now
+          hasOwnDevice: true,
           maxIntensity: creds.maxIntensity || 100,
           maxDuration: creds.maxDuration || 15,
           lastUpdated: userData.lastUpdated,
           piShockUserId: creds.piShockUserId,
           bannedExecutors: userData.bannedExecutors || []
         };
-        
-        console.log('SETTINGS API: ✓ Successfully loaded settings for user:', userId, {
-          username: !!settings.username,
-          sharecode: !!settings.sharecode,
-          maxIntensity: settings.maxIntensity,
-          maxDuration: settings.maxDuration
-        });
         
         return jsonResponse({ 
           hasSettings: true,
@@ -443,34 +354,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         bannedExecutors = []
       } = await request.json();
 
-      console.log('SETTINGS API: PUT request received with fields:', {
-        hasApiKey: !!apiKey,
-        hasUsername: !!username,
-        hasSharecode: !!sharecode,
-        maxIntensity,
-        maxDuration,
-        bannedExecutorsCount: Array.isArray(bannedExecutors) ? bannedExecutors.length : 'not-array'
-      });
-
-      // Get existing user data to check if this is an update
       const existingUserData = existingUserDataStr ? JSON.parse(existingUserDataStr) : null;
       const isExistingUser = !!existingUserData?.credentials;
       
-      // Check if this is a ban-list-only update
       const isBanListOnlyUpdate = !apiKey && !username && !sharecode && 
                                  Array.isArray(bannedExecutors) && 
                                  isExistingUser;
       
-      console.log('SETTINGS API: Update type analysis:', {
-        isExistingUser,
-        isBanListOnlyUpdate,
-        hasCredentialFields: !!(apiKey || username || sharecode)
-      });
-      
       if (isBanListOnlyUpdate) {
-        console.log('SETTINGS API: Processing ban list only update');
-        
-        // Update only the banned executors list
         const updatedUserData = {
           ...existingUserData,
           bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : [],
@@ -479,19 +370,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         
         await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(updatedUserData));
         
-        console.log('SETTINGS API: ✓ Ban list updated successfully');
-        
         return jsonResponse({ 
           success: true,
           banListUpdated: true,
           bannedExecutors: updatedUserData.bannedExecutors
         });
       } else {
-        // Full credential update - validate required fields
-        console.log('SETTINGS API: Processing full credential update');
-        
-        // For new users, all fields are required
-        // For existing users, API key is optional (will preserve existing if not provided)
         if (!isExistingUser && (!apiKey || !username || !sharecode)) {
           return jsonResponse({ 
             success: false, 
@@ -507,15 +391,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         }
       }
       
-      // Get existing API key if not provided in request
       let finalApiKey = apiKey;
       if (!apiKey && isExistingUser) {
         try {
           const existingCreds = await decrypt(existingUserData.credentials);
           finalApiKey = existingCreds.apiKey;
-          console.log('SETTINGS API: Preserving existing API key for user:', userId);
         } catch (error) {
-          console.error('SETTINGS API: Failed to decrypt existing credentials:', error);
           return jsonResponse({ 
             success: false, 
             error: 'Failed to preserve existing API key. Please provide your API key.' 
@@ -530,7 +411,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         }, 400);
       }
 
-      // Validate max limits
       if (maxIntensity < 1 || maxIntensity > 100) {
         return jsonResponse({ 
           success: false, 
@@ -544,19 +424,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           error: 'Max duration must be between 1 and 15 seconds' 
         }, 400);
       }
-      console.log('=== Starting PiShock Legacy API validation ===');
-      console.log('Username:', username);
-      console.log('API Key provided:', !!apiKey);
-      console.log('Using existing API key:', !apiKey && isExistingUser);
-      console.log('Has own device:', true); // Always true now
-      console.log('Share code provided:', !!sharecode);
-      console.log('Max limits:', { maxIntensity, maxDuration });
 
-      // Step 1: Validate credentials and get UserID using V3 API (auth endpoint unchanged)
       const credentialValidation = await validatePiShockCredentials(finalApiKey, username);
       
       if (!credentialValidation.valid) {
-        console.log('Credential validation failed:', credentialValidation.error);
         return jsonResponse({ 
           success: false, 
           isConnected: false, 
@@ -569,26 +440,20 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
 
       const piShockUserId = credentialValidation.userId!;
-      console.log('✓ Credential validation successful, PiShock User ID:', piShockUserId);
       
-      // Step 2: Check if user has devices using V3 API (endpoint unchanged)
       const deviceCheck = await checkUserDevices(piShockUserId, finalApiKey);
-      console.log('Device check result:', deviceCheck);
       
-      // Step 3: Validate the sharecode using V3 API (always required now)
       let shareCodeValid = true;
       let shareCodeError = null;
       let shareCodeDebug = null;
       
       if (sharecode) {
-        console.log('Validating share code...');
         const shareCodeValidation = await validateShareCode(username, finalApiKey, sharecode);
         shareCodeValid = shareCodeValidation.valid;
         shareCodeError = shareCodeValidation.error;
         shareCodeDebug = shareCodeValidation.debugInfo;
         
         if (!shareCodeValid) {
-          console.log('Share code validation failed:', shareCodeError);
           return jsonResponse({ 
             success: false, 
             isConnected: false, 
@@ -599,21 +464,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
             }
           });
         }
-        console.log('✓ Share code validation successful');
       }
 
-      // Determine final configuration
       const finalSharecode = sharecode;
       const actuallyHasDevice = shareCodeValid && deviceCheck.hasDevices;
       
-      console.log('Final configuration:');
-      console.log('- Share code:', finalSharecode);
-      console.log('- Actually has device:', actuallyHasDevice);
-      console.log('- Device count:', deviceCheck.devices?.length || 0);
-      
-      // Encrypt and store credentials
       const credentialsToStore = {
-        apiKey: finalApiKey, // Always have a valid API key at this point
+        apiKey: finalApiKey,
         username,
         sharecode: finalSharecode,
         hasOwnDevice: actuallyHasDevice,
@@ -626,7 +483,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       
       const encrypted = await encrypt(credentialsToStore);
       
-      // Batch all user data into a single key to reduce operations
       const userData = {
         credentials: encrypted,
         lastTested: new Date().toISOString(),
@@ -638,34 +494,25 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : []
       };
       
-      // Only write if data has actually changed to reduce unnecessary KV operations
       if (hasSettingsChanged(existingUserData, userData)) {
         await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
-        console.log('SETTINGS: ✓ Settings updated for user:', userId);
-      } else {
-        console.log('SETTINGS: No changes detected, skipping write for user:', userId);
       }
 
-      console.log('✓ Settings saved successfully for user:', userId);
-      
-      // Clear the user's status cache so it gets refreshed immediately
       try {
-        // Clear multiple possible cache keys to ensure consistency
         const cacheKeys = [
           `cache:user_status:${userId}`,
           `user_status_cache:${userId}`,
         ];
         
         await Promise.allSettled(cacheKeys.map(key => env.PISHOCK_KV.delete(key)));
-        console.log('✓ Cleared all status caches for user:', userId);
       } catch (error) {
-        console.warn('Failed to clear status cache:', error);
+        // Silently handle cache clear errors
       }
 
       return jsonResponse({ 
         success: true, 
         isConnected: true,
-        hasOwnDevice: true, // Always true in the new system
+        hasOwnDevice: true,
         deviceCount: deviceCheck.devices?.length || 0,
         piShockUserId,
         debug: {
@@ -677,7 +524,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     if (method === 'DELETE') {
-      // Delete the single user data key
       await env.PISHOCK_KV.delete(`user:${userId}:data`);
       return jsonResponse({ success: true });
     }

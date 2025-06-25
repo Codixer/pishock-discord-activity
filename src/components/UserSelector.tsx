@@ -23,14 +23,11 @@ export function UserSelector({
   refreshParticipants,
   isEmbedded = false
 }: UserSelectorProps) {
-  // Safe BigInt conversion with fallback for development mock IDs
   const getDefaultAvatarIndex = (userId: string) => {
     try {
-      // Check if the ID is a valid number string
       if (/^\d+$/.test(userId)) {
         return (BigInt(userId) >> 22n) % 6n;
       } else {
-        // For non-numeric IDs (like dev_user_123), use a simple hash
         let hash = 0;
         for (let i = 0; i < userId.length; i++) {
           hash = ((hash << 5) - hash + userId.charCodeAt(i)) & 0xffffffff;
@@ -38,7 +35,6 @@ export function UserSelector({
         return Math.abs(hash) % 6;
       }
     } catch (error) {
-      // Fallback to index 0 if any error occurs
       return 0;
     }
   };
@@ -65,7 +61,6 @@ export function UserSelector({
           <span className="text-xs sm:text-sm text-gray-400 flex-shrink-0">({members.length})</span>
         </div>
         
-        {/* Refresh Button */}
         {isEmbedded && refreshParticipants && (
           <button
             onClick={refreshParticipants}
@@ -88,7 +83,6 @@ export function UserSelector({
             </div>
           ) : (
             <>
-              {/* Current User */}
               {currentUser && (
                 <div className="mb-4">
                   <h3 className="text-xs sm:text-sm font-medium text-gray-400 mb-2 flex items-center space-x-1">
@@ -156,7 +150,6 @@ export function UserSelector({
                 </div>
               )}
 
-              {/* Other Participants */}
               {otherParticipants.length > 0 && (
                 <div>
                   <h3 className="text-xs sm:text-sm font-medium text-gray-400 mb-2">Select Target</h3>
@@ -168,7 +161,6 @@ export function UserSelector({
                       const hasCredentials = userStatus?.hasCredentials;
                       const isDisabled = !isConnected;
                       
-                      // Check if current user has banned this participant
                       const currentUserStatus = userPiShockStatus[currentUser?.id];
                       const currentUserBannedExecutors = currentUserStatus?.bannedExecutors || [];
                       const isBannedByCurrentUser = currentUserBannedExecutors.includes(member.id);
@@ -238,8 +230,6 @@ export function UserSelector({
                                   </div>
                                 )}
                                 </div>
-                                {/* Show setup instructions for users without PiShock */}
-                              {/* Show if user is banned by current user */}
                               {isBannedByCurrentUser && (
                                 <div className="text-xs text-red-400 flex items-center space-x-1">
                                   <span>🚫</span>
@@ -252,7 +242,6 @@ export function UserSelector({
                                     <span className="sm:hidden">Setup needed</span>
                                   </div>
                                 )}
-                                {/* Show device limits if they exist */}
                                 {userStatus?.maxIntensity < 100 || userStatus?.maxDuration < 15 ? (
                                   <div className="text-xs text-yellow-400">
                                     Limits: {userStatus.maxIntensity}%/{userStatus.maxDuration}s
@@ -294,7 +283,6 @@ export function UserSelector({
                 </div>
               )}
               
-              {/* Show setup help if no users have PiShock configured */}
               {otherParticipants.length > 0 && otherParticipants.every(member => !userPiShockStatus[member.id]?.isConnected) && (
                 <div className="mt-4 p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
                   <div className="flex items-start space-x-2">

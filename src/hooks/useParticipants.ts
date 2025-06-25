@@ -31,16 +31,13 @@ export function useParticipants(discordSdk: DiscordSDK, isEmbedded: boolean) {
   const updateParticipants = useCallback((newParticipants: any[]) => {
     setParticipants(newParticipants.map(participant => ({
       ...participant,
-      // Generate avatar URL
       avatarUrl: participant.avatar 
         ? `https://cdn.discordapp.com/avatars/${participant.id}/${participant.avatar}.png?size=256`
         : `https://cdn.discordapp.com/embed/avatars/0.png`,
-      // Use global_name or fallback to username (no discriminator)
       displayName: participant.global_name || participant.username,
     })));
   }, []);
 
-  // Fetch guild-specific avatars and nicknames for participants
   const enrichParticipantsWithGuildData = useCallback(async (auth: any) => {
     if (!isEmbedded || !auth || !discordSdk.guildId) return;
 
@@ -67,7 +64,7 @@ export function useParticipants(discordSdk: DiscordSDK, isEmbedded: boolean) {
               };
             }
           } catch (error) {
-            console.warn(`Failed to fetch guild data for ${participant.username}:`, error);
+            // Silently handle guild data fetch errors
           }
           return participant;
         })
@@ -75,7 +72,7 @@ export function useParticipants(discordSdk: DiscordSDK, isEmbedded: boolean) {
 
       setParticipants(enrichedParticipants);
     } catch (error) {
-      console.error('Failed to enrich participants with guild data:', error);
+      // Silently handle enrichment errors
     }
   }, [participants, isEmbedded, discordSdk.guildId]);
 

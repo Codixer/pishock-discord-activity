@@ -48,16 +48,13 @@ async function requireAuth(request: Request): Promise<string | null> {
 
 async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
   try {
-    // Try to get cached validation result first
     const cacheKey = `discord_token_validation:${token.slice(-8)}`; // Use last 8 chars to avoid storing full token
     const cached = await kv.get(cacheKey);
     if (cached) {
       const cachedData = JSON.parse(cached);
-      console.log('TOKEN_VALIDATION: Using cached Discord token validation');
       return cachedData;
     }
     
-    console.log('TOKEN_VALIDATION: Fetching fresh Discord token validation');
     const response = await fetch('https://discord.com/api/users/@me', {
       headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -68,12 +65,10 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     
     const userData = await response.json();
     
-    // Cache the validation result for 5 minutes
     await kv.put(cacheKey, JSON.stringify(userData), {
       expirationTtl: 300 // 5 minutes
     });
     
-    console.log('TOKEN_VALIDATION: ✓ Cached fresh Discord token validation');
     return userData;
   } catch (error) {
     return null;
@@ -82,7 +77,6 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
 
 async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
   try {
-    // Use date-based batching to reduce key count
     const date = new Date(entry.timestamp).toISOString().split('T')[0]; // YYYY-MM-DD
     const batchKey = `activity:batch:${date}`;
     
@@ -93,7 +87,6 @@ async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
       totalCount: 0
     };
     
-    // Add new entry at the beginning (newest first)
     batchData.entries.unshift(entry);
     batchData.lastUpdated = entry.timestamp;
     batchData.totalCount++;
@@ -103,7 +96,6 @@ async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
       batchData.entries = batchData.entries.slice(0, 150);
     }
     
-    // Store with 7-day TTL to auto-cleanup old logs (reduced from 30 days for better KV management)
     await kv.put(batchKey, JSON.stringify(batchData), { expirationTtl: 604800 });
   } catch (error) {
     console.error('Failed to update activity batch:', error);
@@ -142,7 +134,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const offset = parseInt(searchParams.get('offset') || '0', 10);
       const since = searchParams.get('since');
 
-      // Get recent batches (last 30 days)
       const today = new Date();
       let batches: ActivityLogEntry[] = [];
       
@@ -151,38 +142,27 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         const dateStr = date.toISOString().split('T')[0];
         const batchKey = `activity:batch:${dateStr}`;
         
-        console.log('ACTIVITY_LOG_READ: Checking batch for date:', dateStr, 'key:', batchKey);
-        
         try {
           const batchData = await env.PISHOCK_KV.get(batchKey);
           if (batchData) {
             const batch: BatchedActivityLog = JSON.parse(batchData);
             batches.push(...batch.entries);
-            console.log('ACTIVITY_LOG_READ: Found batch with', batch.entries.length, 'entries for', dateStr);
-          } else {
-            console.log('ACTIVITY_LOG_READ: No batch found for', dateStr);
           }
         } catch (error) {
           console.warn(`Failed to load batch ${dateStr}:`, error);
         }
       }
       
-      // Sort by timestamp (newest first)
       batches.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-      console.log('ACTIVITY_LOG_READ: Total entries found across all batches:', batches.length);
-      
       if (since) {
         const sinceDate = new Date(since);
         batches = batches.filter(entry => new Date(entry.timestamp) > sinceDate);
-        console.log('ACTIVITY_LOG_READ: After filtering by since date:', batches.length, 'entries');
       }
 
       const total = batches.length;
       const entries = batches.slice(offset, offset + limit);
       
-      console.log('ACTIVITY_LOG_READ: Returning', entries.length, 'entries (total:', total, ', offset:', offset, ', limit:', limit, ')');
-
       return jsonResponse({ 
         entries, 
         total, 

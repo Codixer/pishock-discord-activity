@@ -22,16 +22,13 @@ async function requireAuth(request: Request): Promise<string | null> {
 
 async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
   try {
-    // Try to get cached validation result first
     const cacheKey = `discord_token_validation:${token.slice(-8)}`; // Use last 8 chars to avoid storing full token
     const cached = await kv.get(cacheKey);
     if (cached) {
       const cachedData = JSON.parse(cached);
-      console.log('TOKEN_VALIDATION: Using cached Discord token validation');
       return cachedData;
     }
     
-    console.log('TOKEN_VALIDATION: Fetching fresh Discord token validation');
     const response = await fetch('https://discord.com/api/users/@me', {
       headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -42,12 +39,10 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     
     const userData = await response.json();
     
-    // Cache the validation result for 5 minutes
     await kv.put(cacheKey, JSON.stringify(userData), {
       expirationTtl: 300 // 5 minutes
     });
     
-    console.log('TOKEN_VALIDATION: ✓ Cached fresh Discord token validation');
     return userData;
   } catch (error) {
     return null;
@@ -65,7 +60,6 @@ async function decrypt(encryptedData: string): Promise<any> {
 
 async function testPiShockConnection(apiKey: string, username: string, sharecode: string): Promise<boolean> {
   try {
-    // Use V3 API Operate endpoint with minimal test command (1% beep for 1 second)
     const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -85,7 +79,6 @@ async function testPiShockConnection(apiKey: string, username: string, sharecode
     }
     
     const responseText = await response.text();
-    // Check for success response from V3 API
     return responseText.includes('Operation Succeeded') || response.status === 200;
   } catch (error) {
     return false;
@@ -130,9 +123,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         const creds = await decrypt(encrypted);
         isConnected = await testPiShockConnection(creds.apiKey, creds.username, creds.sharecode);
         
-        // Update last tested timestamp
         if (isConnected) {
-          await env.PISHOCK_KV.put(`instance:${instanceId}:pishock:lastTested`, new Date().toISOString(), { expirationTtl: 21600 }); // 6 hours
+          await env.PISHOCK_KV.put(`instance:${instanceId}:pishock:lastTested`, new Date().toISOString(), { expirationTtl: 21600 });
         }
       } catch (error) {
         console.error('Failed to test stored credentials:', error);

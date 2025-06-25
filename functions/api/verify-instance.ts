@@ -49,16 +49,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     if (!env.DISCORD_BOT_TOKEN) {
-      console.error('DISCORD_BOT_TOKEN not configured in environment');
       return jsonResponse({ 
         valid: false, 
         error: 'Server configuration error' 
       }, 500);
     }
 
-    console.log(`Verifying Discord instance with Discord API: ${instanceId} for application: ${applicationId}`);
-
-    // STEP 1: Check Discord's API as the primary source of truth
     const discordResponse = await fetch(
       `https://discord.com/api/applications/${applicationId}/activity-instances/${instanceId}`,
       {
@@ -70,12 +66,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
     );
 
-    console.log('Discord API response status:', discordResponse.status);
-
     if (discordResponse.status === 404) {
-      console.log(`Instance ${instanceId} not found or inactive in Discord`);
-      
-      // STEP 2: Clean up any stale instance data from KV if Discord says it doesn't exist
       try {
         const cleanupPromises = [
           env.PISHOCK_KV.delete(`instance:${instanceId}:status`),
@@ -86,9 +77,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         ];
         
         await Promise.allSettled(cleanupPromises);
-        console.log(`Cleaned up stale instance data for ${instanceId}`);
       } catch (cleanupError) {
-        console.warn('Failed to clean up stale instance data:', cleanupError);
+        // Silently handle cleanup errors
       }
       
       return jsonResponse({ 
@@ -99,22 +89,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     if (!discordResponse.ok) {
       const errorText = await discordResponse.text();
-      console.error(`Discord API error: ${discordResponse.status} - ${errorText}`);
       return jsonResponse({ 
         valid: false, 
         error: `Discord API error: ${discordResponse.status}` 
       }, discordResponse.status);
     }
 
-    // STEP 3: Instance is valid according to Discord - parse the response
     const instanceData = await discordResponse.json();
-    console.log(`✓ Instance ${instanceId} verified as valid by Discord`);
-    console.log('Instance data:', { 
-      users: instanceData.users?.length || 0, 
-      location: instanceData.location 
-    });
 
-    // STEP 4: Update our KV store with the valid instance status
     try {
       const now = new Date().toISOString();
       const statusData = {
@@ -127,20 +109,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         location: instanceData.location
       };
 
-      // Store with 6-hour TTL (21600 seconds)
       await env.PISHOCK_KV.put(
         `instance:${instanceId}:status`, 
         JSON.stringify(statusData), 
-        { expirationTtl: 21600 } // 6 hours
+        { expirationTtl: 21600 }
       );
-
-      console.log(`Updated KV store for valid instance ${instanceId} with 6-hour TTL`);
     } catch (kvError) {
-      console.warn('Failed to update KV store (non-critical):', kvError);
       // Don't fail the verification if KV update fails
     }
 
-    // STEP 5: Return success with instance data
     return jsonResponse({ 
       valid: true, 
       instanceData: {
@@ -153,23 +130,17 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     });
 
   } catch (error) {
-    console.error('Instance verification error:', error);
-    
-    // For network errors or other issues, be more permissive and check KV as fallback
     const instanceId = url.searchParams.get('instance_id');
     if (instanceId) {
       try {
-        console.log('Discord API failed, checking KV store as fallback...');
         const kvStatus = await env.PISHOCK_KV.get(`instance:${instanceId}:status`);
         
         if (kvStatus) {
           const status = JSON.parse(kvStatus);
-          // Only accept recent verifications (within last hour)
           const lastVerified = new Date(status.last_verified || status.created_at);
           const oneHourAgo = new Date(Date.now() - 3600000);
           
           if (lastVerified > oneHourAgo && status.status === 'active') {
-            console.log('Using cached instance status as fallback');
             return jsonResponse({ 
               valid: true, 
               instanceData: {
@@ -182,7 +153,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           }
         }
       } catch (kvError) {
-        console.warn('KV fallback also failed:', kvError);
+        // Silently handle KV fallback errors
       }
     }
 

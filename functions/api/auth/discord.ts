@@ -53,7 +53,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       if (instanceStatusData) {
         const instanceStatus = JSON.parse(instanceStatusData);
         if (instanceStatus.status === 'inactive') {
-          console.log(`Authentication blocked for inactive instance: ${instanceId}`);
           return jsonResponse({ 
             error: 'This Discord Activity session has ended. Please start a new session.',
             instanceExpired: true
@@ -61,19 +60,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         }
       }
     } catch (error) {
-      console.warn('Failed to check instance status:', error);
       // Continue with authentication if status check fails
     }
 
-    // Exchange code for token
     const params = new URLSearchParams();
     params.append('client_id', env.DISCORD_CLIENT_ID);
     params.append('client_secret', env.DISCORD_CLIENT_SECRET);
     params.append('grant_type', 'authorization_code');
     params.append('code', code);
     
-    // Discord Activities don't typically need a redirect URI
-    // but we'll include it if it's configured in the environment
     if (env.DISCORD_REDIRECT_URI) {
       params.append('redirect_uri', env.DISCORD_REDIRECT_URI);
     }
@@ -86,14 +81,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     if (!discordRes.ok) {
       const error = await discordRes.text();
-      console.error('Discord token exchange failed:', error);
       return jsonResponse({ error: 'Failed to exchange code' }, 500);
     }
 
     const tokenData = await discordRes.json();
     const { access_token, refresh_token, expires_in, token_type } = tokenData;
 
-    // Get user info
     const userRes = await fetch('https://discord.com/api/users/@me', {
       headers: { Authorization: `${token_type} ${access_token}` },
     });
@@ -104,28 +97,24 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     const user = await userRes.json();
 
-    // Store tokens and user in KV with proper TTL
     await Promise.all([
-      // Use shorter key pattern and store globally per user (not per instance)
       env.PISHOCK_KV.put(`discord_token:${user.id}`, access_token, { 
-        expirationTtl: expires_in - 60 // Expire 1 minute early for safety
+        expirationTtl: expires_in - 60
       }),
       env.PISHOCK_KV.put(`discord_auth:refresh_token:${user.id}`, refresh_token),
       env.PISHOCK_KV.put(`discord_user:${user.id}`, JSON.stringify(user), {
-        expirationTtl: 86400 // 24 hours (extended from 1 hour)
+        expirationTtl: 86400
       }),
-      // Cache the token validation to reduce future Discord API calls
       env.PISHOCK_KV.put(`discord_token_validation:${access_token.slice(-8)}`, JSON.stringify(user), {
-        expirationTtl: Math.min(expires_in - 60, 1800) // Cache for 30 minutes or token expiry, whichever is shorter
+        expirationTtl: Math.min(expires_in - 60, 1800)
       }),
-      // Mark instance as active when user successfully authenticates
       env.PISHOCK_KV.put(`instance:${instanceId}:status`, JSON.stringify({
         status: 'active',
         last_activity: new Date().toISOString(),
-        participant_count: 1, // This will be updated when participants are fetched
+        participant_count: 1,
         created_at: new Date().toISOString(),
         last_authenticated_user: user.id
-      }), { expirationTtl: 21600 }) // 6 hours
+      }), { expirationTtl: 21600 })
     ]);
 
     return jsonResponse({ access_token, user });

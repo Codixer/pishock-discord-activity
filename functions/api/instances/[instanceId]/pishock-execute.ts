@@ -41,16 +41,13 @@ async function requireAuth(request: Request): Promise<string | null> {
 
 async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
   try {
-    // Try to get cached validation result first
     const cacheKey = `discord_token_validation:${token.slice(-8)}`; // Use last 8 chars to avoid storing full token
     const cached = await kv.get(cacheKey);
     if (cached) {
       const cachedData = JSON.parse(cached);
-      console.log('TOKEN_VALIDATION: Using cached Discord token validation');
       return cachedData;
     }
     
-    console.log('TOKEN_VALIDATION: Fetching fresh Discord token validation');
     const response = await fetch('https://discord.com/api/users/@me', {
       headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -61,12 +58,10 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     
     const userData = await response.json();
     
-    // Cache the validation result for 5 minutes
     await kv.put(cacheKey, JSON.stringify(userData), {
       expirationTtl: 300 // 5 minutes
     });
     
-    console.log('TOKEN_VALIDATION: ✓ Cached fresh Discord token validation');
     return userData;
   } catch (error) {
     return null;
@@ -84,13 +79,8 @@ async function decrypt(encryptedData: string): Promise<any> {
 
 async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
   try {
-    console.log('INSTANCE_ACTIVITY_LOG: Adding entry to batch for date:', new Date(entry.timestamp).toISOString().split('T')[0]);
-    
-    // Use date-based batching to reduce key count
     const date = new Date(entry.timestamp).toISOString().split('T')[0]; // YYYY-MM-DD
     const batchKey = `activity:batch:${date}`;
-    
-    console.log('INSTANCE_ACTIVITY_LOG: Using batch key:', batchKey);
     
     let batch = await kv.get(batchKey);
     let batchData = batch ? JSON.parse(batch) : {
@@ -99,33 +89,23 @@ async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
       totalCount: 0
     };
     
-    console.log('INSTANCE_ACTIVITY_LOG: Current batch has', batchData.entries.length, 'entries');
-    
-    // Add new entry at the beginning (newest first)
     batchData.entries.unshift(entry);
     batchData.lastUpdated = entry.timestamp;
     batchData.totalCount++;
     
-    console.log('INSTANCE_ACTIVITY_LOG: Added entry, batch now has', batchData.entries.length, 'entries');
-    
-    // Limit entries per batch to prevent value size issues
     if (batchData.entries.length > 200) {
       batchData.entries = batchData.entries.slice(0, 200);
-      console.log('INSTANCE_ACTIVITY_LOG: Trimmed batch to 200 entries');
     }
     
-    // Store with 30-day TTL to auto-cleanup old logs
     await kv.put(batchKey, JSON.stringify(batchData), { expirationTtl: 2592000 });
-    console.log('INSTANCE_ACTIVITY_LOG: ✓ Successfully stored batch with', batchData.entries.length, 'entries');
   } catch (error) {
     console.error('Failed to update activity batch:', error);
-    throw error; // Re-throw to ensure calling code knows about the failure
+    throw error;
   }
 }
 
 async function getUserInfo(kv: KVNamespace, userId: string, token: string): Promise<{ username: string; avatar?: string } | null> {
   try {
-    // First try to get from KV cache
     const cachedData = await kv.get(`discord_user:${userId}`);
     if (cachedData) {
       const user = JSON.parse(cachedData);
@@ -135,8 +115,6 @@ async function getUserInfo(kv: KVNamespace, userId: string, token: string): Prom
       };
     }
     
-    // If not in cache, fetch from Discord API
-    console.log('USER_INFO: Fetching user data from Discord API for:', userId);
     const response = await fetch(`https://discord.com/api/users/${userId}`, {
       headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -144,22 +122,19 @@ async function getUserInfo(kv: KVNamespace, userId: string, token: string): Prom
     if (response.ok) {
       const user = await response.json();
       
-      // Cache the user data for 24 hours (longer than original 1 hour)
       await kv.put(`discord_user:${userId}`, JSON.stringify(user), {
-        expirationTtl: 86400 // 24 hours
+        expirationTtl: 86400
       });
-      
-      console.log('USER_INFO: ✓ Fetched and cached user data for:', user.username || user.global_name);
       
       return {
         username: user.global_name || user.username || 'Unknown User',
         avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${userId}/${user.avatar}.png` : undefined
       };
     } else {
-      console.warn('USER_INFO: Failed to fetch user from Discord API:', response.status, response.statusText);
+      // Silently handle failed user fetch
     }
   } catch (error) {
-    console.error('USER_INFO: Error fetching user info:', error);
+    // Silently handle user info errors
   }
   
   return null;
@@ -195,7 +170,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   try {
     const { targetUserId, intensity, duration, operation } = await request.json();
 
-    // Validate parameters
     if (!targetUserId || intensity < 1 || intensity > 100 || duration < 1 || duration > 15 || ![0, 1, 2].includes(operation)) {
       return jsonResponse({ 
         success: false, 
@@ -214,7 +188,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     try {
       const creds = await decrypt(encrypted);
       
-      // Execute PiShock command
       const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -234,12 +207,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         throw new Error(`PiShock API error: ${errorText}`);
       }
 
-      // Get user info for logging with fallback to Discord API
-      console.log('INSTANCE EXECUTE: Getting user info for activity log...');
       const executorInfo = await getUserInfo(env.PISHOCK_KV, user.id, token);
       const targetInfo = await getUserInfo(env.PISHOCK_KV, targetUserId, token);
 
-      // Create activity log entry
       const logEntry: ActivityLogEntry = {
         id: uuidv4(),
         timestamp: new Date().toISOString(),
@@ -255,15 +225,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         duration,
       };
 
-      // Store activity log entry
-      // Store activity log entry (blocking to ensure logging works)
       try {
-        console.log('INSTANCE EXECUTE: Logging activity entry with ID:', logEntry.id);
         await addToActivityBatch(env.PISHOCK_KV, logEntry);
-        console.log('INSTANCE EXECUTE: ✓ Activity logged successfully');
       } catch (logError) {
-        console.error('INSTANCE EXECUTE: ❌ Failed to log activity (CRITICAL):', logError);
-        // Don't fail the entire operation, but log the error clearly
+        console.error('Failed to log activity (CRITICAL):', logError);
       }
 
       return jsonResponse({ 
@@ -272,14 +237,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
 
     } catch (error) {
-      console.error('PiShock execution failed:', error);
       return jsonResponse({ 
         success: false, 
         error: error instanceof Error ? error.message : 'Command execution failed' 
       });
     }
   } catch (error) {
-    console.error('PiShock execute error:', error);
     return jsonResponse({ 
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error'

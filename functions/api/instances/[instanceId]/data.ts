@@ -22,16 +22,13 @@ async function requireAuth(request: Request): Promise<string | null> {
 
 async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
   try {
-    // Try to get cached validation result first
     const cacheKey = `discord_token_validation:${token.slice(-8)}`; // Use last 8 chars to avoid storing full token
     const cached = await kv.get(cacheKey);
     if (cached) {
       const cachedData = JSON.parse(cached);
-      console.log('TOKEN_VALIDATION: Using cached Discord token validation');
       return cachedData;
     }
     
-    console.log('TOKEN_VALIDATION: Fetching fresh Discord token validation');
     const response = await fetch('https://discord.com/api/users/@me', {
       headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -42,33 +39,27 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     
     const userData = await response.json();
     
-    // Cache the validation result for 5 minutes
     await kv.put(cacheKey, JSON.stringify(userData), {
       expirationTtl: 300 // 5 minutes
     });
     
-    console.log('TOKEN_VALIDATION: ✓ Cached fresh Discord token validation');
     return userData;
   } catch (error) {
     return null;
   }
 }
 
-// Debounce helper to prevent excessive writes
 const pendingWrites = new Map<string, any>();
 const writeTimeouts = new Map<string, NodeJS.Timeout>();
 
 async function debouncedWrite(kv: KVNamespace, key: string, value: any, delay = 2000, expirationTtl?: number) {
-  // Cancel existing timeout for this key
   const existingTimeout = writeTimeouts.get(key);
   if (existingTimeout) {
     clearTimeout(existingTimeout);
   }
   
-  // Store pending write
   pendingWrites.set(key, value);
   
-  // Set new timeout
   const timeout = setTimeout(async () => {
     const pendingValue = pendingWrites.get(key);
     if (pendingValue) {
@@ -122,8 +113,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         updatedBy: user.id
       };
       
-      // Use debounced write to prevent excessive updates
-      await debouncedWrite(env.PISHOCK_KV, `instance_data:${instanceId}`, merged, 2000, 21600); // 6 hours TTL
+      await debouncedWrite(env.PISHOCK_KV, `instance_data:${instanceId}`, merged, 2000, 21600);
       return jsonResponse({ success: true });
     }
 

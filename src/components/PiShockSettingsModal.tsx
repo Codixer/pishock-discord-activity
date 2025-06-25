@@ -242,12 +242,10 @@ export function PiShockSettingsModal({
           color: 'green'
         });
         
-        // Clear the API key field for security
         setApiKey('');
         setUsername('');
         setSharecode('');
         
-        // Trigger status refresh
         if (window.refreshAllUserStatuses) {
           window.refreshAllUserStatuses();
         }
@@ -258,7 +256,6 @@ export function PiShockSettingsModal({
         throw new Error(result.error || 'Failed to save settings');
       }
     } catch (error) {
-      console.error('Failed to save settings:', error);
       alert(error instanceof Error ? error.message : 'Failed to save settings');
     } finally {
       setSaving(false);
@@ -288,7 +285,7 @@ export function PiShockSettingsModal({
         onSettingsSaved();
       }
     } catch (error) {
-      console.error('Failed to remove credentials:', error);
+      // Silently handle removal errors
     }
   };
 
@@ -299,7 +296,7 @@ export function PiShockSettingsModal({
           url: 'https://pishock.com/#/account',
         });
       } catch (error) {
-        console.error('Failed to open external link:', error);
+        // Silently handle external link errors
       }
     } else {
       window.open('https://pishock.com/#/account', '_blank');
@@ -329,7 +326,6 @@ export function PiShockSettingsModal({
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-gray-900 rounded-2xl border border-white/20 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-white/10">
           <div className="flex items-center space-x-3">
             <Settings className="h-6 w-6 text-purple-400" />
@@ -343,9 +339,7 @@ export function PiShockSettingsModal({
           </button>
         </div>
 
-        {/* Content */}
         <div className="p-6 space-y-6">
-          {/* Connection Status */}
           <div className={`p-4 border rounded-lg ${
             connectionStatus.color === 'green' ? 'bg-green-900/20 border-green-500/30' :
             connectionStatus.color === 'yellow' ? 'bg-yellow-900/20 border-yellow-500/30' :
@@ -385,7 +379,6 @@ export function PiShockSettingsModal({
             </div>
           )}
 
-          {/* Credentials Form */}
           <div className="space-y-4">
             <div className="p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg text-sm text-blue-200">
               <p className="font-semibold mb-1">
@@ -462,7 +455,6 @@ export function PiShockSettingsModal({
             </div>
           </div>
 
-          {/* Safety Limits */}
           <div className="space-y-4 p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
             <h3 className="text-lg font-medium text-yellow-300">Safety Limits</h3>
             <p className="text-sm text-yellow-200">Set your maximum limits for receiving commands</p>
@@ -508,7 +500,6 @@ export function PiShockSettingsModal({
             </div>
           </div>
 
-          {/* Ban Management */}
           <div className="space-y-4 p-4 bg-red-900/20 border border-red-500/30 rounded-lg">
             <h3 className="text-lg font-medium text-red-300">Manage Who Can Shock You</h3>
             <p className="text-sm text-red-200">Block specific users from sending commands to your device</p>
@@ -561,7 +552,6 @@ export function PiShockSettingsModal({
           </div>
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-between p-6 border-t border-white/10">
           <div className="flex space-x-3">
             {hasStoredCredentials && (

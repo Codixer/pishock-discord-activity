@@ -100,10 +100,7 @@ export function useUserStatusCache() {
       }
     }
     
-    if (cleaned > 0) {
-      console.log(`CLIENT_CACHE: Cleaned up ${cleaned} expired cache entries`);
       setLastCacheUpdate(now);
-    }
     
     return cleaned;
   }, []);

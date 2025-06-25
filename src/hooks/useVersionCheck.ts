@@ -19,13 +19,12 @@ export function useVersionCheck({
   const [isChecking] = useState(false);
   const [timeRemaining] = useState(0);
 
-  // No-op functions for compatibility
   const forceShutdown = () => {
-    console.log('Version checking disabled');
+    // No-op for compatibility
   };
 
   const checkVersion = () => {
-    console.log('Version checking disabled - current version:', currentVersion);
+    // No-op for compatibility
   };
 
   return {
