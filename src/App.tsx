@@ -792,10 +792,6 @@ function MainApp() {
               >
                 Activity Log
               </button>
-              <ConnectionStatus 
-                discordConnected={!!auth} 
-                piShockConnected={piShockConnected}
-              />
             </div>
           </div>
         </div>

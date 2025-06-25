@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Zap, Settings, Play, Square, AlertTriangle, Lock } from 'lucide-react';
+import { Zap, Settings, Play, Square, AlertTriangle, Lock, Wifi, WifiOff } from 'lucide-react';
 import { DiscordSDK, Common } from '@discord/embedded-app-sdk';
 import { PiShockSettingsModal } from './PiShockSettingsModal';
 
@@ -50,9 +50,15 @@ export function PiShockController({
   const [showSettings, setShowSettings] = useState(false);
   const [currentUserPiShockConnected, setCurrentUserPiShockConnected] = useState(false);
   const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
+  const [discordConnected, setDiscordConnected] = useState(!!auth);
 
   // Check if we're in PIP mode
   const isPipMode = layoutMode === Common.LayoutModeTypeObject.PIP;
+
+  // Update Discord connection status when auth changes
+  useEffect(() => {
+    setDiscordConnected(!!auth);
+  }, [auth]);
 
   // Get the effective limits based on selected user
   const getEffectiveLimits = () => {
@@ -114,11 +120,10 @@ export function PiShockController({
           maxDuration: status.maxDuration
         });
         
-        setHasStoredCredentials(status.hasCredentials);
         setCurrentUserPiShockConnected(status.isConnected);
         onConnectionChange(status.isConnected);
         
-        console.log('STATUS: ✓ Status check completed - hasCredentials:', status.hasCredentials);
+        console.log('STATUS: ✓ Status check completed - isConnected:', status.isConnected);
         
         if (status.hasCredentials && !status.isConnected) {
           addNotification('warning', 'Connection Issue', 'Your PiShock credentials found but connection failed. Please check your settings.');
@@ -235,20 +240,42 @@ export function PiShockController({
       <div className="h-full flex flex-col space-y-4 overflow-y-auto">
         {/* Control Panel */}
         <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6 flex-1 flex flex-col min-h-0 ${isPipMode ? 'p-2' : ''}`}>
-          {/* Header with Settings Button */}
+          {/* Header with Settings Button and Connection Status */}
           <div className="flex items-center justify-between mb-6 flex-shrink-0">
             <h3 className={`font-semibold ${isPipMode ? 'text-sm' : 'text-lg sm:text-xl'}`}>
               Control Panel
             </h3>
-            {!isPipMode && (
-              <button
-                onClick={() => setShowSettings(true)}
-                className="flex items-center space-x-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors text-sm font-medium"
-              >
-                <Settings className="h-4 w-4" />
-                <span>PiShock Settings</span>
-              </button>
-            )}
+            <div className="flex items-center space-x-4">
+              {/* Connection Status */}
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${discordConnected ? 'bg-green-400' : 'bg-red-400'}`} />
+                  <span className={`text-sm text-gray-300 ${isPipMode ? 'hidden' : ''}`}>Discord</span>
+                  {discordConnected ? (
+                    <Wifi className="h-4 w-4 text-green-400" />
+                  ) : (
+                    <WifiOff className="h-4 w-4 text-red-400" />
+                  )}
+                </div>
+                
+                <div className="flex items-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${currentUserPiShockConnected ? 'bg-green-400' : 'bg-red-400'}`} />
+                  <span className={`text-sm text-gray-300 ${isPipMode ? 'hidden' : ''}`}>PiShock</span>
+                  <Zap className={`h-4 w-4 ${currentUserPiShockConnected ? 'text-green-400' : 'text-red-400'}`} />
+                </div>
+              </div>
+
+              {/* Settings Button */}
+              {!isPipMode && (
+                <button
+                  onClick={() => setShowSettings(true)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors text-sm font-medium"
+                >
+                  <Settings className="h-4 w-4" />
+                  <span>PiShock Settings</span>
+                </button>
+              )}
+            </div>
           </div>
 
         {!selectedUser ? (
@@ -295,46 +322,6 @@ export function PiShockController({
               </div>
             </div>
 
-            {/* Ban Management for Selected User */}
-            {!isPipMode && selectedUser && (
-              <div className="p-4 bg-red-900/20 border border-red-500/30 rounded-lg flex-shrink-0">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3 flex-1 min-w-0">
-                    <div className="flex items-center space-x-2">
-                      <Shield className="h-5 w-5 text-red-400" />
-                      <span className="text-base font-medium text-red-300">Protection</span>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      {bannedExecutors.includes(selectedUser.id) ? (
-                        <p className="text-sm text-red-200">
-                          <span className="font-semibold text-red-300">{getDisplayName(selectedUser)}</span> is blocked from shocking you
-                        </p>
-                      ) : (
-                        <p className="text-sm text-gray-300">
-                          <span className="font-semibold text-white">{getDisplayName(selectedUser)}</span> can shock you if you have PiShock configured
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => toggleBanUser(selectedUser.id)}
-                    className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
-                      bannedExecutors.includes(selectedUser.id)
-                        ? 'bg-green-600 hover:bg-green-700 text-white'
-                        : 'bg-red-600 hover:bg-red-700 text-white'
-                    }`}
-                  >
-                    {bannedExecutors.includes(selectedUser.id) ? 'Unblock' : 'Block'}
-                  </button>
-                </div>
-                <div className="mt-3 text-sm text-red-200">
-                  {bannedExecutors.includes(selectedUser.id) 
-                    ? "This user cannot send commands to your PiShock device"
-                    : "Block this user to prevent them from sending commands to your PiShock device"
-                  }
-                </div>
-              </div>
-            )}
             {/* Controls Container */}
             <div className="flex-1 flex flex-col space-y-6 min-h-0">
               {/* Intensity Control */}
@@ -447,7 +434,7 @@ export function PiShockController({
                 </button>
               </div>
 
-              {/* No PiShock Device Warning & Ban Option */}
+              {/* No PiShock Device Warning */}
               {!isPipMode && selectedUser && !(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected && (
                 <div className="p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex-shrink-0">
                   <div className="flex items-start space-x-3">
@@ -459,8 +446,7 @@ export function PiShockController({
                         Commands cannot be sent until they set up their credentials.
                       </p>
                       <p className="text-sm text-yellow-200">
-                        However, you can still {bannedExecutors.includes(selectedUser.id) ? 'unblock' : 'block'} them 
-                        to manage who can shock you when they do set up their device.
+                        They should click the "PiShock Settings" button to configure their device.
                       </p>
                     </div>
                   </div>
