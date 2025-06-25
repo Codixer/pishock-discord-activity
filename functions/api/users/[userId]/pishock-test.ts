@@ -94,39 +94,31 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       console.log('TEST: Has own device:', creds.hasOwnDevice);
       console.log('TEST: Max limits:', { maxIntensity: creds.maxIntensity || 100, maxDuration: creds.maxDuration || 15 });
       
-      // Test actual device operation
-      console.log('TEST: Starting device operation test...');
-      const operationTest = await testPiShockOperation(creds.apiKey, creds.username, creds.sharecode);
+      // Test credential validation only (no device ping)
+      console.log('TEST: Starting credential validation test...');
+      const credentialValidation = await validatePiShockCredentials(creds.apiKey, creds.username);
       
-      console.log('TEST: Operation test result:', operationTest);
+      console.log('TEST: Credential validation result:', credentialValidation);
       
       let hasDevice = false;
       let deviceCount = 0;
       let deviceDebugInfo = null;
       let piShockUserId = null;
       
-      if (operationTest.success) {
-        // If device operation succeeds, get credential info and check devices
-        console.log('TEST: Device operation successful, getting credential info...');
-      const credentialValidation = await validatePiShockCredentials(creds.apiKey, creds.username);
-      
-        console.log('TEST: Credential validation result:', credentialValidation);
-      
-        if (credentialValidation.valid && credentialValidation.userId) {
-          piShockUserId = credentialValidation.userId;
-          console.log('TEST: Got PiShock user ID, checking for devices...');
-          // Check for devices using V3 API
-          const deviceCheck = await checkUserDevices(piShockUserId, creds.apiKey);
-          hasDevice = deviceCheck.hasDevices;
-          deviceCount = deviceCheck.devices?.length || 0;
-          deviceDebugInfo = deviceCheck.debugInfo;
-          
-          console.log('TEST: Device check result:', {
-            hasDevices: hasDevice,
-            deviceCount,
-            error: deviceCheck.error
-          });
-        }
+      if (credentialValidation.valid && credentialValidation.userId) {
+        piShockUserId = credentialValidation.userId;
+        console.log('TEST: Got PiShock user ID, checking for devices...');
+        // Check for devices using V3 API
+        const deviceCheck = await checkUserDevices(piShockUserId, creds.apiKey);
+        hasDevice = deviceCheck.hasDevices;
+        deviceCount = deviceCheck.devices?.length || 0;
+        deviceDebugInfo = deviceCheck.debugInfo;
+        
+        console.log('TEST: Device check result:', {
+          hasDevices: hasDevice,
+          deviceCount,
+          error: deviceCheck.error
+        });
         
         // Update stored PiShock user ID in user data if we got one
         if (piShockUserId) {
@@ -135,18 +127,18 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         userData.lastTested = new Date().toISOString();
         await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
       } else {
-        console.error('TEST: Device operation test failed:', operationTest.error);
+        console.error('TEST: Credential validation failed:', credentialValidation.error);
       }
       
       const result = {
-        success: operationTest.success, 
-        isConnected: operationTest.success, 
+        success: credentialValidation.valid, 
+        isConnected: credentialValidation.valid, 
         hasDevice,
         deviceCount,
         piShockUserId,
         lastTested: userData.lastTested,
         debug: {
-          operationTest: operationTest.debugInfo,
+          credentialValidation: credentialValidation.debugInfo,
           deviceCheck: deviceDebugInfo,
           storedCredentials: {
             username: creds.username,
@@ -160,8 +152,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       
       console.log('TEST: Final result:', result);
       
-      if (!operationTest.success) {
-        result.error = operationTest.error || 'Device operation test failed';
+      if (!credentialValidation.valid) {
+        result.error = credentialValidation.error || 'Credential validation failed';
       }
       
       return jsonResponse(result);
