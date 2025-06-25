@@ -144,7 +144,6 @@ function MainApp() {
     }
   }, [isRateLimited, retryAfter, addNotification]);
 
-
   const { participants, updateParticipants } = useParticipants(discordSdk, isEmbedded);
 
   // Toggle multi-select mode
