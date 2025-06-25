@@ -29,7 +29,10 @@ export function MultishockController({
       const promptShown = onUpgradePrompt();
       if (promptShown) return; // Don't proceed if upgrade prompt was shown
     }
-    onMultishock(operation);
+    
+    if (hasControllerPlus) {
+      onMultishock(operation);
+    }
   };
   if (!hasControllerPlus) {
     return (

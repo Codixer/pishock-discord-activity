@@ -65,13 +65,8 @@ export function ControllerPlusPurchaseModal({
       
       if (success) {
         console.log('PURCHASE: Purchase flow completed successfully');
-        
-        // Wait a moment then refresh entitlements to check for new purchase
-        setTimeout(async () => {
-          await refreshEntitlements();
-          onPurchaseComplete?.();
-          onClose();
-        }, 2000);
+        // Don't immediately close modal or refresh - wait for entitlement polling to detect the new purchase
+        // The modal will close automatically when hasControllerPlus becomes true via useEffect
       } else {
         setPurchaseError('Failed to start purchase flow. Please try again.');
       }
