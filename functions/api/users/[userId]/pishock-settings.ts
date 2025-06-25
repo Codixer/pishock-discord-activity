@@ -59,6 +59,16 @@ async function decrypt(data: string): Promise<any> {
   return JSON.parse(atob(data));
 }
 
+async function encrypt(data: any): Promise<string> {
+  // Simple base64 encoding for now - in production, use proper encryption
+  return btoa(JSON.stringify(data));
+}
+
+async function decrypt(data: string): Promise<any> {
+  // Simple base64 decoding for now - in production, use proper decryption
+  return JSON.parse(atob(data));
+}
+
 // Simplified entitlement check
 async function checkDiscordEntitlement(token: string, kv: KVNamespace, skuId?: string, userId?: string): Promise<boolean> {
   if (!skuId) {
