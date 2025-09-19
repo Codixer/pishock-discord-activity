@@ -98,6 +98,44 @@ export function PiShockController({
     }
   }, [selectedUser, intensity, duration, currentUserConsumables]);
 
+  // Get bypass status for current command
+  const getBypassStatus = useCallback(() => {
+    if (!selectedUser) return null;
+    
+    const userStatus = (window as any).userPiShockStatus?.[selectedUser.id];
+    if (!userStatus) return null;
+    
+    const targetMaxIntensity = userStatus.maxIntensity || 100;
+    const targetMaxDuration = userStatus.maxDuration || 15;
+    const targetEnableShockBypass = userStatus.enableShockBypass || false;
+    
+    const needsBypass = intensity > targetMaxIntensity || duration > targetMaxDuration;
+    
+    if (!needsBypass) return null;
+    
+    if (!targetEnableShockBypass) {
+      return {
+        type: 'blocked',
+        message: `Target user has not enabled bypass. Max: ${targetMaxIntensity}%/${targetMaxDuration}s`
+      };
+    }
+    
+    const shockBypassSkuId = '1318562984946569267'; // Shock Past User Limit SKU ID
+    const currentConsumables = currentUserConsumables[shockBypassSkuId] || 0;
+    
+    if (currentConsumables > 0) {
+      return {
+        type: 'bypass',
+        message: `Bypass available. Will use 1 consumable (${currentConsumables} available)`
+      };
+    } else {
+      return {
+        type: 'insufficient',
+        message: `No "Shock Past User Limit" consumables available. Purchase from Discord store.`
+      };
+    }
+  }, [selectedUser, intensity, duration, currentUserConsumables]);
+
   // Get the effective limits based on selected user
   const getEffectiveLimits = () => {
     if (!selectedUser) return { maxIntensity: 100, maxDuration: 15 };
