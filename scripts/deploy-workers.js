@@ -458,8 +458,11 @@ export function PiShockController({
                     <div className={`p-3 rounded-lg border ${colorClass} flex-shrink-0`}>
                       <div className="flex items-center space-x-2">
                         {bypassStatus.type === 'bypass' && <span>⚡</span>}
+                        }
                         {bypassStatus.type === 'blocked' && <span>🚫</span>}
+                        }
                         {bypassStatus.type === 'insufficient' && <span>❌</span>}
+                        }
                         <span className="text-sm font-medium">{bypassStatus.message}</span>
                       </div>
                       {bypassStatus.type === 'bypass' && (
