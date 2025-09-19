@@ -194,6 +194,40 @@ export function PiShockController({
       setIsShocking(false);
     }
   };
+  const getBypassStatus = () => {
+    if (!selectedUser) return null;
+    
+    const userStatus = (window as any).userPiShockStatus?.[selectedUser.id];
+    if (!userStatus) return null;
+    
+    const maxIntensity = userStatus.maxIntensity || 100;
+    const maxDuration = userStatus.maxDuration || 15;
+    const enableShockBypass = userStatus.enableShockBypass || false;
+    const consumables = currentUserConsumables['YOUR_SKU_ID_HERE'] || 0;
+    
+    const wouldExceedLimits = intensity > maxIntensity || duration > maxDuration;
+    
+    if (wouldExceedLimits) {
+      if (!enableShockBypass) {
+        return {
+          type: 'blocked',
+          message: 'Target has not enabled shock bypass'
+        };
+      } else if (consumables > 0) {
+        return {
+          type: 'bypass',
+          message: 'Will use bypass consumable'
+        };
+      } else {
+        return {
+          type: 'insufficient',
+          message: 'No bypass consumables available'
+        };
+      }
+    }
+    
+    return null;
+  };
 
   const handleSettingsSaved = () => {
     checkCurrentUserCredentials();

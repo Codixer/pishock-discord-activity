@@ -229,7 +229,6 @@ export function PiShockSettingsModal({
           maxIntensity: userMaxIntensity,
           maxDuration: userMaxDuration,
           bannedExecutors,
-          enableShockBypass,
         }),
       });
 
@@ -498,6 +497,50 @@ export function PiShockSettingsModal({
                 <span>8s</span>
                 <span>15s</span>
               </div>
+            </div>
+          </div>
+
+          <div className="space-y-4 p-4 bg-purple-900/20 border border-purple-500/30 rounded-lg">
+            <h3 className="text-lg font-medium text-purple-300">Shock Bypass Settings</h3>
+            <p className="text-sm text-purple-200">Allow other users to exceed your safety limits using consumables</p>
+            
+            <div className="flex items-center justify-between p-3 bg-black/20 rounded border border-gray-600">
+              <div className="flex-1 min-w-0">
+                <h4 className="text-sm font-medium text-white mb-1">Enable Shock Bypass</h4>
+                <p className="text-sm text-gray-300">
+                  When enabled, other users can use "Shock Past User Limit" consumables to exceed your safety limits.
+                </p>
+              </div>
+              <div className="ml-4 flex-shrink-0">
+                <button
+                  onClick={() => setEnableShockBypass(!enableShockBypass)}
+                  disabled={loadingData}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    enableShockBypass
+                      ? 'bg-purple-600'
+                      : 'bg-gray-600'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      enableShockBypass ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded">
+              <h4 className="text-sm font-medium text-blue-300 mb-2">Your Consumable Inventory</h4>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-blue-200">Shock Past User Limit:</span>
+                <span className="text-sm font-semibold text-blue-300">
+                  {consumableInventory['YOUR_SKU_ID_HERE'] || 0} available
+                </span>
+              </div>
+              <p className="text-xs text-blue-200 mt-2">
+                Purchase more from the Discord store to bypass other users' limits (when they enable it).
+              </p>
             </div>
           </div>
 
