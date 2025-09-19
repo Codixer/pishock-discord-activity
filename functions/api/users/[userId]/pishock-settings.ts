@@ -1,5 +1,7 @@
 interface Env {
   PISHOCK_KV: KVNamespace;
+  DISCORD_APPLICATION_ID: string;
+  SHOCK_BYPASS_SKU_ID: string;
 }
 
 interface PagesFunction<Env = unknown> {
@@ -14,9 +16,10 @@ function jsonResponse(body: any, status = 200) {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      // Match caching with status endpoint to prevent inconsistency
-      'Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
-      'Vary': 'Authorization',
+      // No caching for sensitive settings and consumable data
+      'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0',
     },
   });
 }
@@ -308,7 +311,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         return jsonResponse({ 
           hasSettings: false,
           settings: null,
-          bannedExecutors: []
+          bannedExecutors: [],
+          consumableInventory: {}
         });
       }
 
@@ -321,6 +325,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           hasOwnDevice: true,
           maxIntensity: creds.maxIntensity || 100,
           maxDuration: creds.maxDuration || 15,
+          enableShockBypass: creds.enableShockBypass || false,
           lastUpdated: userData.lastUpdated,
           piShockUserId: creds.piShockUserId,
           bannedExecutors: userData.bannedExecutors || []
@@ -330,13 +335,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           hasSettings: true,
           settings,
           bannedExecutors: userData.bannedExecutors || []
+          consumableInventory: userData.consumableInventory || {}
         });
       } catch (error) {
         console.error('Failed to decrypt user settings:', error);
         return jsonResponse({ 
           hasSettings: false,
           settings: null,
-          bannedExecutors: []
+          bannedExecutors: [],
+          consumableInventory: {}
         });
       }
     }    if (method === 'PUT') {
@@ -347,7 +354,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         hasOwnDevice, 
         maxIntensity = 100, 
         maxDuration = 15,
-        bannedExecutors = []
+        bannedExecutors = [],
+        enableShockBypass = false
       } = await request.json();
 
       const existingUserDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
@@ -362,6 +370,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         const updatedUserData = {
           ...existingUserData,
           bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : [],
+          consumableInventory: existingUserData.consumableInventory || {},
           lastUpdated: new Date().toISOString()
         };
         
@@ -370,7 +379,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         return jsonResponse({ 
           success: true,
           banListUpdated: true,
-          bannedExecutors: updatedUserData.bannedExecutors
+          bannedExecutors: updatedUserData.bannedExecutors,
+          consumableInventory: updatedUserData.consumableInventory
         });
       } else {
         if (!isExistingUser && (!apiKey || !username || !sharecode)) {
@@ -474,7 +484,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         deviceCount: deviceCheck.devices?.length || 0,
         lastValidated: new Date().toISOString(),
         maxIntensity,
-        maxDuration
+        maxDuration,
+        enableShockBypass
       };
       
       const encrypted = await encrypt(credentialsToStore);
@@ -487,7 +498,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         piShockUserId,
         deviceCount: deviceCheck.devices?.length || 0,
         lastUpdated: new Date().toISOString(),
-        bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : []
+        bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : [],
+        consumableInventory: existingUserData?.consumableInventory || {}
       };
       
       if (hasSettingsChanged(existingUserData, userData)) {

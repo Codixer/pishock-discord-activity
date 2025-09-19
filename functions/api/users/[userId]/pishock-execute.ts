@@ -2,6 +2,8 @@ import { v4 as uuidv4 } from 'uuid';
 
 interface Env {
   PISHOCK_KV: KVNamespace;
+  DISCORD_APPLICATION_ID: string;
+  SHOCK_BYPASS_SKU_ID: string;
 }
 
 interface ActivityLogEntry {
@@ -17,6 +19,7 @@ interface ActivityLogEntry {
   action: 'shock' | 'vibrate' | 'beep';
   intensity: number;
   duration: number;
+  bypassUsed?: boolean;
   guildId?: string;
   guildName?: string;
 }
@@ -331,6 +334,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         action: operationName as 'shock' | 'vibrate' | 'beep',
         intensity,
         duration,
+        bypassUsed,
       };
 
       try {

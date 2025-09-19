@@ -9,6 +9,8 @@ declare global {
 
 interface Env {
   PISHOCK_KV: KVNamespace;
+  DISCORD_APPLICATION_ID: string;
+  SHOCK_BYPASS_SKU_ID: string;
 }
 
 interface PagesFunction<Env = unknown> {
@@ -21,6 +23,10 @@ function jsonResponse(body: any, status = 200, additionalHeaders: Record<string,
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    // No caching for real-time consumable inventory and bypass settings
+    'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+    'Pragma': 'no-cache',
+    'Expires': '0',
     ...additionalHeaders
   };
   
@@ -263,14 +269,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   if (!user) return new Response('Invalid token', { status: 401 });
   
   try {
-    const cachedStatus = await getCachedUserStatus(env.PISHOCK_KV, userId);
-    if (cachedStatus) {
-      return jsonResponse(cachedStatus, 200, {
-        'Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
-        'X-Cache-Status': 'HIT'
-      });
-    }
-    
     const userDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
     const userData = userDataStr ? JSON.parse(userDataStr) : null;
     
@@ -284,6 +282,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     
     let maxIntensity = 100;
     let maxDuration = 15;
+    let enableShockBypass = false;
     
     if (encrypted) {
       try {
@@ -291,6 +290,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         
         maxIntensity = creds.maxIntensity || 100;
         maxDuration = creds.maxDuration || 15;
+        enableShockBypass = creds.enableShockBypass || false;
         
         const credentialValidation = await validatePiShockCredentials(creds.apiKey, creds.username);
         isConnected = credentialValidation.valid;
@@ -326,14 +326,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       lastTested,
       isRelay: false,
       maxIntensity,
-      maxDuration
+      maxDuration,
+      enableShockBypass,
+      consumableInventory: userData?.consumableInventory || {}
     };
     
-    await setCachedUserStatus(env.PISHOCK_KV, userId, result);
-    
-    return jsonResponse(result, 200, {
-      'Cache-Control': 'public, max-age=30, stale-while-revalidate=15',
-    });
+    return jsonResponse(result);
   } catch (error) {
     return jsonResponse({ 
       error: 'Internal server error',
