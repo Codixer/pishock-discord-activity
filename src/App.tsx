@@ -96,6 +96,7 @@ function MainApp() {
   const [isPipMode, setIsPipMode] = useState(false);
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
+  const [currentUserConsumables, setCurrentUserConsumables] = useState<Record<string, number>>({});
   
   // Client-side cache for user status
   const userStatusCache = useUserStatusCache();
@@ -228,6 +229,11 @@ function MainApp() {
           if (response.ok) {
             const status = await response.json();
             
+            // Update current user's consumable inventory if this is the current user
+            if (participant.id === auth?.user?.id && status.consumableInventory) {
+              setCurrentUserConsumables(status.consumableInventory);
+            }
+            
             const processedStatus = {
               userId: participant.id, 
               status: {
@@ -324,6 +330,31 @@ function MainApp() {
 
   // Make the refresh function available globally
   window.refreshAllUserStatuses = checkAllUserPiShockStatus;
+  
+  // Function to refresh current user's consumable inventory
+  const refreshCurrentUserConsumables = useCallback(async () => {
+    if (!auth?.user?.id) return;
+    
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/users/${auth.user.id}/pishock-status`, {
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+      });
+      
+      if (response.ok) {
+        const status = await response.json();
+        if (status.consumableInventory) {
+          setCurrentUserConsumables(status.consumableInventory);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to refresh consumable inventory:', error);
+    }
+  }, [auth]);
+  
+  // Make the consumable refresh function available globally
+  window.refreshCurrentUserConsumables = refreshCurrentUserConsumables;
   
   useEffect(() => {
     if (auth?.user?.id) {
@@ -493,6 +524,7 @@ function MainApp() {
 
     initializeDiscord();
 
+    // Cleanup function
     return () => {
       if (isEmbedded && discordSdk) {
         discordSdk.unsubscribe(Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE, updateParticipants);
@@ -500,6 +532,10 @@ function MainApp() {
           discordSdk.unsubscribeFromLayoutModeUpdatesCompat(handleLayoutModeUpdate);
         }
       }
+      
+      // Clean up global functions
+      delete window.refreshAllUserStatuses;
+      delete window.refreshCurrentUserConsumables;
     };
   }, [addNotification, updateParticipants, handleLayoutModeUpdate]);
 
@@ -549,8 +585,10 @@ function MainApp() {
   useEffect(() => {
     if (instanceId && auth && participants.length > 0) {
       checkAllUserPiShockStatus();
+      // Also refresh current user's consumables on initial load
+      refreshCurrentUserConsumables();
     }
-  }, [instanceId, auth, participants]);
+  }, [instanceId, auth, participants, refreshCurrentUserConsumables]);
 
   useEffect(() => {
     if (!instanceId || !auth || participants.length === 0) return;
