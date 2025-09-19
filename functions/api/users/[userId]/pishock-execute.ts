@@ -138,12 +138,6 @@ export function PiShockController({
 
   // Get the effective limits based on selected user
   const getEffectiveLimits = () => {
-        
-        targetEncrypted = userData.credentials;
-      }
-    }
-    
-    if (!targetEncrypted) {
     if (!selectedUser) return { maxIntensity: 100, maxDuration: 15 };
     
     // Get the user's PiShock status which includes their sharecode limits

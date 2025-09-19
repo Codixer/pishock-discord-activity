@@ -1,15 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, X, Save, Loader, ExternalLink, Wifi, AlertTriangle, Shield, User, Lock } from 'lucide-react';
-import { DiscordSDK } from '@discord/embedded-app-sdk';
+import { Zap, Settings, Play, Square, AlertTriangle, Lock, Wifi, WifiOff } from 'lucide-react';
+import { DiscordSDK, Common } from '@discord/embedded-app-sdk';
+import { PiShockSettingsModal } from './PiShockSettingsModal';
 
-interface PiShockSettingsModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  currentUser: any;
+interface PiShockControllerProps {
+  selectedUser: any;
+  onConnectionChange: (connected: boolean) => void;
+  isConnected: boolean;
+  addNotification: (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => void;
+  instanceId: string;
   auth: any;
+  currentUser: any;
   discordSdk: DiscordSDK;
   isEmbedded: boolean;
-  onSettingsSaved: () => void;
+  layoutMode?: number;
   participants?: any[];
 }
 
@@ -19,73 +23,159 @@ function getApiBaseUrl(): string {
   const isEmbedded = urlParams.has('frame_id');
   
   if (isEmbedded) {
+    // Use Discord's proxy for embedded environment
     return '/.proxy/api';
   } else {
+    // Use direct API calls for development
     return '/api';
   }
 }
 
-export function PiShockSettingsModal({ 
-  isOpen, 
-  onClose, 
-  currentUser, 
-  auth, 
-  discordSdk, 
+export function PiShockController({ 
+  selectedUser, 
+  onConnectionChange, 
+  isConnected, 
+  addNotification, 
+  instanceId, 
+  auth,
+  currentUser,
+  discordSdk,
   isEmbedded,
-  onSettingsSaved,
+  layoutMode = Common.LayoutModeTypeObject.FOCUSED,
   participants = []
-}: PiShockSettingsModalProps) {
-  const [apiKey, setApiKey] = useState('');
-  const [username, setUsername] = useState('');
-  const [sharecode, setSharecode] = useState('');
-  const [userMaxIntensity, setUserMaxIntensity] = useState(100);
-  const [userMaxDuration, setUserMaxDuration] = useState(15);
-  const [bannedExecutors, setBannedExecutors] = useState<string[]>([]);
-  const [enableShockBypass, setEnableShockBypass] = useState(false);
-  const [consumableInventory, setConsumableInventory] = useState<Record<string, number>>({});
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [loadingData, setLoadingData] = useState(false);
-  const [hasStoredCredentials, setHasStoredCredentials] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<{
-    connected: boolean;
-    message: string;
-    color: string;
-  }>({ connected: false, message: 'Loading...', color: 'gray' });
+}: PiShockControllerProps) {
+  const [intensity, setIntensity] = useState(1);
+  const [duration, setDuration] = useState(1);
+  const [isShocking, setIsShocking] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [currentUserPiShockConnected, setCurrentUserPiShockConnected] = useState(false);
+  const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
+  const [discordConnected, setDiscordConnected] = useState(!!auth);
 
-  // Load settings when modal opens
+  // Check if we're in PIP mode
+  const isPipMode = layoutMode === Common.LayoutModeTypeObject.PIP;
+
+  // Update Discord connection status when auth changes
   useEffect(() => {
-    if (isOpen && currentUser && auth) {
-      loadExistingSettings();
-      checkConnectionStatus();
-    }
-  }, [isOpen, currentUser, auth]);
+    setDiscordConnected(!!auth);
+  }, [auth]);
 
-  // Auto-save ban list when it changes
+  // Get bypass status for current command
+  const getBypassStatus = useCallback(() => {
+    if (!selectedUser) return null;
+    
+    const userStatus = (window as any).userPiShockStatus?.[selectedUser.id];
+    if (!userStatus) return null;
+    
+    const targetMaxIntensity = userStatus.maxIntensity || 100;
+    const targetMaxDuration = userStatus.maxDuration || 15;
+    const targetEnableShockBypass = userStatus.enableShockBypass || false;
+    
+    const needsBypass = intensity > targetMaxIntensity || duration > targetMaxDuration;
+    
+    if (!needsBypass) return null;
+    
+    if (!targetEnableShockBypass) {
+      return {
+        type: 'blocked',
+        message: `Target user has not enabled bypass. Max: ${targetMaxIntensity}%/${targetMaxDuration}s`
+      };
+    }
+    
+    const shockBypassSkuId = '1318562984946569267'; // Shock Past User Limit SKU ID
+    const currentConsumables = currentUserConsumables[shockBypassSkuId] || 0;
+    
+    if (currentConsumables > 0) {
+      return {
+        type: 'bypass',
+        message: `Bypass available. Will use 1 consumable (${currentConsumables} available)`
+      };
+    } else {
+      return {
+        type: 'insufficient',
+        message: `No "Shock Past User Limit" consumables available. Purchase from Discord store.`
+      };
+    }
+  }, [selectedUser, intensity, duration, currentUserConsumables]);
+
+  // Get bypass status for current command
+  const getBypassStatus = useCallback(() => {
+    if (!selectedUser) return null;
+    
+    const userStatus = (window as any).userPiShockStatus?.[selectedUser.id];
+    if (!userStatus) return null;
+    
+    const targetMaxIntensity = userStatus.maxIntensity || 100;
+    const targetMaxDuration = userStatus.maxDuration || 15;
+    const targetEnableShockBypass = userStatus.enableShockBypass || false;
+    
+    const needsBypass = intensity > targetMaxIntensity || duration > targetMaxDuration;
+    
+    if (!needsBypass) return null;
+    
+    if (!targetEnableShockBypass) {
+      return {
+        type: 'blocked',
+        message: `Target user has not enabled bypass. Max: ${targetMaxIntensity}%/${targetMaxDuration}s`
+      };
+    }
+    
+    const shockBypassSkuId = '1318562984946569267'; // Shock Past User Limit SKU ID
+    const currentConsumables = currentUserConsumables[shockBypassSkuId] || 0;
+    
+    if (currentConsumables > 0) {
+      return {
+        type: 'bypass',
+        message: `Bypass available. Will use 1 consumable (${currentConsumables} available)`
+      };
+    } else {
+      return {
+        type: 'insufficient',
+        message: `No "Shock Past User Limit" consumables available. Purchase from Discord store.`
+      };
+    }
+  }, [selectedUser, intensity, duration, currentUserConsumables]);
+
+  // Get the effective limits based on selected user
+  const getEffectiveLimits = () => {
+    if (!selectedUser) return { maxIntensity: 100, maxDuration: 15 };
+    
+    // Get the user's PiShock status which includes their sharecode limits
+    const userStatus = (window as any).userPiShockStatus?.[selectedUser.id];
+    if (userStatus && userStatus.maxIntensity && userStatus.maxDuration) {
+      return {
+        maxIntensity: userStatus.maxIntensity,
+        maxDuration: userStatus.maxDuration
+      };
+    }
+    
+    return { maxIntensity: 100, maxDuration: 15 };
+  };
+
+  const effectiveLimits = getEffectiveLimits();
+
+  // Update intensity and duration when limits change
   useEffect(() => {
-    if (isOpen && currentUser && auth && bannedExecutors.length >= 0) {
-      const saveTimeout = setTimeout(async () => {
-        try {
-          await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${auth.access_token}`,
-            },
-            body: JSON.stringify({ bannedExecutors }),
-          });
-        } catch (error) {
-          console.error('Failed to save ban list:', error);
-        }
-      }, 1000);
-      
-      return () => clearTimeout(saveTimeout);
+    const limits = getEffectiveLimits();
+    setSelectedUserLimits(limits);
+    
+    // Clamp current values to new limits
+    if (intensity > limits.maxIntensity) {
+      setIntensity(limits.maxIntensity);
     }
-  }, [bannedExecutors, currentUser, auth, isOpen]);
+    if (duration > limits.maxDuration) {
+      setDuration(limits.maxDuration);
+    }
+  }, [selectedUser, intensity, duration]);
 
-  const checkConnectionStatus = async () => {
-    if (!currentUser || !auth) return;
+  // Load current user's PiShock connection status when component mounts
+  useEffect(() => {
+    if (currentUser && auth) {
+      checkCurrentUserCredentials();
+    }
+  }, [currentUser, auth]);
 
+  const checkCurrentUserCredentials = async () => {
     try {
       const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-status`, {
         headers: {
@@ -95,557 +185,327 @@ export function PiShockSettingsModal({
 
       if (response.ok) {
         const status = await response.json();
-        setHasStoredCredentials(status.hasCredentials);
         
-        if (status.isConnected) {
-          setConnectionStatus({
-            connected: true,
-            message: 'Your PiShock Account is Connected',
-            color: 'green'
-          });
-        } else if (status.hasCredentials) {
-          setConnectionStatus({
-            connected: false,
-            message: 'Credentials stored but connection failed',
-            color: 'yellow'
-          });
-        } else {
-          setConnectionStatus({
-            connected: false,
-            message: 'No PiShock account configured',
-            color: 'gray'
-          });
-        }
-
-        if (status.maxIntensity !== undefined && status.maxDuration !== undefined) {
-          setUserMaxIntensity(status.maxIntensity);
-          setUserMaxDuration(status.maxDuration);
-        }
+        setCurrentUserPiShockConnected(status.isConnected);
+        onConnectionChange(status.isConnected);
         
-        // Update consumable inventory from status
-        if (status.consumableInventory) {
-          setConsumableInventory(status.consumableInventory);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to check connection status:', error);
-    }
-  };
-
-  const loadExistingSettings = async () => {
-    if (!currentUser || !auth) return;
-
-    setLoadingData(true);
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${auth.access_token}`,
-        },
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        
-        if (result.hasSettings && result.settings) {
-          const settings = result.settings;
-          setUsername(settings.username || '');
-          setSharecode(settings.sharecode || '');
-          setUserMaxIntensity(settings.maxIntensity || 100);
-          setUserMaxDuration(settings.maxDuration || 15);
-          setBannedExecutors(settings.bannedExecutors || []);
-          setEnableShockBypass(settings.enableShockBypass || false);
-        }
-        
-        // Load consumable inventory
-        if (result.consumableInventory) {
-          setConsumableInventory(result.consumableInventory);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load existing settings:', error);
-    } finally {
-      setLoadingData(false);
-    }
-  };
-
-  const testConnection = async () => {
-    if (!currentUser || !auth) return;
-
-    setLoading(true);
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-test`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${auth.access_token}`,
-        },
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success) {
-          setConnectionStatus({
-            connected: true,
-            message: 'Connection test successful',
-            color: 'green'
-          });
-          
-          if (window.refreshAllUserStatuses) {
-            window.refreshAllUserStatuses();
-          }
-        } else {
-          throw new Error(result.error || 'Connection test failed');
+        if (status.hasCredentials && !status.isConnected) {
+          addNotification('warning', 'Connection Issue', 'Your PiShock credentials found but connection failed. Please check your settings.');
+        } else if (status.isConnected) {
+          addNotification('success', 'Connected', 'Your PiShock account is connected and ready');
         }
       } else {
-        throw new Error('Connection test failed');
+        // Silently handle failed status check
       }
     } catch (error) {
-      console.error('Connection test error:', error);
-      setConnectionStatus({
-        connected: false,
-        message: 'Connection test failed',
-        color: 'red'
-      });
-    } finally {
-      setLoading(false);
+      // Silently handle credential check errors
     }
   };
 
-  const saveSettings = async () => {
-    if (!currentUser || !auth) return;
-    
-    const isNewUser = !hasStoredCredentials;
-    
-    if (isNewUser && (!apiKey || !username || !sharecode)) {
-      alert('Please fill in all required fields: API Key, Username, and Share Code');
-      return;
-    }
-    
-    if (!username || !sharecode) {
-      alert('Please fill in Username and Share Code');
+  const handleShock = async (operation: number) => {
+    if (!selectedUser) {
+      addNotification('warning', 'No User Selected', 'Please select a user first');
       return;
     }
 
-    setSaving(true);
+    // Check if selected user has PiShock configured
+    const userStatus = (window as any).userPiShockStatus?.[selectedUser.id];
+    if (!userStatus?.isConnected) {
+      const displayName = getDisplayName(selectedUser);
+      addNotification(
+        'error', 
+        'PiShock Setup Required', 
+        `${displayName} needs to configure their PiShock device first.\n\nThey should:\n1. Open app settings (gear icon)\n2. Add their PiShock credentials\n3. Test the connection\n\nOnly users with configured devices can receive commands.`
+      );
+      return;
+    }
+
+    setIsShocking(true);
+
     try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
-        method: 'PUT',
+      const endpoint = `${getApiBaseUrl()}/users/${selectedUser.id}/pishock-execute`;
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${auth.access_token}`,
         },
         body: JSON.stringify({
-          apiKey: apiKey || undefined,
-          username,
-          sharecode: sharecode.trim(),
-          hasOwnDevice: true,
-          maxIntensity: userMaxIntensity,
-          maxDuration: userMaxDuration,
-          bannedExecutors,
-          enableShockBypass,
+          executorUserId: currentUser.id,
+          targetUserId: selectedUser.id,
+          intensity,
+          duration,
+          operation, // 0 = shock, 1 = vibrate, 2 = beep
         }),
       });
 
-      const result = await response.json();
-      
-      if (response.ok && result.success) {
-        setHasStoredCredentials(true);
-        setConnectionStatus({
-          connected: true,
-          message: 'Settings saved and connection verified',
-          color: 'green'
-        });
-        
-        setApiKey('');
-        setUsername('');
-        setSharecode('');
-        
-        if (window.refreshAllUserStatuses) {
-          window.refreshAllUserStatuses();
-        }
-        
-        onSettingsSaved();
-        onClose();
-      } else {
-        throw new Error(result.error || 'Failed to save settings');
-      }
-    } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to save settings');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const removeCredentials = async () => {
-    if (!currentUser || !auth) return;
-
-    if (!confirm('Are you sure you want to remove your PiShock credentials?')) return;
-
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${auth.access_token}`,
-        },
-      });
-
       if (response.ok) {
-        setHasStoredCredentials(false);
-        setConnectionStatus({
-          connected: false,
-          message: 'Credentials removed',
-          color: 'gray'
-        });
-        onSettingsSaved();
+        const result = await response.json();
+        if (result.success) {
+          const actionName = operation === 0 ? 'Shock' : operation === 1 ? 'Vibration' : 'Beep';
+          addNotification('success', 'Command Sent', `${actionName} sent to ${selectedUser.displayName || selectedUser.username} - Intensity: ${intensity}%, Duration: ${duration}s`);
+        } else {
+          throw new Error(result.error || 'Command failed');
+        }
+      } else {
+        throw new Error('Shock command failed');
       }
     } catch (error) {
-      // Silently handle removal errors
+      
+      let errorMessage = 'Failed to send shock command. Please try again.';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('Invalid parameters')) {
+          errorMessage = 'Invalid shock parameters. Please check intensity and duration settings.';
+        } else if (error.message.includes('exceeds target user\'s maximum')) {
+          errorMessage = `Command intensity or duration exceeds the target user's maximum limits.`;
+        } else {
+          errorMessage = `Command failed: ${error.message}`;
+        }
+      }
+      
+      addNotification('error', 'Command Failed', errorMessage);
+    } finally {
+      setIsShocking(false);
     }
   };
 
-  const openPiShockAccount = async () => {
-    if (isEmbedded && discordSdk) {
-      try {
-        await discordSdk.commands.openExternalLink({
-          url: 'https://pishock.com/#/account',
-        });
-      } catch (error) {
-        // Silently handle external link errors
-      }
-    } else {
-      window.open('https://pishock.com/#/account', '_blank');
+  const handleSettingsSaved = () => {
+    checkCurrentUserCredentials();
+    if (window.refreshAllUserStatuses) {
+      window.refreshAllUserStatuses();
     }
-  };
-
-  const getOtherParticipants = () => {
-    return participants.filter((p: any) => p.id !== currentUser?.id);
-  };
-
-  const toggleBanUser = (userId: string) => {
-    setBannedExecutors(prev => {
-      if (prev.includes(userId)) {
-        return prev.filter(id => id !== userId);
-      } else {
-        return [...prev, userId];
-      }
-    });
+    addNotification('success', 'Settings Saved', 'Your PiShock settings have been saved successfully');
   };
 
   const getDisplayName = (user: any) => {
     return user?.guildDisplayName || user?.displayName || user?.global_name || user?.username || 'Unknown User';
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 rounded-2xl border border-white/20 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-6 border-b border-white/10">
-          <div className="flex items-center space-x-3">
-            <Settings className="h-6 w-6 text-purple-400" />
-            <h2 className="text-xl font-bold text-white">PiShock Settings</h2>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
-          >
-            <X className="h-5 w-5 text-gray-400" />
-          </button>
-        </div>
+    <>
+      {/* Settings Modal */}
+      <PiShockSettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        currentUser={currentUser}
+        auth={auth}
+        discordSdk={discordSdk}
+        isEmbedded={isEmbedded}
+        onSettingsSaved={handleSettingsSaved}
+        participants={participants}
+      />
 
-        <div className="p-6 space-y-6">
-          <div className={`p-4 border rounded-lg ${
-            connectionStatus.color === 'green' ? 'bg-green-900/20 border-green-500/30' :
-            connectionStatus.color === 'yellow' ? 'bg-yellow-900/20 border-yellow-500/30' :
-            connectionStatus.color === 'red' ? 'bg-red-900/20 border-red-500/30' :
-            'bg-gray-900/20 border-gray-500/30'
-          }`}>
-            <div className="flex items-center justify-between">
-              <div className={`flex items-center space-x-2 ${
-                connectionStatus.color === 'green' ? 'text-green-400' :
-                connectionStatus.color === 'yellow' ? 'text-yellow-400' :
-                connectionStatus.color === 'red' ? 'text-red-400' :
-                'text-gray-400'
-              }`}>
-                <Wifi className="h-5 w-5" />
-                <span className="font-medium">{connectionStatus.message}</span>
+      <div className="h-full flex flex-col space-y-4 overflow-y-auto">
+        <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6 flex-1 flex flex-col min-h-0 ${isPipMode ? 'p-2' : ''}`}>
+          <div className="flex items-center justify-between mb-6 flex-shrink-0">
+            <h3 className={`font-semibold ${isPipMode ? 'text-sm' : 'text-lg sm:text-xl'}`}>
+              Control Panel
+            </h3>
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${discordConnected ? 'bg-green-400' : 'bg-red-400'}`} />
+                  <span className={`text-sm text-gray-300 ${isPipMode ? 'hidden' : ''}`}>Discord</span>
+                  {discordConnected ? (
+                    <Wifi className="h-4 w-4 text-green-400" />
+                  ) : (
+                    <WifiOff className="h-4 w-4 text-red-400" />
+                  )}
+                </div>
+                
+                <div className="flex items-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${currentUserPiShockConnected ? 'bg-green-400' : 'bg-red-400'}`} />
+                  <span className={`text-sm text-gray-300 ${isPipMode ? 'hidden' : ''}`}>PiShock</span>
+                  <Zap className={`h-4 w-4 ${currentUserPiShockConnected ? 'text-green-400' : 'text-red-400'}`} />
+                </div>
               </div>
-              <button
-                onClick={testConnection}
-                disabled={loading}
-                className={`px-3 py-1 rounded text-sm transition-colors ${
-                  connectionStatus.color === 'green' ? 'bg-green-600 hover:bg-green-700' :
-                  connectionStatus.color === 'yellow' ? 'bg-yellow-600 hover:bg-yellow-700' :
-                  'bg-gray-600 hover:bg-gray-700'
-                } disabled:opacity-50`}
-              >
-                {loading ? <Loader className="h-4 w-4 animate-spin" /> : 'Test'}
-              </button>
-            </div>
-          </div>
 
-          {loadingData && (
-            <div className="p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg text-sm text-blue-200">
-              <div className="flex items-center space-x-2">
-                <Loader className="h-4 w-4 animate-spin" />
-                <span>Loading your saved settings...</span>
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-4">
-            <div className="p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg text-sm text-blue-200">
-              <p className="font-semibold mb-1">
-                {hasStoredCredentials ? 'Update Settings:' : 'Account Setup:'}
-              </p>
-              <p>
-                {hasStoredCredentials 
-                  ? "Configure your PiShock device settings. Fields will auto-populate if you have saved settings."
-                  : "Configure your PiShock device to participate. You'll need your API key, username, and device share code."
-                }
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                API Key {!hasStoredCredentials && <span className="text-red-400">*</span>}
-              </label>
-              <div className="flex space-x-2">
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  disabled={loadingData}
-                  className="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                  placeholder={hasStoredCredentials ? "Leave blank to keep your current API key" : "Enter your PiShock API key"}
-                />
+              {!isPipMode && (
                 <button
-                  onClick={openPiShockAccount}
-                  type="button"
-                  disabled={loadingData}
-                  className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 rounded-lg transition-colors flex items-center space-x-1"
-                  title="Open PiShock Account Page"
+                  onClick={() => setShowSettings(true)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors text-sm font-medium"
                 >
-                  <ExternalLink className="h-4 w-4" />
-                  <span className="hidden sm:inline">Get API Key</span>
+                  <Settings className="h-4 w-4" />
+                  <span>PiShock Settings</span>
                 </button>
-              </div>
-              {hasStoredCredentials && (
-                <p className="text-xs text-gray-400 mt-1">
-                  ✓ Your current API key is saved. Leave blank to keep it unchanged.
-                </p>
               )}
             </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Username <span className="text-red-400">*</span>
-              </label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                disabled={loadingData}
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                placeholder="Your PiShock username"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Share Code <span className="text-red-400">*</span>
-              </label>
-              <input
-                type="text"
-                value={sharecode}
-                onChange={(e) => setSharecode(e.target.value)}
-                disabled={loadingData}
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                placeholder="Device share code (required to receive commands)"
-              />
-              <p className="text-xs text-gray-400 mt-1">
-                Your PiShock device share code is required to receive commands from other users
-              </p>
-            </div>
           </div>
 
-          <div className="space-y-4 p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
-            <h3 className="text-lg font-medium text-yellow-300">Safety Limits</h3>
-            <p className="text-sm text-yellow-200">Set your maximum limits for receiving commands</p>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Maximum Intensity: {userMaxIntensity}%
-              </label>
-              <input
-                type="range"
-                min="1"
-                max="100"
-                value={userMaxIntensity}
-                onChange={(e) => setUserMaxIntensity(parseInt(e.target.value))}
-                disabled={loadingData}
-                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
-              />
-              <div className="flex justify-between text-xs text-gray-400 mt-1">
-                <span>1%</span>
-                <span>50%</span>
-                <span>100%</span>
-              </div>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Maximum Duration: {userMaxDuration}s
-              </label>
-              <input
-                type="range"
-                min="1"
-                max="15"
-                value={userMaxDuration}
-                onChange={(e) => setUserMaxDuration(parseInt(e.target.value))}
-                disabled={loadingData}
-                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
-              />
-              <div className="flex justify-between text-xs text-gray-400 mt-1">
-                <span>1s</span>
-                <span>8s</span>
-                <span>15s</span>
-              </div>
-            </div>
+        {!selectedUser ? (
+          <div className="text-center py-12 text-gray-400 flex-1 flex flex-col justify-center">
+            <AlertTriangle className="h-16 w-16 mx-auto mb-4 opacity-50" />
+            <p className="text-lg mb-2">Please select a participant to continue</p>
+            <p className="text-sm opacity-75">Only users with PiShock accounts can be targeted</p>
           </div>
+        ) : (
+          <div className="flex-1 flex flex-col space-y-6 min-h-0">
+            <div className="flex-1 flex flex-col space-y-4 min-h-0">
+              <div>
+                <label className={`block font-medium text-gray-300 mb-3 ${isPipMode ? 'text-xs' : 'text-sm sm:text-base'}`}>
+                  <div className="flex items-center justify-between">
+                    <span>Intensity: {intensity}%</span>
+                    {effectiveLimits.maxIntensity < 100 && !isPipMode && (
+                      <div className="flex items-center space-x-1 text-sm text-yellow-400">
+                        <Lock className="h-3 w-3" />
+                        <span>Max: {effectiveLimits.maxIntensity}%</span>
+                      </div>
+                    )}
+                  </div>
+                </label>
+                <input
+                  type="range"
+                  min="1"
+                  max={effectiveLimits.maxIntensity}
+                  value={intensity}
+                  onChange={(e) => setIntensity(parseInt(e.target.value))}
+                  className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider ${
+                    effectiveLimits.maxIntensity < 100 ? 'limited-slider' : ''
+                  } slider-large`}
+                />
+                {!isPipMode && (
+                  <div className="flex justify-between text-sm text-gray-400 mt-2">
+                  <span>1%</span>
+                  <span>{Math.floor(effectiveLimits.maxIntensity / 2)}%</span>
+                  <span className={effectiveLimits.maxIntensity < 100 ? 'text-yellow-400' : ''}>
+                    {effectiveLimits.maxIntensity}%{effectiveLimits.maxIntensity < 100 ? ' (Max)' : ''}
+                  </span>
+                  </div>
+                )}
+              </div>
 
-          <div className="space-y-4 p-4 bg-purple-900/20 border border-purple-500/30 rounded-lg">
-            <h3 className="text-lg font-medium text-purple-300">Shock Bypass Settings</h3>
-            <p className="text-sm text-purple-200">Allow other users to exceed your safety limits using consumables</p>
-            
-            <div className="flex items-center justify-between p-3 bg-black/20 rounded border border-gray-600">
-              <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-medium text-white mb-1">Enable Shock Bypass</h4>
-                <p className="text-sm text-gray-300">
-                  When enabled, other users can use "Shock Past User Limit" consumables to exceed your safety limits.
-                </p>
+              <div>
+                <label className={`block font-medium text-gray-300 mb-3 ${isPipMode ? 'text-xs' : 'text-sm sm:text-base'}`}>
+                  <div className="flex items-center justify-between">
+                    <span>Duration: {duration}s</span>
+                    {effectiveLimits.maxDuration < 15 && !isPipMode && (
+                      <div className="flex items-center space-x-1 text-sm text-yellow-400">
+                        <Lock className="h-3 w-3" />
+                        <span>Max: {effectiveLimits.maxDuration}s</span>
+                      </div>
+                    )}
+                  </div>
+                </label>
+                <input
+                  type="range"
+                  min="1"
+                  max={effectiveLimits.maxDuration}
+                  value={duration}
+                  onChange={(e) => setDuration(parseInt(e.target.value))}
+                  className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider ${
+                    effectiveLimits.maxDuration < 15 ? 'limited-slider' : ''
+                  } slider-large`}
+                />
+                {!isPipMode && (
+                  <div className="flex justify-between text-sm text-gray-400 mt-2">
+                  <span>1s</span>
+                  <span>{Math.floor(effectiveLimits.maxDuration / 2)}s</span>
+                  <span className={effectiveLimits.maxDuration < 15 ? 'text-yellow-400' : ''}>
+                    {effectiveLimits.maxDuration}s{effectiveLimits.maxDuration < 15 ? ' (Max)' : ''}
+                  </span>
+                  </div>
+                )}
               </div>
-              <div className="ml-4 flex-shrink-0">
-                <button
-                  onClick={() => setEnableShockBypass(!enableShockBypass)}
-                  disabled={loadingData}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    enableShockBypass
-                      ? 'bg-purple-600'
-                      : 'bg-gray-600'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      enableShockBypass ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-            
-            <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded">
-              <h4 className="text-sm font-medium text-blue-300 mb-2">Your Consumable Inventory</h4>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-blue-200">Shock Past User Limit:</span>
-                <span className="text-sm font-semibold text-blue-300">
-                  {consumableInventory[import.meta.env.VITE_SHOCK_BYPASS_SKU_ID] || 0} available
-                </span>
-              </div>
-              <p className="text-xs text-blue-200 mt-2">
-                Purchase more from the Discord store to bypass other users' limits (when they enable it).
-              </p>
-            </div>
-          </div>
 
-          <div className="space-y-4 p-4 bg-red-900/20 border border-red-500/30 rounded-lg">
-            <h3 className="text-lg font-medium text-red-300">Manage Who Can Shock You</h3>
-            <p className="text-sm text-red-200">Block specific users from sending commands to your device</p>
-            
-            {getOtherParticipants().length > 0 ? (
-              <div className="space-y-2 max-h-40 overflow-y-auto">
-                {getOtherParticipants().map((participant) => {
-                  const isBanned = bannedExecutors.includes(participant.id);
-                  const displayName = getDisplayName(participant);
+              {!isPipMode && (() => {
+                const bypassStatus = getBypassStatus();
+                if (bypassStatus) {
+                  const colorClass = bypassStatus.type === 'bypass' ? 'bg-yellow-900/20 border-yellow-500/30 text-yellow-300' :
+                                   bypassStatus.type === 'blocked' ? 'bg-red-900/20 border-red-500/30 text-red-300' :
+                                   'bg-orange-900/20 border-orange-500/30 text-orange-300';
                   
                   return (
-                    <div key={participant.id} className="flex items-center justify-between p-3 bg-black/20 rounded border border-gray-600">
-                      <div className="flex items-center space-x-3 flex-1 min-w-0">
-                        <img
-                          src={participant.avatarUrl || `https://cdn.discordapp.com/embed/avatars/0.png`}
-                          alt={`${displayName}'s avatar`}
-                          className="w-6 h-6 rounded-full flex-shrink-0"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            target.src = `https://cdn.discordapp.com/embed/avatars/0.png`;
-                          }}
-                        />
-                        <span className="text-sm text-gray-300 truncate">{displayName}</span>
-                        {isBanned && <span className="text-xs text-red-400 font-semibold">BANNED</span>}
+                    <div className={`p-3 rounded-lg border ${colorClass} flex-shrink-0`}>
+                      <div className="flex items-center space-x-2">
+                        {bypassStatus.type === 'bypass' && <span>⚡</span>}
+                        {bypassStatus.type === 'blocked' && <span>🚫</span>}
+                        {bypassStatus.type === 'insufficient' && <span>❌</span>}
+                        <span className="text-sm font-medium">{bypassStatus.message}</span>
                       </div>
-                      <button
-                        onClick={() => toggleBanUser(participant.id)}
-                        disabled={loadingData}
-                        className={`px-3 py-1 rounded text-sm transition-colors ${
-                          isBanned
-                            ? 'bg-green-600 hover:bg-green-700 text-white'
-                            : 'bg-red-600 hover:bg-red-700 text-white'
-                        }`}
-                      >
-                        {isBanned ? 'Unban' : 'Ban'}
-                      </button>
+                      {bypassStatus.type === 'bypass' && (
+                        <p className="text-xs mt-1 opacity-75">
+                          This command exceeds target limits. A consumable will be used.
+                        </p>
+                      )}
                     </div>
                   );
-                })}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-400">No other participants available to manage</p>
-            )}
-            
-            {bannedExecutors.length > 0 && (
-              <div className="text-sm text-red-300">
-                Currently blocking {bannedExecutors.length} user{bannedExecutors.length !== 1 ? 's' : ''}
-              </div>
-            )}
-          </div>
-        </div>
+                }
+                return null;
+              })()}
 
-        <div className="flex items-center justify-between p-6 border-t border-white/10">
-          <div className="flex space-x-3">
-            {hasStoredCredentials && (
-              <button
-                onClick={removeCredentials}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium transition-colors"
-              >
-                Remove Credentials
-              </button>
-            )}
-          </div>
-          
-          <div className="flex space-x-3">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={saveSettings}
-              disabled={saving || loadingData}
-              className="px-4 py-2 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-medium flex items-center space-x-2 transition-all"
-            >
-              {(saving || loadingData) ? (
-                <Loader className="h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4" />
+              <div className={`grid gap-3 flex-shrink-0 ${isPipMode ? 'grid-cols-3 gap-2' : 'grid-cols-1 sm:grid-cols-3 sm:gap-3'}`}>
+                <button
+                  onClick={() => handleShock(0)}
+                  disabled={isShocking}
+                  className={`bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
+                    isPipMode 
+                      ? 'py-2 px-2 text-xs flex-col space-y-1' 
+                      : 'py-4 sm:py-5 px-4 sm:px-6 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-2 text-sm sm:text-base'
+                  }`}
+                >
+                  <Zap className={isPipMode ? 'h-3 w-3' : 'h-5 w-5 sm:h-6 sm:w-6'} />
+                  <span>Shock</span>
+                </button>
+
+                <button
+                  onClick={() => handleShock(1)}
+                  disabled={isShocking}
+                  className={`bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
+                    isPipMode 
+                      ? 'py-2 px-2 text-xs flex-col space-y-1' 
+                      : 'py-4 sm:py-5 px-4 sm:px-6 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-2 text-sm sm:text-base'
+                  }`}
+                >
+                  <Play className={isPipMode ? 'h-3 w-3' : 'h-5 w-5 sm:h-6 sm:w-6'} />
+                  <span>Vibrate</span>
+                </button>
+
+                <button
+                  onClick={() => handleShock(2)}
+                  disabled={isShocking}
+                  className={`bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
+                    isPipMode 
+                      ? 'py-2 px-2 text-xs flex-col space-y-1' 
+                      : 'py-4 sm:py-5 px-4 sm:px-6 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-2 text-sm sm:text-base'
+                  }`}
+                >
+                  <Square className={isPipMode ? 'h-3 w-3' : 'h-5 w-5 sm:h-6 sm:w-6'} />
+                  <span>Beep</span>
+                </button>
+              </div>
+
+              {!isPipMode && selectedUser && !(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected && (
+                <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex-shrink-0">
+                  <div className="flex items-start space-x-3">
+                    <AlertTriangle className="h-5 w-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-yellow-300 mb-2">No PiShock Device</p>
+                      <p className="text-sm text-yellow-200 mb-3">
+                        {getDisplayName(selectedUser)} hasn't configured their PiShock device yet. 
+                        Commands cannot be sent until they set up their credentials.
+                      </p>
+                      <p className="text-sm text-yellow-200">
+                        They need to click the "PiShock Settings" button to configure their device.
+                      </p>
+                    </div>
+                  </div>
+                </div>
               )}
-              <span>
-                {loadingData ? 'Loading...' : 'Save & Test Connection'}
-              </span>
-            </button>
+              {isShocking && (
+                <div className={`text-center flex-shrink-0 ${isPipMode ? 'mt-1' : 'mt-2'}`}>
+                  <div className={`inline-flex items-center space-x-3 text-yellow-400 ${isPipMode ? 'text-xs' : 'text-base'}`}>
+                    <div className={`animate-spin rounded-full border-b-2 border-yellow-400 ${isPipMode ? 'h-4 w-4' : 'h-6 w-6'}`}></div>
+                    <span>Executing command...</span>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }
