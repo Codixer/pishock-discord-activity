@@ -1,341 +1,511 @@
-// Type declarations for Cloudflare Workers
-declare global {
-  interface KVNamespace {
-    get(key: string): Promise<string | null>;
-    put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
-    delete(key: string): Promise<void>;
-  }
+import React, { useState, useEffect } from 'react';
+import { Zap, Settings, Play, Square, AlertTriangle, Lock, Wifi, WifiOff } from 'lucide-react';
+import { DiscordSDK, Common } from '@discord/embedded-app-sdk';
+import { PiShockSettingsModal } from './PiShockSettingsModal';
+
+interface PiShockControllerProps {
+  selectedUser: any;
+  onConnectionChange: (connected: boolean) => void;
+  isConnected: boolean;
+  addNotification: (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => void;
+  instanceId: string;
+  auth: any;
+  currentUser: any;
+  discordSdk: DiscordSDK;
+  isEmbedded: boolean;
+  layoutMode?: number;
+  participants?: any[];
 }
 
-interface Env {
-  PISHOCK_KV: KVNamespace;
-  DISCORD_APPLICATION_ID: string;
-  SHOCK_BYPASS_SKU_ID: string;
-}
-
-interface PagesFunction<Env = unknown> {
-  (context: { request: Request; env: Env; params: Record<string, string>; waitUntil: (promise: Promise<any>) => void; passThroughOnException: () => void; }): Promise<Response> | Response;
-}
-
-function jsonResponse(body: any, status = 200, additionalHeaders: Record<string, string> = {}) {
-  const headers = { 
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    // No caching for real-time consumable inventory and bypass settings
-    'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
-    'Pragma': 'no-cache',
-    'Expires': '0',
-    ...additionalHeaders
-  };
+// Helper function to get the correct API base URL
+function getApiBaseUrl(): string {
+  const urlParams = new URLSearchParams(window.location.search);
+  const isEmbedded = urlParams.has('frame_id');
   
-  return new Response(JSON.stringify(body), {
-    status,
-    headers,
-  });
-}
-
-async function requireAuth(request: Request): Promise<string | null> {
-  const auth = request.headers.get('authorization');
-  if (!auth || !auth.startsWith('Bearer ')) return null;
-  return auth.slice(7);
-}
-
-// Optimized token validation with user-ID based caching
-async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
-  try {
-    const cacheKey = `discord_token_validation:${token.slice(-8)}`; // Use last 8 chars to avoid storing full token
-    const cached = await kv.get(cacheKey);
-    if (cached) {
-      const cachedData = JSON.parse(cached);
-      return cachedData;
-    }
-    
-    const response = await fetch('https://discord.com/api/users/@me', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    
-    if (!response.ok) {
-      console.log('TOKEN_VALIDATION: Token validation failed:', response.status);
-      throw new Error('Invalid Discord token');
-    }
-      const userData = await response.json();
-    console.log('TOKEN_VALIDATION: ✓ Token validation successful for user:', userData.id);
-    
-    // Cache the parsed userData, not the response
-    await kv.put(cacheKey, JSON.stringify(userData), {
-      expirationTtl: 300 // 5 minutes
-    });
-    
-    return userData;
-  } catch (error) {
-    console.error('TOKEN_VALIDATION: Error validating token:', error);
-    return null;
+  if (isEmbedded) {
+    // Use Discord's proxy for embedded environment
+    return '/.proxy/api';
+  } else {
+    // Use direct API calls for development
+    return '/api';
   }
 }
 
-async function decrypt(encryptedData: string): Promise<any> {
-  try {
-    const dataString = atob(encryptedData);
-    return JSON.parse(dataString);
-  } catch (error) {
-    throw new Error('Failed to decrypt data');
-  }
-}
+export function PiShockController({ 
+  selectedUser, 
+  onConnectionChange, 
+  isConnected, 
+  addNotification, 
+  instanceId, 
+  auth,
+  currentUser,
+  discordSdk,
+  isEmbedded,
+  layoutMode = Common.LayoutModeTypeObject.FOCUSED,
+  participants = []
+}: PiShockControllerProps) {
+  const [intensity, setIntensity] = useState(1);
+  const [duration, setDuration] = useState(1);
+  const [isShocking, setIsShocking] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [currentUserPiShockConnected, setCurrentUserPiShockConnected] = useState(false);
+  const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
+  const [discordConnected, setDiscordConnected] = useState(!!auth);
 
-async function validatePiShockCredentials(apiKey: string, username: string): Promise<{ valid: boolean; userId?: string }> {
-  try {
-    const url = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
+  // Check if we're in PIP mode
+  const isPipMode = layoutMode === Common.LayoutModeTypeObject.PIP;
+
+  // Update Discord connection status when auth changes
+  useEffect(() => {
+    setDiscordConnected(!!auth);
+  }, [auth]);
+
+  // Get bypass status for current command
+  const getBypassStatus = useCallback(() => {
+    if (!selectedUser) return null;
     
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'PiShock-Discord-Activity/1.0',
-        'Accept': 'application/json, text/plain, */*'
-      }
-    });
+    const userStatus = (window as any).userPiShockStatus?.[selectedUser.id];
+    if (!userStatus) return null;
     
-    if (!response.ok) {
-      return { valid: false };
+    const targetMaxIntensity = userStatus.maxIntensity || 100;
+    const targetMaxDuration = userStatus.maxDuration || 15;
+    const targetEnableShockBypass = userStatus.enableShockBypass || false;
+    
+    const needsBypass = intensity > targetMaxIntensity || duration > targetMaxDuration;
+    
+    if (!needsBypass) return null;
+    
+    if (!targetEnableShockBypass) {
+      return {
+        type: 'blocked',
+        message: `Target user has not enabled bypass. Max: ${targetMaxIntensity}%/${targetMaxDuration}s`
+      };
     }
     
-    const responseText = await response.text();
-      let authData;
-    try {
-      authData = JSON.parse(responseText);
-    } catch (parseError) {
-      if (/^\d+$/.test(responseText.trim())) {
-        const userId = responseText.trim();
-        return { valid: true, userId };
-      }
-      return { valid: false };
-    }
+    const shockBypassSkuId = '1318562984946569267'; // Shock Past User Limit SKU ID
+    const currentConsumables = currentUserConsumables[shockBypassSkuId] || 0;
     
-    // Look for UserID field as specified in documentation
-    let userId: string | null = null;
-    
-    if (authData.UserId !== undefined && authData.UserId !== null) {
-      userId = authData.UserId.toString();
-    } else if (authData.UserID !== undefined && authData.UserID !== null) {
-      userId = authData.UserID.toString();
-    } else if (authData.userId !== undefined && authData.userId !== null) {
-      userId = authData.userId.toString();
-    } else if (authData.id !== undefined && authData.id !== null) {
-      userId = authData.id.toString();
-    } else if (typeof authData === 'number') {
-      userId = authData.toString();
-    }
-    
-    if (userId && /^\d+$/.test(userId)) {
-      return { valid: true, userId };
+    if (currentConsumables > 0) {
+      return {
+        type: 'bypass',
+        message: `Bypass available. Will use 1 consumable (${currentConsumables} available)`
+      };
     } else {
-      console.log('STATUS: No valid user ID found in response');
-      return { valid: false };
+      return {
+        type: 'insufficient',
+        message: `No "Shock Past User Limit" consumables available. Purchase from Discord store.`
+      };
+    }
+  }, [selectedUser, intensity, duration, currentUserConsumables]);
+
+  // Get bypass status for current command
+  const getBypassStatus = useCallback(() => {
+    if (!selectedUser) return null;
+    
+    const userStatus = (window as any).userPiShockStatus?.[selectedUser.id];
+    if (!userStatus) return null;
+    
+    const targetMaxIntensity = userStatus.maxIntensity || 100;
+    const targetMaxDuration = userStatus.maxDuration || 15;
+    const targetEnableShockBypass = userStatus.enableShockBypass || false;
+    
+    const needsBypass = intensity > targetMaxIntensity || duration > targetMaxDuration;
+    
+    if (!needsBypass) return null;
+    
+    if (!targetEnableShockBypass) {
+      return {
+        type: 'blocked',
+        message: `Target user has not enabled bypass. Max: ${targetMaxIntensity}%/${targetMaxDuration}s`
+      };
     }
     
-    return { valid: false };
-  } catch (error) {
-    return { valid: false };
-  }
-}
-
-function getUserStatusCacheKey(userId: string): string {
-  return `cache:user_status:${userId}`;
-}
-
-async function getCachedUserStatus(kv: KVNamespace, userId: string) {
-  try {
-    const cacheKey = getUserStatusCacheKey(userId);
-    const cached = await kv.get(cacheKey);
-    if (cached) {
-      const cachedData = JSON.parse(cached);
-      const cacheAge = Date.now() - new Date(cachedData.timestamp).getTime();
-      if (cacheAge < 60000) { // 1 minute cache
-        return cachedData.status;
-      }
+    const shockBypassSkuId = '1318562984946569267'; // Shock Past User Limit SKU ID
+    const currentConsumables = currentUserConsumables[shockBypassSkuId] || 0;
+    
+    if (currentConsumables > 0) {
+      return {
+        type: 'bypass',
+        message: `Bypass available. Will use 1 consumable (${currentConsumables} available)`
+      };
+    } else {
+      return {
+        type: 'insufficient',
+        message: `No "Shock Past User Limit" consumables available. Purchase from Discord store.`
+      };
     }
-  } catch (error) {
-    // Silently handle cache errors
-    console.warn('Cache read error:', error);
-  }
-  return null;
-}
+  }, [selectedUser, intensity, duration, currentUserConsumables]);
 
-async function setCachedUserStatus(kv: KVNamespace, userId: string, newStatus: any) {
-  try {
-    const cacheKey = getUserStatusCacheKey(userId);
+  // Get the effective limits based on selected user
+  const getEffectiveLimits = () => {
+    if (!selectedUser) return { maxIntensity: 100, maxDuration: 15 };
     
-    // Check if we need to update the cache
-    const existing = await kv.get(cacheKey);
-    if (existing) {
-      const existingData = JSON.parse(existing);
-      const hasChanges = existingData.status?.isConnected !== newStatus.isConnected ||
-                        existingData.status?.hasCredentials !== newStatus.hasCredentials ||
-                        existingData.status?.maxIntensity !== newStatus.maxIntensity ||
-                        existingData.status?.maxDuration !== newStatus.maxDuration;
-      
-      if (!hasChanges) {
-        return; // No changes, don't update cache
-      }
-    }
-
-    // Store the new status with timestamp
-    const cacheData = {
-      status: newStatus,
-      timestamp: new Date().toISOString()
-    };
-    
-    await kv.put(cacheKey, JSON.stringify(cacheData), {
-      expirationTtl: 120 // 2 minutes
-    });
-  } catch (error) {
-    // Silently handle cache errors
-    console.warn('Cache write error:', error);
-  }
-}
-
-async function clearUserStatusCache(kv: KVNamespace, userId: string) {
-  try {
-    const cacheKey = getUserStatusCacheKey(userId);
-    await kv.delete(cacheKey);
-  } catch (error) {
-    // Silently handle cache errors
-    console.warn('Cache delete error:', error);
-  }
-}
-
-async function checkUserDevices(userId: string, apiKey: string): Promise<{ hasDevices: boolean; devices?: any[] }> {
-  try {
-    const url = `https://ps.pishock.com/PiShock/GetUserDevices?UserId=${userId}&Token=${encodeURIComponent(apiKey)}&api=true`;
-    
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'PiShock-Discord-Activity/1.0',
-        'Accept': 'application/json'
-      }
-    });
-    
-    if (!response.ok) {
-      return { hasDevices: false };
+    // Get the user's PiShock status which includes their sharecode limits
+    const userStatus = (window as any).userPiShockStatus?.[selectedUser.id];
+    if (userStatus && userStatus.maxIntensity && userStatus.maxDuration) {
+      return {
+        maxIntensity: userStatus.maxIntensity,
+        maxDuration: userStatus.maxDuration
+      };
     }
     
-    const responseText = await response.text();
+    return { maxIntensity: 100, maxDuration: 15 };
+  };
+
+  const effectiveLimits = getEffectiveLimits();
+
+  // Update intensity and duration when limits change
+  useEffect(() => {
+    const limits = getEffectiveLimits();
+    setSelectedUserLimits(limits);
     
-    let devices;
+    // Clamp current values to new limits
+    if (intensity > limits.maxIntensity) {
+      setIntensity(limits.maxIntensity);
+    }
+    if (duration > limits.maxDuration) {
+      setDuration(limits.maxDuration);
+    }
+  }, [selectedUser, intensity, duration]);
+
+  // Load current user's PiShock connection status when component mounts
+  useEffect(() => {
+    if (currentUser && auth) {
+      checkCurrentUserCredentials();
+    }
+  }, [currentUser, auth]);
+
+  const checkCurrentUserCredentials = async () => {
     try {
-      devices = JSON.parse(responseText);
-    } catch (parseError) {
-      return { hasDevices: false };
-    }
-    
-    const hasDevices = Array.isArray(devices) && devices.length > 0 && 
-                      devices.some(device => device.shockers && Array.isArray(device.shockers) && device.shockers.length > 0);
-    
-    return { hasDevices, devices: hasDevices ? devices : [] };
-  } catch (error) {
-    return { hasDevices: false };
-  }
-}
+      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-status`, {
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+      });
 
-export const onRequest: PagesFunction<Env> = async (context) => {
-  const { request, env, params } = context;
-  const method = request.method;
-  const userId = params.userId as string;
-
-  // Handle CORS preflight requests
-  if (method === 'OPTIONS') {
-    return new Response(null, {
-      status: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'Access-Control-Max-Age': '86400',
-      },
-    });
-  }
-
-  if (method !== 'GET') {
-    return new Response('Method not allowed', { status: 405 });
-  }
-
-  const authHeader = request.headers.get('authorization');
-  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-  if (!token) return new Response('Unauthorized', { status: 401 });
-
-  const user = await validateDiscordToken(token, env.PISHOCK_KV);
-  if (!user) return new Response('Invalid token', { status: 401 });
-  
-  try {
-    const userDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
-    const userData = userDataStr ? JSON.parse(userDataStr) : null;
-    
-    let isConnected = false;
-    let hasDevice = false;
-    let deviceCount = 0;
-    let piShockUserId = userData?.piShockUserId;
-    let lastTested = userData?.lastTested;
-    let hasOwnDevice = userData?.hasOwnDevice || false;
-    let encrypted = userData?.credentials;
-    
-    let maxIntensity = 100;
-    let maxDuration = 15;
-    let enableShockBypass = false;
-    
-    if (encrypted) {
-      try {
-        const creds = await decrypt(encrypted);
+      if (response.ok) {
+        const status = await response.json();
         
-        maxIntensity = creds.maxIntensity || 100;
-        maxDuration = creds.maxDuration || 15;
-        enableShockBypass = creds.enableShockBypass || false;
+        setCurrentUserPiShockConnected(status.isConnected);
+        onConnectionChange(status.isConnected);
         
-        const credentialValidation = await validatePiShockCredentials(creds.apiKey, creds.username);
-        isConnected = credentialValidation.valid;
-        
-        if (isConnected && credentialValidation.userId) {
-          piShockUserId = credentialValidation.userId;
-          
-          const deviceCheck = await checkUserDevices(credentialValidation.userId, creds.apiKey);
-          hasDevice = deviceCheck.hasDevices;
-          deviceCount = deviceCheck.devices?.length || 0;
-          
-          if (piShockUserId !== userData?.piShockUserId) {
-            userData.piShockUserId = piShockUserId;
-            await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
-          }
-          
-          userData.lastTested = new Date().toISOString();
-          await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
+        if (status.hasCredentials && !status.isConnected) {
+          addNotification('warning', 'Connection Issue', 'Your PiShock credentials found but connection failed. Please check your settings.');
+        } else if (status.isConnected) {
+          addNotification('success', 'Connected', 'Your PiShock account is connected and ready');
         }
-      } catch (error) {
-        isConnected = false;
-        hasDevice = false;
+      } else {
+        // Silently handle failed status check
       }
+    } catch (error) {
+      // Silently handle credential check errors
+    }
+  };
+
+  const handleShock = async (operation: number) => {
+    if (!selectedUser) {
+      addNotification('warning', 'No User Selected', 'Please select a user first');
+      return;
     }
 
-    const result = { 
-      hasCredentials: !!userData?.credentials, 
-      isConnected, 
-      hasDevice,
-      deviceCount,
-      hasOwnDevice,
-      piShockUserId,
-      lastTested,
-      isRelay: false,
-      maxIntensity,
-      maxDuration,
-      enableShockBypass,
-      consumableInventory: userData?.consumableInventory || {}
-    };
-    
-    return jsonResponse(result);
-  } catch (error) {
-    return jsonResponse({ 
-      error: 'Internal server error',
-      message: error instanceof Error ? error.message : 'Unknown error'
-    }, 500);
-  }
-};
+    // Check if selected user has PiShock configured
+    const userStatus = (window as any).userPiShockStatus?.[selectedUser.id];
+    if (!userStatus?.isConnected) {
+      const displayName = getDisplayName(selectedUser);
+      addNotification(
+        'error', 
+        'PiShock Setup Required', 
+        `${displayName} needs to configure their PiShock device first.\n\nThey should:\n1. Open app settings (gear icon)\n2. Add their PiShock credentials\n3. Test the connection\n\nOnly users with configured devices can receive commands.`
+      );
+      return;
+    }
+
+    setIsShocking(true);
+
+    try {
+      const endpoint = `${getApiBaseUrl()}/users/${selectedUser.id}/pishock-execute`;
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({
+          executorUserId: currentUser.id,
+          targetUserId: selectedUser.id,
+          intensity,
+          duration,
+          operation, // 0 = shock, 1 = vibrate, 2 = beep
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          const actionName = operation === 0 ? 'Shock' : operation === 1 ? 'Vibration' : 'Beep';
+          addNotification('success', 'Command Sent', `${actionName} sent to ${selectedUser.displayName || selectedUser.username} - Intensity: ${intensity}%, Duration: ${duration}s`);
+        } else {
+          throw new Error(result.error || 'Command failed');
+        }
+      } else {
+        throw new Error('Shock command failed');
+      }
+    } catch (error) {
+      
+      let errorMessage = 'Failed to send shock command. Please try again.';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('Invalid parameters')) {
+          errorMessage = 'Invalid shock parameters. Please check intensity and duration settings.';
+        } else if (error.message.includes('exceeds target user\'s maximum')) {
+          errorMessage = `Command intensity or duration exceeds the target user's maximum limits.`;
+        } else {
+          errorMessage = `Command failed: ${error.message}`;
+        }
+      }
+      
+      addNotification('error', 'Command Failed', errorMessage);
+    } finally {
+      setIsShocking(false);
+    }
+  };
+
+  const handleSettingsSaved = () => {
+    checkCurrentUserCredentials();
+    if (window.refreshAllUserStatuses) {
+      window.refreshAllUserStatuses();
+    }
+    addNotification('success', 'Settings Saved', 'Your PiShock settings have been saved successfully');
+  };
+
+  const getDisplayName = (user: any) => {
+    return user?.guildDisplayName || user?.displayName || user?.global_name || user?.username || 'Unknown User';
+  };
+
+  return (
+    <>
+      {/* Settings Modal */}
+      <PiShockSettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        currentUser={currentUser}
+        auth={auth}
+        discordSdk={discordSdk}
+        isEmbedded={isEmbedded}
+        onSettingsSaved={handleSettingsSaved}
+        participants={participants}
+      />
+
+      <div className="h-full flex flex-col space-y-4 overflow-y-auto">
+        <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6 flex-1 flex flex-col min-h-0 ${isPipMode ? 'p-2' : ''}`}>
+          <div className="flex items-center justify-between mb-6 flex-shrink-0">
+            <h3 className={`font-semibold ${isPipMode ? 'text-sm' : 'text-lg sm:text-xl'}`}>
+              Control Panel
+            </h3>
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${discordConnected ? 'bg-green-400' : 'bg-red-400'}`} />
+                  <span className={`text-sm text-gray-300 ${isPipMode ? 'hidden' : ''}`}>Discord</span>
+                  {discordConnected ? (
+                    <Wifi className="h-4 w-4 text-green-400" />
+                  ) : (
+                    <WifiOff className="h-4 w-4 text-red-400" />
+                  )}
+                </div>
+                
+                <div className="flex items-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${currentUserPiShockConnected ? 'bg-green-400' : 'bg-red-400'}`} />
+                  <span className={`text-sm text-gray-300 ${isPipMode ? 'hidden' : ''}`}>PiShock</span>
+                  <Zap className={`h-4 w-4 ${currentUserPiShockConnected ? 'text-green-400' : 'text-red-400'}`} />
+                </div>
+              </div>
+
+              {!isPipMode && (
+                <button
+                  onClick={() => setShowSettings(true)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors text-sm font-medium"
+                >
+                  <Settings className="h-4 w-4" />
+                  <span>PiShock Settings</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+        {!selectedUser ? (
+          <div className="text-center py-12 text-gray-400 flex-1 flex flex-col justify-center">
+            <AlertTriangle className="h-16 w-16 mx-auto mb-4 opacity-50" />
+            <p className="text-lg mb-2">Please select a participant to continue</p>
+            <p className="text-sm opacity-75">Only users with PiShock accounts can be targeted</p>
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col space-y-6 min-h-0">
+            <div className="flex-1 flex flex-col space-y-4 min-h-0">
+              <div>
+                <label className={`block font-medium text-gray-300 mb-3 ${isPipMode ? 'text-xs' : 'text-sm sm:text-base'}`}>
+                  <div className="flex items-center justify-between">
+                    <span>Intensity: {intensity}%</span>
+                    {effectiveLimits.maxIntensity < 100 && !isPipMode && (
+                      <div className="flex items-center space-x-1 text-sm text-yellow-400">
+                        <Lock className="h-3 w-3" />
+                        <span>Max: {effectiveLimits.maxIntensity}%</span>
+                      </div>
+                    )}
+                  </div>
+                </label>
+                <input
+                  type="range"
+                  min="1"
+                  max={effectiveLimits.maxIntensity}
+                  value={intensity}
+                  onChange={(e) => setIntensity(parseInt(e.target.value))}
+                  className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider ${
+                    effectiveLimits.maxIntensity < 100 ? 'limited-slider' : ''
+                  } slider-large`}
+                />
+                {!isPipMode && (
+                  <div className="flex justify-between text-sm text-gray-400 mt-2">
+                  <span>1%</span>
+                  <span>{Math.floor(effectiveLimits.maxIntensity / 2)}%</span>
+                  <span className={effectiveLimits.maxIntensity < 100 ? 'text-yellow-400' : ''}>
+                    {effectiveLimits.maxIntensity}%{effectiveLimits.maxIntensity < 100 ? ' (Max)' : ''}
+                  </span>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className={`block font-medium text-gray-300 mb-3 ${isPipMode ? 'text-xs' : 'text-sm sm:text-base'}`}>
+                  <div className="flex items-center justify-between">
+                    <span>Duration: {duration}s</span>
+                    {effectiveLimits.maxDuration < 15 && !isPipMode && (
+                      <div className="flex items-center space-x-1 text-sm text-yellow-400">
+                        <Lock className="h-3 w-3" />
+                        <span>Max: {effectiveLimits.maxDuration}s</span>
+                      </div>
+                    )}
+                  </div>
+                </label>
+                <input
+                  type="range"
+                  min="1"
+                  max={effectiveLimits.maxDuration}
+                  value={duration}
+                  onChange={(e) => setDuration(parseInt(e.target.value))}
+                  className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider ${
+                    effectiveLimits.maxDuration < 15 ? 'limited-slider' : ''
+                  } slider-large`}
+                />
+                {!isPipMode && (
+                  <div className="flex justify-between text-sm text-gray-400 mt-2">
+                  <span>1s</span>
+                  <span>{Math.floor(effectiveLimits.maxDuration / 2)}s</span>
+                  <span className={effectiveLimits.maxDuration < 15 ? 'text-yellow-400' : ''}>
+                    {effectiveLimits.maxDuration}s{effectiveLimits.maxDuration < 15 ? ' (Max)' : ''}
+                  </span>
+                  </div>
+                )}
+              </div>
+
+              {!isPipMode && (() => {
+                const bypassStatus = getBypassStatus();
+                if (bypassStatus) {
+                  const colorClass = bypassStatus.type === 'bypass' ? 'bg-yellow-900/20 border-yellow-500/30 text-yellow-300' :
+                                   bypassStatus.type === 'blocked' ? 'bg-red-900/20 border-red-500/30 text-red-300' :
+                                   'bg-orange-900/20 border-orange-500/30 text-orange-300';
+                  
+                  return (
+                    <div className={`p-3 rounded-lg border ${colorClass} flex-shrink-0`}>
+                      <div className="flex items-center space-x-2">
+                        {bypassStatus.type === 'bypass' && <span>⚡</span>}
+                        {bypassStatus.type === 'blocked' && <span>🚫</span>}
+                        {bypassStatus.type === 'insufficient' && <span>❌</span>}
+                        <span className="text-sm font-medium">{bypassStatus.message}</span>
+                      </div>
+                      {bypassStatus.type === 'bypass' && (
+                        <p className="text-xs mt-1 opacity-75">
+                          This command exceeds target limits. A consumable will be used.
+                        </p>
+                      )}
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              <div className={`grid gap-3 flex-shrink-0 ${isPipMode ? 'grid-cols-3 gap-2' : 'grid-cols-1 sm:grid-cols-3 sm:gap-3'}`}>
+                <button
+                  onClick={() => handleShock(0)}
+                  disabled={isShocking}
+                  className={`bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
+                    isPipMode 
+                      ? 'py-2 px-2 text-xs flex-col space-y-1' 
+                      : 'py-4 sm:py-5 px-4 sm:px-6 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-2 text-sm sm:text-base'
+                  }`}
+                >
+                  <Zap className={isPipMode ? 'h-3 w-3' : 'h-5 w-5 sm:h-6 sm:w-6'} />
+                  <span>Shock</span>
+                </button>
+
+                <button
+                  onClick={() => handleShock(1)}
+                  disabled={isShocking}
+                  className={`bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
+                    isPipMode 
+                      ? 'py-2 px-2 text-xs flex-col space-y-1' 
+                      : 'py-4 sm:py-5 px-4 sm:px-6 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-2 text-sm sm:text-base'
+                  }`}
+                >
+                  <Play className={isPipMode ? 'h-3 w-3' : 'h-5 w-5 sm:h-6 sm:w-6'} />
+                  <span>Vibrate</span>
+                </button>
+
+                <button
+                  onClick={() => handleShock(2)}
+                  disabled={isShocking}
+                  className={`bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
+                    isPipMode 
+                      ? 'py-2 px-2 text-xs flex-col space-y-1' 
+                      : 'py-4 sm:py-5 px-4 sm:px-6 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-2 text-sm sm:text-base'
+                  }`}
+                >
+                  <Square className={isPipMode ? 'h-3 w-3' : 'h-5 w-5 sm:h-6 sm:w-6'} />
+                  <span>Beep</span>
+                </button>
+              </div>
+
+              {!isPipMode && selectedUser && !(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected && (
+                <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex-shrink-0">
+                  <div className="flex items-start space-x-3">
+                    <AlertTriangle className="h-5 w-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-yellow-300 mb-2">No PiShock Device</p>
+                      <p className="text-sm text-yellow-200 mb-3">
+                        {getDisplayName(selectedUser)} hasn't configured their PiShock device yet. 
+                        Commands cannot be sent until they set up their credentials.
+                      </p>
+                      <p className="text-sm text-yellow-200">
+                        They need to click the "PiShock Settings" button to configure their device.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {isShocking && (
+                <div className={`text-center flex-shrink-0 ${isPipMode ? 'mt-1' : 'mt-2'}`}>
+                  <div className={`inline-flex items-center space-x-3 text-yellow-400 ${isPipMode ? 'text-xs' : 'text-base'}`}>
+                    <div className={`animate-spin rounded-full border-b-2 border-yellow-400 ${isPipMode ? 'h-4 w-4' : 'h-6 w-6'}`}></div>
+                    <span>Executing command...</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+      </div>
+    </>
+  );
+}
