@@ -19,6 +19,7 @@ import { useUserStatusCache } from './hooks/useUserStatusCache';
 declare global {
   interface Window {
     refreshAllUserStatuses?: () => void;
+    refreshCurrentUserConsumables?: () => void;
   }
 }
 
