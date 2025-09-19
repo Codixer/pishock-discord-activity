@@ -11,11 +11,11 @@ export function SafetyWarning({ onAccept }: SafetyWarningProps) {
   ]);
 
   const safetyItems = [
-    "I understand that this application controls electrical shock devices",
-    "I will only use this with explicit consent from all participants",
-    "I will start with the lowest intensity settings",
-    "I have established safe words and emergency procedures",
-    "I take full responsibility for the safe use of this application"
+    "I accept full responsibility for safe use and understand my actions will deliver real electronic shocks to other users",
+    "I understand device owners can block me and developers cannot override these blocks or restore my access",
+    "I understand this controls real electronic shock devices physically attached to other users",
+    "I understand developers bear no liability for any harm, injury, or adverse effects from using this application",
+    "I confirm voluntary participation with full knowledge of risks and that I am of legal age in my jurisdiction"
   ];
 
   const toggleAcknowledgment = (index: number) => {
@@ -28,14 +28,14 @@ export function SafetyWarning({ onAccept }: SafetyWarningProps) {
 
   return (
     <div className="h-screen w-screen bg-gradient-to-br from-red-900 via-red-800 to-orange-900 flex items-center justify-center p-4 overflow-hidden">
-      <div className="max-w-2xl w-full max-h-full overflow-y-auto bg-black/40 backdrop-blur-sm rounded-2xl border border-red-500/20 p-6">
+      <div className="max-w-2xl w-full bg-black/40 backdrop-blur-sm rounded-2xl border border-red-500/20 p-6">
         <div className="text-center mb-6">
           <div className="mx-auto w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center mb-3">
             <AlertTriangle className="h-6 w-6 text-red-400" />
           </div>
           <h1 className="text-2xl font-bold text-white mb-2">Safety Warning</h1>
           <p className="text-red-200 text-sm">
-            This application controls electrical shock devices. Please read and acknowledge the following safety requirements.
+            This application controls electrical shock devices. Read and acknowledge these terms to proceed.
           </p>
         </div>
 
@@ -63,11 +63,10 @@ export function SafetyWarning({ onAccept }: SafetyWarningProps) {
           <div className="flex items-start space-x-3">
             <Shield className="h-4 w-4 text-red-400 flex-shrink-0 mt-0.5" />
             <div className="text-xs text-red-200">
-              <p className="font-semibold mb-1">Legal Disclaimer:</p>
+              <p className="font-semibold mb-1">Important:</p>
               <p>
-                Use of this application is at your own risk. The developers assume no responsibility 
-                for any harm, injury, or damage that may result from the use of this software. 
-                Users must comply with all local laws and regulations.
+                Use at your own risk. Developers assume no responsibility for harm or injury. 
+                Must comply with local laws. 18+ only.
               </p>
             </div>
           </div>
@@ -82,7 +81,7 @@ export function SafetyWarning({ onAccept }: SafetyWarningProps) {
               : 'bg-gray-600 text-gray-400 cursor-not-allowed'
           }`}
         >
-          I Acknowledge and Accept These Terms
+          I Acknowledge and Accept All Terms
         </button>
       </div>
     </div>
