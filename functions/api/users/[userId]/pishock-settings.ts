@@ -334,7 +334,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         return jsonResponse({ 
           hasSettings: true,
           settings,
-          bannedExecutors: userData.bannedExecutors || []
+          bannedExecutors: userData.bannedExecutors || [],
           consumableInventory: userData.consumableInventory || {}
         });
       } catch (error) {
