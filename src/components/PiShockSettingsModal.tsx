@@ -78,7 +78,7 @@ export function PiShockSettingsModal({
           setEnableShockBypass(result.settings.enableShockBypass || false);
           setBannedExecutors(result.bannedExecutors || []);
           setLastTested(result.settings.lastUpdated || '');
-        } else {
+        } else { 
           setBannedExecutors(result.bannedExecutors || []);
         }
       }
@@ -87,6 +87,7 @@ export function PiShockSettingsModal({
     } finally {
       setIsLoading(false);
     }
+    
   };
 
   const testConnection = async () => {
