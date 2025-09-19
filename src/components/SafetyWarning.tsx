@@ -15,7 +15,7 @@ export function SafetyWarning({ onAccept }: SafetyWarningProps) {
     "I understand device owners can block me and developers cannot override these blocks or restore my access",
     "I understand this controls real electronic shock devices physically attached to other users",
     "I understand developers bear no liability for any harm, injury, or adverse effects from using this application",
-    "I confirm voluntary participation with full knowledge of risks"
+    "I confirm voluntary participation with full knowledge of risks" 
   ];
 
   const toggleAcknowledgment = (index: number) => {
