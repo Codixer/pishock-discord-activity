@@ -138,6 +138,12 @@ export function PiShockController({
 
   // Get the effective limits based on selected user
   const getEffectiveLimits = () => {
+        
+        targetEncrypted = userData.credentials;
+      }
+    }
+    
+    if (!targetEncrypted) {
     if (!selectedUser) return { maxIntensity: 100, maxDuration: 15 };
     
     // Get the user's PiShock status which includes their sharecode limits
@@ -395,10 +401,13 @@ export function PiShockController({
                   value={duration}
                   onChange={(e) => setDuration(parseInt(e.target.value))}
                   className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider ${
-                    effectiveLimits.maxDuration < 15 ? 'limited-slider' : ''
-                  } slider-large`}
+                           }
+                 effectiveLimits.maxDuration < 15 ? 'limited-slider' : ''
+                           }
+               } slider-large`}
                 />
-                {!isPipMode && (
+                {!isPipMode &&                        }
+ (
                   <div className="flex justify-between text-sm text-gray-400 mt-2">
                   <span>1s</span>
                   <span>{Math.floor(effectiveLimits.maxDuration / 2)}s</span>
@@ -420,11 +429,8 @@ export function PiShockController({
                     <div className={`p-3 rounded-lg border ${colorClass} flex-shrink-0`}>
                       <div className="flex items-center space-x-2">
                         {bypassStatus.type === 'bypass' && <span>⚡</span>}
-                        }
                         {bypassStatus.type === 'blocked' && <span>🚫</span>}
-                        }
                         {bypassStatus.type === 'insufficient' && <span>❌</span>}
-                        }
                         <span className="text-sm font-medium">{bypassStatus.message}</span>
                       </div>
                       {bypassStatus.type === 'bypass' && (
