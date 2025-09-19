@@ -214,18 +214,22 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     let encrypted = userData?.credentials;
     
     if (!encrypted) {
+    }
+    
+    if (!targetEncrypted) {
       const oldEncrypted = await env.PISHOCK_KV.get(`user:${targetUserId}:pishock`);
       if (oldEncrypted) {
-        userData = {
+        targetUserData = {
           credentials: oldEncrypted,
           lastTested: await env.PISHOCK_KV.get(`user:${targetUserId}:pishock:lastTested`) || new Date().toISOString(),
           configuredBy: await env.PISHOCK_KV.get(`user:${targetUserId}:pishock:configuredBy`) || 'unknown',
           hasOwnDevice: (await env.PISHOCK_KV.get(`user:${targetUserId}:pishock:hasOwnDevice`)) === 'true',
           piShockUserId: await env.PISHOCK_KV.get(`user:${targetUserId}:pishock:piShockUserId`) || null,
-          lastUpdated: new Date().toISOString()
+          lastUpdated: new Date().toISOString(),
+          consumableInventory: {}
         };
         
-        await env.PISHOCK_KV.put(`user:${targetUserId}:data`, JSON.stringify(userData));
+        await env.PISHOCK_KV.put(`user:${targetUserId}:data`, JSON.stringify(targetUserData));
         
         await Promise.all([
           env.PISHOCK_KV.delete(`user:${targetUserId}:pishock`),
@@ -235,23 +239,76 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           env.PISHOCK_KV.delete(`user:${targetUserId}:pishock:piShockUserId`)
         ]);
         
-        encrypted = userData.credentials;
+        targetEncrypted = targetUserData.credentials;
       }
     }
-    
-    if (!encrypted) {
+      const oldEncrypted = await env.PISHOCK_KV.get(`user:${targetUserId}:pishock`);
+    if (!targetEncrypted) {
       return jsonResponse({ 
         success: false, 
         error: `Target user (${targetUserId}) has no PiShock device configured. They need to set up their PiShock credentials first in the application.`,
       });
     }
 
+    let bypassUsed = false;
+
     try {
-      const creds = await decrypt(encrypted);
+      const targetCreds = await decrypt(targetEncrypted);
       
-      const targetMaxIntensity = creds.maxIntensity || 100;
-      const targetMaxDuration = creds.maxDuration || 15;
+      const targetMaxIntensity = targetCreds.maxIntensity || 100;
+      const targetMaxDuration = targetCreds.maxDuration || 15;
+      const targetEnableShockBypass = targetCreds.enableShockBypass || false;
       
+      // Check if we need to use bypass
+      const needsBypass = intensity > targetMaxIntensity || duration > targetMaxDuration;
+      
+      if (needsBypass) {
+        if (!targetEnableShockBypass) {
+          return jsonResponse({ 
+            success: false, 
+            error: `Target user has not enabled shock bypass. Command exceeds their limits (Max: ${targetMaxIntensity}%/${targetMaxDuration}s).` 
+          }, 403);
+        }
+        
+        // Initialize executor consumable inventory if it doesn't exist
+        if (!executorUserData) {
+          executorUserData = { consumableInventory: {} };
+        }
+        if (!executorUserData.consumableInventory) {
+          executorUserData.consumableInventory = {};
+        }
+        
+        const currentConsumables = executorUserData.consumableInventory[env.SHOCK_BYPASS_SKU_ID] || 0;
+        
+        if (currentConsumables > 0) {
+          // Use existing consumable
+          executorUserData.consumableInventory[env.SHOCK_BYPASS_SKU_ID] = currentConsumables - 1;
+          await env.PISHOCK_KV.put(`user:${executorUserId}:data`, JSON.stringify(executorUserData));
+          bypassUsed = true;
+        } else {
+          // Check for unconsumed entitlements
+          const unconsumedEntitlements = await getUnconsumedEntitlements(executorUserId, env.SHOCK_BYPASS_SKU_ID, env);
+          
+          if (unconsumedEntitlements.length > 0) {
+            // Convert entitlement to consumable
+            executorUserData.consumableInventory[env.SHOCK_BYPASS_SKU_ID] = (executorUserData.consumableInventory[env.SHOCK_BYPASS_SKU_ID] || 0) + 1;
+            await env.PISHOCK_KV.put(`user:${executorUserId}:data`, JSON.stringify(executorUserData));
+            
+            // Consume the Discord entitlement (don't block on failure)
+            consumeDiscordEntitlement(unconsumedEntitlements[0].id, env).catch(error => {
+              console.error('Failed to consume entitlement (non-blocking):', error);
+            });
+            
+            bypassUsed = true;
+          } else {
+            return jsonResponse({ 
+              success: false, 
+              error: `You do not have any "Shock Past User Limit" consumables. Purchase them from the Discord store to bypass user limits.` 
+            }, 403);
+          }
+        }
+      } else if (intensity > targetMaxIntensity) {
+      }
       if (intensity > targetMaxIntensity) {
         return jsonResponse({ 
           success: false, 
@@ -259,7 +316,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         });
       }
       
-      if (duration > targetMaxDuration) {
+      else if (duration > targetMaxDuration) {
         return jsonResponse({ 
           success: false, 
           error: `Duration ${duration}s exceeds target user's maximum of ${targetMaxDuration}s` 
@@ -270,9 +327,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const operationName = operationNames[operation];
       
       const payload = {
-        username: creds.username,
-        apikey: creds.apiKey,
-        code: creds.sharecode,
+        username: targetCreds.username,
+        apikey: targetCreds.apiKey,
+        code: targetCreds.sharecode,
         intensity: intensity,
         duration: duration,
         op: operation,
@@ -334,7 +391,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         action: operationName as 'shock' | 'vibrate' | 'beep',
         intensity,
         duration,
-        bypassUsed,
       };
 
       try {
