@@ -205,6 +205,9 @@ export function UserSelector({
                                       {(userStatus?.maxIntensity < 100 || userStatus?.maxDuration < 15) && (
                                         <Lock className="h-2 w-2 text-yellow-400" title="Has device limits" />
                                       )}
+                                      {userStatus?.enableShockBypass && (
+                                        <span className="text-purple-400" title="Bypass enabled">🛡️</span>
+                                      )}
                                     </div>
                                   ) : (
                                     <div className="flex items-center space-x-1 text-xs text-blue-400">

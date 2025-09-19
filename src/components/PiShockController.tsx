@@ -194,40 +194,6 @@ export function PiShockController({
       setIsShocking(false);
     }
   };
-  const getBypassStatus = () => {
-    if (!selectedUser) return null;
-    
-    const userStatus = (window as any).userPiShockStatus?.[selectedUser.id];
-    if (!userStatus) return null;
-    
-    const maxIntensity = userStatus.maxIntensity || 100;
-    const maxDuration = userStatus.maxDuration || 15;
-    const enableShockBypass = userStatus.enableShockBypass || false;
-    const consumables = currentUserConsumables['YOUR_SKU_ID_HERE'] || 0;
-    
-    const wouldExceedLimits = intensity > maxIntensity || duration > maxDuration;
-    
-    if (wouldExceedLimits) {
-      if (!enableShockBypass) {
-        return {
-          type: 'blocked',
-          message: 'Target has not enabled shock bypass'
-        };
-      } else if (consumables > 0) {
-        return {
-          type: 'bypass',
-          message: 'Will use bypass consumable'
-        };
-      } else {
-        return {
-          type: 'insufficient',
-          message: 'No bypass consumables available'
-        };
-      }
-    }
-    
-    return null;
-  };
 
   const handleSettingsSaved = () => {
     checkCurrentUserCredentials();
@@ -366,6 +332,32 @@ export function PiShockController({
                   </div>
                 )}
               </div>
+
+              {!isPipMode && (() => {
+                const bypassStatus = getBypassStatus();
+                if (bypassStatus) {
+                  const colorClass = bypassStatus.type === 'bypass' ? 'bg-yellow-900/20 border-yellow-500/30 text-yellow-300' :
+                                   bypassStatus.type === 'blocked' ? 'bg-red-900/20 border-red-500/30 text-red-300' :
+                                   'bg-orange-900/20 border-orange-500/30 text-orange-300';
+                  
+                  return (
+                    <div className={`p-3 rounded-lg border ${colorClass} flex-shrink-0`}>
+                      <div className="flex items-center space-x-2">
+                        {bypassStatus.type === 'bypass' && <span>⚡</span>}
+                        {bypassStatus.type === 'blocked' && <span>🚫</span>}
+                        {bypassStatus.type === 'insufficient' && <span>❌</span>}
+                        <span className="text-sm font-medium">{bypassStatus.message}</span>
+                      </div>
+                      {bypassStatus.type === 'bypass' && (
+                        <p className="text-xs mt-1 opacity-75">
+                          This command exceeds target limits. A consumable will be used.
+                        </p>
+                      )}
+                    </div>
+                  );
+                }
+                return null;
+              })()}
 
               <div className={`grid gap-3 flex-shrink-0 ${isPipMode ? 'grid-cols-3 gap-2' : 'grid-cols-1 sm:grid-cols-3 sm:gap-3'}`}>
                 <button

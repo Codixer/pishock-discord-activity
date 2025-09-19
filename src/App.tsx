@@ -94,6 +94,7 @@ function MainApp() {
   const [isInstanceValid, setIsInstanceValid] = useState(true);
   const [layoutMode, setLayoutMode] = useState<number>(Common.LayoutModeTypeObject.FOCUSED);
   const [isPipMode, setIsPipMode] = useState(false);
+  const [currentUserConsumables, setCurrentUserConsumables] = useState<Record<string, number>>({});
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
   

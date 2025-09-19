@@ -311,6 +311,11 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
                         <span className="text-gray-400">
                           {entry.duration}s
                         </span>
+                        {entry.bypassUsed && (
+                          <span className="text-purple-400 font-semibold text-xs">
+                            BYPASS
+                          </span>
+                        )}
                         {entry.guildName && (
                           <span className="text-gray-400 truncate max-w-24">
                             in {entry.guildName}
