@@ -1,5 +1,18 @@
-For all designs I ask you to make, have them be beautiful, not cookie cutter. Make webpages that are fully featured and worthy for production.
+This project is the PiShock Discord Activity, a production-ready application designed to enable consensual control of PiShock electrical devices within a multiplayer Discord environment. It runs as a Discord Activity, allowing users to interact with PiShock devices directly from Discord voice channels or DMs.
 
-By default, this template supports JSX syntax with Tailwind CSS classes, React hooks, and Lucide React for icons. Do not install other packages for UI themes, icons, etc unless absolutely necessary or I request them.
+Key functionalities include:
 
-Use icons from lucide-react for logos.
+Sending shock, vibrate, and beep commands to PiShock devices.
+Multiplayer support, enabling multiple users to participate with their own devices.
+Real-time updates for participant lists and activity feeds.
+Robust safety features such as user-configurable intensity/duration limits, explicit consent mechanisms, a ban system, and comprehensive activity logging for transparency and accountability.
+Secure, encrypted storage for PiShock credentials.
+The architecture involves:
+
+A frontend built with React 18, TypeScript, Tailwind CSS, and Vite, utilizing the Discord Embedded App SDK.
+A serverless backend powered by Cloudflare Workers and Cloudflare KV for data storage (user data, activity logs, instance management).
+Integration with the PiShock Legacy & V3 APIs for device control.
+Deployment on Cloudflare Pages with Workers.
+Critical Safety Warning: This application controls electrical shock devices that can cause physical harm, injury, or death if misused. All design and implementation decisions must prioritize user safety, consent, and legal compliance.
+
+By default, this template supports JSX syntax with Tailwind CSS classes, React hooks, and Lucide React for icons. Do not install other packages for UI themes, icons, etc unless absolutely necessary or I request them. Use icons from lucide-react for logos.
