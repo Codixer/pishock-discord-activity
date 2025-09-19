@@ -42,6 +42,7 @@ export function PiShockSettingsModal({
   const [userMaxDuration, setUserMaxDuration] = useState(15);
   const [bannedExecutors, setBannedExecutors] = useState<string[]>([]);
   const [enableShockBypass, setEnableShockBypass] = useState(false);
+  const [consumableInventory, setConsumableInventory] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
@@ -120,6 +121,11 @@ export function PiShockSettingsModal({
           setUserMaxIntensity(status.maxIntensity);
           setUserMaxDuration(status.maxDuration);
         }
+        
+        // Update consumable inventory from status
+        if (status.consumableInventory) {
+          setConsumableInventory(status.consumableInventory);
+        }
       }
     } catch (error) {
       console.error('Failed to check connection status:', error);
@@ -149,6 +155,11 @@ export function PiShockSettingsModal({
           setUserMaxDuration(settings.maxDuration || 15);
           setBannedExecutors(settings.bannedExecutors || []);
           setEnableShockBypass(settings.enableShockBypass || false);
+        }
+        
+        // Load consumable inventory
+        if (result.consumableInventory) {
+          setConsumableInventory(result.consumableInventory);
         }
       }
     } catch (error) {
@@ -538,7 +549,7 @@ export function PiShockSettingsModal({
               <div className="flex items-center justify-between">
                 <span className="text-sm text-blue-200">Shock Past User Limit:</span>
                 <span className="text-sm font-semibold text-blue-300">
-                  {consumableInventory['YOUR_SKU_ID_HERE'] || 0} available
+                  {consumableInventory[import.meta.env.VITE_SHOCK_BYPASS_SKU_ID] || 0} available
                 </span>
               </div>
               <p className="text-xs text-blue-200 mt-2">
