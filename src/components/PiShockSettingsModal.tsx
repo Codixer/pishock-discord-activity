@@ -41,6 +41,7 @@ export function PiShockSettingsModal({
   const [userMaxIntensity, setUserMaxIntensity] = useState(100);
   const [userMaxDuration, setUserMaxDuration] = useState(15);
   const [bannedExecutors, setBannedExecutors] = useState<string[]>([]);
+  const [enableShockBypass, setEnableShockBypass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
@@ -147,6 +148,7 @@ export function PiShockSettingsModal({
           setUserMaxIntensity(settings.maxIntensity || 100);
           setUserMaxDuration(settings.maxDuration || 15);
           setBannedExecutors(settings.bannedExecutors || []);
+          setEnableShockBypass(settings.enableShockBypass || false);
         }
       }
     } catch (error) {
@@ -229,6 +231,8 @@ export function PiShockSettingsModal({
           maxIntensity: userMaxIntensity,
           maxDuration: userMaxDuration,
           bannedExecutors,
+          enableShockBypass,
+          enableShockBypass,
         }),
       });
 
