@@ -232,7 +232,6 @@ export function PiShockSettingsModal({
           maxDuration: userMaxDuration,
           bannedExecutors,
           enableShockBypass,
-          enableShockBypass,
         }),
       });
 
