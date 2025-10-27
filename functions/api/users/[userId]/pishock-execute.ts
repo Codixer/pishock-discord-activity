@@ -120,7 +120,9 @@ async function validateDiscordToken(token: string, kv: KVNamespace, env?: Env): 
         
         if (timeUntilExpiry < 3600 && timeUntilExpiry > 0) {
           console.log(`Token expiring soon for user ${cachedData.id}, refreshing in background`);
-          refreshDiscordToken(cachedData.id, kv, env).catch(() => {});
+          refreshDiscordToken(cachedData.id, kv, env).catch((err) => {
+            console.error('Background token refresh failed:', err);
+          });
         }
       }
       
