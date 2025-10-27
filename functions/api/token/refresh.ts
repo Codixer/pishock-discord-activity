@@ -120,7 +120,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   }
 
   if (method !== 'POST') {
-    return new Response('Method not allowed', { status: 405 });
+    return jsonResponse({ error: 'Method not allowed' }, 405);
   }
 
   try {
