@@ -18,7 +18,6 @@ function jsonResponse(body: any, status = 200) {
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
   const method = request.method;
-  const url = new URL(request.url);
 
   // Handle CORS preflight requests
   if (method === 'OPTIONS') {
@@ -38,6 +37,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   }
 
   try {
+    // Create url from request object
+    const url = new URL(request.url);
     const applicationId = url.searchParams.get('application_id');
     const instanceId = url.searchParams.get('instance_id');
 
@@ -67,7 +68,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     );
 
     if (discordResponse.status === 404) {
-      // Instance not found - no cleanup needed since we don't store instance data
       return jsonResponse({ 
         valid: false, 
         error: 'Discord Activity session not found or has expired. Please start a new session from Discord.' 
@@ -81,10 +81,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         error: `Discord API error: ${discordResponse.status}` 
       }, discordResponse.status);
     }
+    
+    console.log('Discord response status:', discordResponse.status);
 
     const instanceData = await discordResponse.json();
 
-    // No KV writes needed - verification complete
     return jsonResponse({ 
       valid: true, 
       instanceData: {
@@ -97,7 +98,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     });
 
   } catch (error) {
-    // No fallback to KV - just fail verification
     return jsonResponse({ 
       valid: false, 
       error: 'Instance verification failed due to network error. Please try again.',
