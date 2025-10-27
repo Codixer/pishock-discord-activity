@@ -4,6 +4,30 @@ interface Env {
   PISHOCK_KV: KVNamespace;
 }
 
+interface ActivityLogEntry {
+  id: string;
+  timestamp: string;
+  instanceId: string;
+  executorUserId: string;
+  executorUsername: string;
+  executorAvatar?: string;
+  targetUserId: string;
+  targetUsername: string;
+  targetAvatar?: string;
+  action: 'shock' | 'vibrate' | 'beep';
+  intensity: number;
+  duration: number;
+  guildId?: string;
+  guildName?: string;
+}
+
+interface SessionActivityLog {
+  entries: ActivityLogEntry[];
+  sessionStart: string;
+  lastActivity: string;
+  totalCount: number;
+}
+
 function jsonResponse(body: any, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -12,7 +36,7 @@ function jsonResponse(body: any, status = 200) {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Cache-Control': 'public, max-age=30, stale-while-revalidate=15',
+      'Cache-Control': 'no-cache',
     },
   });
 }
@@ -40,9 +64,39 @@ async function validateDiscordToken(token: string): Promise<any> {
   }
 }
 
+// Store activity log per session with 6-hour expiration
+async function addToSessionLog(kv: KVNamespace, entry: ActivityLogEntry) {
+  try {
+    const logKey = `session:${entry.instanceId}:activity_log`;
+    
+    let existingLog = await kv.get(logKey);
+    let sessionLog: SessionActivityLog = existingLog ? JSON.parse(existingLog) : {
+      entries: [],
+      sessionStart: entry.timestamp,
+      lastActivity: entry.timestamp,
+      totalCount: 0
+    };
+    
+    sessionLog.entries.unshift(entry);
+    sessionLog.lastActivity = entry.timestamp;
+    sessionLog.totalCount++;
+    
+    // Limit to 100 entries per session to prevent value size issues
+    if (sessionLog.entries.length > 100) {
+      sessionLog.entries = sessionLog.entries.slice(0, 100);
+    }
+    
+    // Store with 6-hour expiration (21600 seconds)
+    await kv.put(logKey, JSON.stringify(sessionLog), { expirationTtl: 21600 });
+  } catch (error) {
+    console.error('Failed to update session activity log:', error);
+  }
+}
+
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
   const url = new URL(request.url);
+  const { searchParams } = url;
   const method = request.method;
 
   // Handle CORS preflight requests
@@ -63,15 +117,36 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const token = await requireAuth(request);
       if (!token) return new Response('Unauthorized', { status: 401 });
       
-      // Validate token
       const user = await validateDiscordToken(token);
       if (!user) return new Response('Invalid token', { status: 401 });
 
-      // Return empty activity log - logging disabled to save KV writes
+      const instanceId = searchParams.get('instanceId');
+      if (!instanceId) {
+        return jsonResponse({ 
+          error: 'instanceId parameter required' 
+        }, 400);
+      }
+
+      // Retrieve session-specific activity log
+      const logKey = `session:${instanceId}:activity_log`;
+      const logData = await env.PISHOCK_KV.get(logKey);
+      
+      if (!logData) {
+        return jsonResponse({ 
+          entries: [], 
+          total: 0,
+          sessionStart: null,
+          lastActivity: null
+        });
+      }
+
+      const sessionLog: SessionActivityLog = JSON.parse(logData);
+      
       return jsonResponse({ 
-        entries: [], 
-        total: 0, 
-        hasMore: false 
+        entries: sessionLog.entries,
+        total: sessionLog.totalCount,
+        sessionStart: sessionLog.sessionStart,
+        lastActivity: sessionLog.lastActivity
       });
     }
 
@@ -82,8 +157,25 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const user = await validateDiscordToken(token);
       if (!user) return new Response('Invalid token', { status: 401 });
 
-      // Accept but don't store activity logs - disabled to save KV writes
+      const entry = await request.json();
+      
+      if (!entry.instanceId) {
+        return jsonResponse({ 
+          error: 'instanceId required in log entry' 
+        }, 400);
+      }
+
       const id = uuidv4();
+      const timestamp = new Date().toISOString();
+      
+      const logEntry: ActivityLogEntry = { 
+        ...entry, 
+        id, 
+        timestamp 
+      };
+
+      await addToSessionLog(env.PISHOCK_KV, logEntry);
+
       return jsonResponse({ success: true, entryId: id });
     }
 

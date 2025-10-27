@@ -1,5 +1,29 @@
+import { v4 as uuidv4 } from 'uuid';
+
 interface Env {
   PISHOCK_KV: KVNamespace;
+}
+
+interface ActivityLogEntry {
+  id: string;
+  timestamp: string;
+  instanceId: string;
+  executorUserId: string;
+  executorUsername: string;
+  executorAvatar?: string;
+  targetUserId: string;
+  targetUsername: string;
+  targetAvatar?: string;
+  action: 'shock' | 'vibrate' | 'beep';
+  intensity: number;
+  duration: number;
+}
+
+interface SessionActivityLog {
+  entries: ActivityLogEntry[];
+  sessionStart: string;
+  lastActivity: string;
+  totalCount: number;
 }
 
 function jsonResponse(body: any, status = 200) {
@@ -64,6 +88,35 @@ async function getUserInfo(token: string, userId: string): Promise<{ username: s
   }
   
   return null;
+}
+
+// Store activity log per session with 6-hour expiration
+async function addToSessionLog(kv: KVNamespace, entry: ActivityLogEntry) {
+  try {
+    const logKey = `session:${entry.instanceId}:activity_log`;
+    
+    let existingLog = await kv.get(logKey);
+    let sessionLog: SessionActivityLog = existingLog ? JSON.parse(existingLog) : {
+      entries: [],
+      sessionStart: entry.timestamp,
+      lastActivity: entry.timestamp,
+      totalCount: 0
+    };
+    
+    sessionLog.entries.unshift(entry);
+    sessionLog.lastActivity = entry.timestamp;
+    sessionLog.totalCount++;
+    
+    // Limit to 100 entries per session to prevent value size issues
+    if (sessionLog.entries.length > 100) {
+      sessionLog.entries = sessionLog.entries.slice(0, 100);
+    }
+    
+    // Store with 6-hour expiration (21600 seconds)
+    await kv.put(logKey, JSON.stringify(sessionLog), { expirationTtl: 21600 });
+  } catch (error) {
+    console.error('Failed to update session activity log:', error);
+  }
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {
@@ -244,8 +297,29 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const executorInfo = await getUserInfo(token, executorUserId);
       const targetInfo = await getUserInfo(token, targetUserId);
 
-      // Activity logging disabled to save KV writes
-      // Log entry creation skipped
+      // Create activity log entry for this session
+      const logEntry: ActivityLogEntry = {
+        id: uuidv4(),
+        timestamp: new Date().toISOString(),
+        instanceId: 'user-session',  // User-level sessions don't have instanceId, use generic identifier
+        executorUserId,
+        executorUsername: executorInfo?.username || 'Unknown User',
+        executorAvatar: executorInfo?.avatar,
+        targetUserId,
+        targetUsername: targetInfo?.username || 'Unknown User',
+        targetAvatar: targetInfo?.avatar,
+        action: operationName as 'shock' | 'vibrate' | 'beep',
+        intensity,
+        duration,
+      };
+
+      // Store activity log with 6-hour session expiration
+      try {
+        await addToSessionLog(env.PISHOCK_KV, logEntry);
+      } catch (logError) {
+        console.error('Failed to log activity:', logError);
+        // Don't fail the request if logging fails
+      }
 
       return jsonResponse({ 
         success: true, 
