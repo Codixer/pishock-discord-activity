@@ -65,7 +65,7 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
       // Auto-disable after 5 minutes (300000ms)
       autoDisableTimeoutRef.current = setTimeout(() => {
         setAutoRefresh(false);
-        addNotification('info', 'Auto-Refresh Disabled', 'Activity log auto-refresh has been automatically disabled after 5 minutes to reduce server load.');
+        addNotification('info', 'Auto-Refresh Disabled', 'Activity log auto-refresh has been automatically disabled after 5 minutes to reduce KV read operations.');
       }, 300000);
 
       return () => {
