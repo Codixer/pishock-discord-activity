@@ -352,6 +352,26 @@ function MainApp() {
     }
   }, [isEmbedded, discordSdk, auth, updateParticipants, checkAllUserPiShockStatus, addNotification]);
 
+  // Manual refresh for user statuses (event-driven approach)
+  const refreshUserStatuses = useCallback(async () => {
+    if (!instanceId || !auth || participants.length === 0) {
+      addNotification('warning', 'Cannot Refresh', 'No participants to refresh');
+      return;
+    }
+
+    addNotification('info', 'Refreshing...', 'Checking PiShock status for all participants');
+    await checkAllUserPiShockStatus();
+    addNotification('success', 'Status Refreshed', 'All participant statuses have been updated');
+  }, [instanceId, auth, participants, checkAllUserPiShockStatus, addNotification]);
+
+  // Expose globally for external triggers (e.g., after settings save)
+  useEffect(() => {
+    (window as any).refreshAllUserStatuses = refreshUserStatuses;
+    return () => {
+      delete (window as any).refreshAllUserStatuses;
+    };
+  }, [refreshUserStatuses]);
+
   useEffect(() => {
     const initializeDiscord = async () => {
       try {
@@ -546,22 +566,59 @@ function MainApp() {
     }
   }, [instanceId, auth, participants, updateInstanceData, addNotification]);
 
+  // Event-driven status check: Run when participants change (join/leave)
   useEffect(() => {
     if (instanceId && auth && participants.length > 0) {
       checkAllUserPiShockStatus();
     }
   }, [instanceId, auth, participants]);
 
+  // Hybrid approach: Slow background polling as safety net for edge cases
+  // Checks every 10 minutes instead of 90 seconds (93% reduction in API calls)
   useEffect(() => {
     if (!instanceId || !auth || participants.length === 0) return;
 
+    // Cleanup expired cache entries and refresh statuses every 10 minutes
     const interval = setInterval(() => {
       userStatusCache.cleanupExpired();
       checkAllUserPiShockStatus();
-    }, 90000);
+    }, 600000); // 10 minutes (600,000ms) instead of 90 seconds
 
     return () => clearInterval(interval);
   }, [instanceId, auth, participants, userStatusCache]);
+
+  // Hourly instance status check - read-only, no writes
+  // If instance status expires (6hr TTL), mark instance as invalid
+  useEffect(() => {
+    if (!instanceId || !auth) return;
+
+    const checkInstanceStatus = async () => {
+      try {
+        const response = await fetch(`${getApiBaseUrl()}/instances/${instanceId}/status`, {
+          headers: {
+            'Authorization': `Bearer ${auth.access_token}`,
+          },
+        });
+
+        if (!response.ok) {
+          // Instance status has expired (404) or is invalid
+          setIsInstanceValid(false);
+          addNotification('error', 'Session Expired', 'Your Discord Activity session has expired after 6 hours of inactivity.');
+        }
+      } catch (error) {
+        // Network error or instance expired
+        console.warn('Instance status check failed:', error);
+      }
+    };
+
+    // Check immediately on mount
+    checkInstanceStatus();
+
+    // Then check every hour (3,600,000 ms)
+    const interval = setInterval(checkInstanceStatus, 3600000);
+
+    return () => clearInterval(interval);
+  }, [instanceId, auth, addNotification]);
 
   useEffect(() => {
     if (instanceId && auth && selectedUser) {
@@ -773,6 +830,7 @@ function MainApp() {
                 instanceData={instanceData}
                 userPiShockStatus={userPiShockStatus}
                 refreshParticipants={refreshParticipants}
+                refreshUserStatuses={refreshUserStatuses}
                 isEmbedded={isEmbedded}
               />
             </div>

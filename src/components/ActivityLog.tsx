@@ -40,34 +40,44 @@ function getApiBaseUrl(): string {
 
 export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogProps) {
   const [entries, setEntries] = useState<ActivityLogEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isVisible, setIsVisible] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [isVisible, setIsVisible] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const intervalRef = useRef<NodeJS.Timeout>();
+  const autoDisableTimeoutRef = useRef<NodeJS.Timeout>();
   const logContainerRef = useRef<HTMLDivElement>(null);
 
-  // Load initial activity log
+  // Load initial activity log only when visible
   useEffect(() => {
-    if (auth) {
+    if (auth && isVisible && entries.length === 0) {
       loadActivityLog();
     }
-  }, [auth]);
+  }, [auth, isVisible]);
 
-  // Set up auto-refresh when enabled
+  // Set up auto-refresh when enabled with 5-minute auto-disable
   useEffect(() => {
     if (autoRefresh && auth) {
       intervalRef.current = setInterval(() => {
         loadActivityLog(true);
       }, 60000); // Refresh every 60 seconds to minimize KV reads
 
+      // Auto-disable after 5 minutes (300000ms)
+      autoDisableTimeoutRef.current = setTimeout(() => {
+        setAutoRefresh(false);
+        addNotification('info', 'Auto-Refresh Disabled', 'Activity log auto-refresh has been automatically disabled after 5 minutes to reduce server load.');
+      }, 300000);
+
       return () => {
         if (intervalRef.current) {
           clearInterval(intervalRef.current);
         }
+        if (autoDisableTimeoutRef.current) {
+          clearTimeout(autoDisableTimeoutRef.current);
+        }
       };
     }
-  }, [autoRefresh, auth]);
+  }, [autoRefresh, auth, addNotification]);
 
   const loadActivityLog = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -176,14 +186,14 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
           <div className="flex items-center space-x-3">
             <Clock className="h-5 w-5 text-purple-400" />
             <h3 className="text-lg font-semibold">Public Activity Log</h3>
-            <span className="text-sm text-gray-400">({entries.length} entries)</span>
+            <span className="text-sm text-gray-400">(Hidden)</span>
           </div>
           <button
             onClick={() => setIsVisible(true)}
-            className="flex items-center space-x-2 px-3 py-1 rounded-md bg-gray-700 hover:bg-gray-600 text-sm transition-colors"
+            className="flex items-center space-x-2 px-3 py-1 rounded-md bg-purple-600 hover:bg-purple-700 text-sm transition-colors"
           >
             <Eye className="h-4 w-4" />
-            <span>Show</span>
+            <span>Show Log</span>
           </button>
         </div>
       </div>
@@ -209,23 +219,24 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
                 ? 'bg-green-600 hover:bg-green-700 text-white' 
                 : 'bg-gray-600 hover:bg-gray-700 text-gray-300'
             }`}
+            title={autoRefresh ? 'Auto-refresh enabled (auto-disables after 5min)' : 'Enable auto-refresh (1min intervals)'}
           >
             <RefreshCw className={`h-3 w-3 ${autoRefresh ? 'animate-spin' : ''}`} />
-            <span>{autoRefresh ? 'Auto On' : 'Auto Off'}</span>
+            <span>{autoRefresh ? 'Auto On (5min)' : 'Auto Off'}</span>
           </button>
           <button
             onClick={() => loadActivityLog()}
             disabled={loading}
             className="px-2 py-1 rounded bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-xs transition-colors w-full sm:w-auto text-center"
           >
-            Refresh
+            Refresh Now
           </button>
           <button
             onClick={() => setIsVisible(false)}
             className="flex items-center space-x-1 px-2 py-1 rounded bg-gray-600 hover:bg-gray-700 text-xs transition-colors"
           >
             <EyeOff className="h-3 w-3" />
-            <span className="hidden sm:inline">Hide</span>
+            <span>Hide Log</span>
           </button>
         </div>
       </div>

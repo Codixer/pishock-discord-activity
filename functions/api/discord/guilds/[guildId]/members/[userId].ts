@@ -27,8 +27,24 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     
     const userData = await response.json();
     
-    await kv.put(cacheKey, JSON.stringify(userData), {
-      expirationTtl: 300 // 5 minutes
+    // Try to get expiry info from metadata
+    let expiresAt = 0;
+    let cacheTtl = 10800; // Default 3 hours if no metadata
+    const metadataStr = await kv.get(`discord_token_metadata:${userData.id}`);
+    if (metadataStr) {
+      const metadata = JSON.parse(metadataStr);
+      expiresAt = metadata.expires_at;
+      // Use remaining token lifetime for cache TTL
+      const now = Math.floor(Date.now() / 1000);
+      const remainingTime = expiresAt - now;
+      cacheTtl = Math.max(60, remainingTime - 60); // At least 1 minute
+    }
+    
+    await kv.put(cacheKey, JSON.stringify({
+      ...userData,
+      token_expires_at: expiresAt
+    }), {
+      expirationTtl: cacheTtl // Match token expiry
     });
     
     return userData;

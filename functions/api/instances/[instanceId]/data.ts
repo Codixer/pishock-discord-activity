@@ -39,38 +39,30 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     
     const userData = await response.json();
     
-    await kv.put(cacheKey, JSON.stringify(userData), {
-      expirationTtl: 300 // 5 minutes
+    // Try to get expiry info from metadata
+    let expiresAt = 0;
+    let cacheTtl = 10800; // Default 3 hours if no metadata
+    const metadataStr = await kv.get(`discord_token_metadata:${userData.id}`);
+    if (metadataStr) {
+      const metadata = JSON.parse(metadataStr);
+      expiresAt = metadata.expires_at;
+      // Use remaining token lifetime for cache TTL
+      const now = Math.floor(Date.now() / 1000);
+      const remainingTime = expiresAt - now;
+      cacheTtl = Math.max(60, remainingTime - 60); // At least 1 minute
+    }
+    
+    await kv.put(cacheKey, JSON.stringify({
+      ...userData,
+      token_expires_at: expiresAt
+    }), {
+      expirationTtl: cacheTtl // Match token expiry
     });
     
     return userData;
   } catch (error) {
     return null;
   }
-}
-
-const pendingWrites = new Map<string, any>();
-const writeTimeouts = new Map<string, NodeJS.Timeout>();
-
-async function debouncedWrite(kv: KVNamespace, key: string, value: any, delay = 2000, expirationTtl?: number) {
-  const existingTimeout = writeTimeouts.get(key);
-  if (existingTimeout) {
-    clearTimeout(existingTimeout);
-  }
-  
-  pendingWrites.set(key, value);
-  
-  const timeout = setTimeout(async () => {
-    const pendingValue = pendingWrites.get(key);
-    if (pendingValue) {
-      const putOptions = expirationTtl ? { expirationTtl } : undefined;
-      await kv.put(key, JSON.stringify(pendingValue), putOptions);
-      pendingWrites.delete(key);
-      writeTimeouts.delete(key);
-    }
-  }, delay);
-  
-  writeTimeouts.set(key, timeout);
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {
@@ -113,7 +105,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         updatedBy: user.id
       };
       
-      await debouncedWrite(env.PISHOCK_KV, `instance_data:${instanceId}`, merged, 2000, 21600);
+      // Direct write - removed debouncing as it's unreliable in edge workers
+      // Instance data updates are infrequent enough not to cause KV write issues
+      await env.PISHOCK_KV.put(`instance_data:${instanceId}`, JSON.stringify(merged), {
+        expirationTtl: 21600 // 6 hours
+      });
       return jsonResponse({ success: true });
     }
 

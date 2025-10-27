@@ -20,11 +20,12 @@ interface CacheEntry {
 }
 
 // Client-side cache for user status to reduce API calls
+// Event-driven architecture: status is checked on events, not polling
 export function useUserStatusCache() {
   const cache = useRef<Map<string, CacheEntry>>(new Map());
   const [lastCacheUpdate, setLastCacheUpdate] = useState(0);
   
-  const CACHE_DURATION = 60000; // 1 minute cache on client side
+  const CACHE_DURATION = 300000; // 5 minutes cache on client side (reduced from 1 min)
 
   const getCachedStatus = useCallback((userId: string): UserStatus | null => {
     const entry = cache.current.get(userId);

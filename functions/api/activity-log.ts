@@ -65,8 +65,24 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     
     const userData = await response.json();
     
-    await kv.put(cacheKey, JSON.stringify(userData), {
-      expirationTtl: 300 // 5 minutes
+    // Try to get expiry info from metadata
+    let expiresAt = 0;
+    let cacheTtl = 10800; // Default 3 hours if no metadata
+    const metadataStr = await kv.get(`discord_token_metadata:${userData.id}`);
+    if (metadataStr) {
+      const metadata = JSON.parse(metadataStr);
+      expiresAt = metadata.expires_at;
+      // Use remaining token lifetime for cache TTL
+      const now = Math.floor(Date.now() / 1000);
+      const remainingTime = expiresAt - now;
+      cacheTtl = Math.max(60, remainingTime - 60); // At least 1 minute
+    }
+    
+    await kv.put(cacheKey, JSON.stringify({
+      ...userData,
+      token_expires_at: expiresAt
+    }), {
+      expirationTtl: cacheTtl // Match token expiry
     });
     
     return userData;
@@ -91,9 +107,10 @@ async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
     batchData.lastUpdated = entry.timestamp;
     batchData.totalCount++;
     
-    // Limit entries per batch to prevent value size issues (reduced from 200 to 150 for better performance)
-    if (batchData.entries.length > 150) {
-      batchData.entries = batchData.entries.slice(0, 150);
+    // Limit entries per batch to prevent value size issues
+    // Increased from 150 to 500 to reduce write frequency
+    if (batchData.entries.length > 500) {
+      batchData.entries = batchData.entries.slice(0, 500);
     }
     
     await kv.put(batchKey, JSON.stringify(batchData), { expirationTtl: 604800 });
