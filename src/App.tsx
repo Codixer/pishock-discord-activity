@@ -87,7 +87,7 @@ function MainApp() {
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [piShockConnected, setPiShockConnected] = useState(false);
   const [safetyAccepted, setSafetyAccepted] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [instanceId, setInstanceId] = useState<string>('');
   const [showActivityLog, setShowActivityLog] = useState(true);
   const [userPiShockStatus, setUserPiShockStatus] = useState<Record<string, any>>({});
@@ -297,8 +297,14 @@ function MainApp() {
   }, [refreshUserStatuses]);
 
   useEffect(() => {
+    // Only initialize Discord after safety has been accepted
+    if (!safetyAccepted) {
+      return;
+    }
+
     const initializeDiscord = async () => {
       try {
+        setLoading(true); // Start loading only after safety accepted
         if (isEmbedded) {
           await discordSdk.ready();
           
@@ -426,6 +432,7 @@ function MainApp() {
 
         setLoading(false);
       } catch (error) {
+        console.error('Discord initialization error:', error); // Add logging for debugging
         if (!isEmbedded && error instanceof Error && error.message.includes('Cannot convert')) {
           setLoading(false);
           return;
@@ -445,7 +452,7 @@ function MainApp() {
         }
       }
     };
-  }, [addNotification, updateParticipants, handleLayoutModeUpdate]);
+  }, [safetyAccepted, addNotification, updateParticipants, handleLayoutModeUpdate]);
 
   useEffect(() => {
     if (instanceId && auth) {
