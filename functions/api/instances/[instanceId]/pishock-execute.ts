@@ -1,24 +1,5 @@
-import { v4 as uuidv4 } from 'uuid';
-
 interface Env {
   PISHOCK_KV: KVNamespace;
-}
-
-interface ActivityLogEntry {
-  id: string;
-  timestamp: string;
-  instanceId: string;
-  executorUserId: string;
-  executorUsername: string;
-  executorAvatar?: string;
-  targetUserId: string;
-  targetUsername: string;
-  targetAvatar?: string;
-  action: 'shock' | 'vibrate' | 'beep';
-  intensity: number;
-  duration: number;
-  guildId?: string;
-  guildName?: string;
 }
 
 function jsonResponse(body: any, status = 200) {
@@ -65,61 +46,18 @@ async function decrypt(encryptedData: string): Promise<any> {
   }
 }
 
-async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
+async function getUserInfo(token: string, userId: string): Promise<{ username: string; avatar?: string } | null> {
   try {
-    const date = new Date(entry.timestamp).toISOString().split('T')[0]; // YYYY-MM-DD
-    const batchKey = `activity:batch:${date}`;
-    
-    let batch = await kv.get(batchKey);
-    let batchData = batch ? JSON.parse(batch) : {
-      entries: [],
-      lastUpdated: entry.timestamp,
-      totalCount: 0
-    };
-    
-    batchData.entries.unshift(entry);
-    batchData.lastUpdated = entry.timestamp;
-    batchData.totalCount++;
-    
-    if (batchData.entries.length > 200) {
-      batchData.entries = batchData.entries.slice(0, 200);
-    }
-    
-    await kv.put(batchKey, JSON.stringify(batchData), { expirationTtl: 2592000 });
-  } catch (error) {
-    console.error('Failed to update activity batch:', error);
-    throw error;
-  }
-}
-
-async function getUserInfo(kv: KVNamespace, userId: string, token: string): Promise<{ username: string; avatar?: string } | null> {
-  try {
-    const cachedData = await kv.get(`discord_user:${userId}`);
-    if (cachedData) {
-      const user = JSON.parse(cachedData);
-      return {
-        username: user.global_name || user.username || 'Unknown User',
-        avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${userId}/${user.avatar}.png` : undefined
-      };
-    }
-    
     const response = await fetch(`https://discord.com/api/users/${userId}`, {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     
     if (response.ok) {
       const user = await response.json();
-      
-      await kv.put(`discord_user:${userId}`, JSON.stringify(user), {
-        expirationTtl: 86400
-      });
-      
       return {
         username: user.global_name || user.username || 'Unknown User',
         avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${userId}/${user.avatar}.png` : undefined
       };
-    } else {
-      // Silently handle failed user fetch
     }
   } catch (error) {
     // Silently handle user info errors
@@ -127,6 +65,7 @@ async function getUserInfo(kv: KVNamespace, userId: string, token: string): Prom
   
   return null;
 }
+
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env, params } = context;
   const method = request.method;
@@ -195,33 +134,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         throw new Error(`PiShock API error: ${errorText}`);
       }
 
-      const executorInfo = await getUserInfo(env.PISHOCK_KV, user.id, token);
-      const targetInfo = await getUserInfo(env.PISHOCK_KV, targetUserId, token);
+      const executorInfo = await getUserInfo(token, user.id);
+      const targetInfo = await getUserInfo(token, targetUserId);
 
-      const logEntry: ActivityLogEntry = {
-        id: uuidv4(),
-        timestamp: new Date().toISOString(),
-        instanceId,
-        executorUserId: user.id, 
-        executorUsername: executorInfo?.username || user.global_name || user.username || 'Unknown User',
-        executorAvatar: executorInfo?.avatar || (user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png` : undefined),
-        targetUserId,
-        targetUsername: targetInfo?.username || 'Unknown User',
-        targetAvatar: targetInfo?.avatar,
-        action: ['shock', 'vibrate', 'beep'][operation] as 'shock' | 'vibrate' | 'beep',
-        intensity,
-        duration,
-      };
-
-      try {
-        await addToActivityBatch(env.PISHOCK_KV, logEntry);
-      } catch (logError) {
-        console.error('Failed to log activity (CRITICAL):', logError);
-      }
-
+      // Activity logging disabled to save KV writes
+      
       return jsonResponse({ 
-        success: true, 
-        logEntryId: logEntry.id 
+        success: true
       });
 
     } catch (error) {

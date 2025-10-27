@@ -67,20 +67,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     );
 
     if (discordResponse.status === 404) {
-      try {
-        const cleanupPromises = [
-          env.PISHOCK_KV.delete(`instance:${instanceId}:status`),
-          env.PISHOCK_KV.delete(`instance_data:${instanceId}`),
-          env.PISHOCK_KV.delete(`instance:${instanceId}:pishock`),
-          env.PISHOCK_KV.delete(`instance:${instanceId}:pishock:lastTested`),
-          env.PISHOCK_KV.delete(`instance:${instanceId}:pishock:configuredBy`)
-        ];
-        
-        await Promise.allSettled(cleanupPromises);
-      } catch (cleanupError) {
-        // Silently handle cleanup errors
-      }
-      
+      // Instance not found - no cleanup needed since we don't store instance data
       return jsonResponse({ 
         valid: false, 
         error: 'Discord Activity session not found or has expired. Please start a new session from Discord.' 
@@ -97,27 +84,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     const instanceData = await discordResponse.json();
 
-    try {
-      const now = new Date().toISOString();
-      const statusData = {
-        status: 'active',
-        created_at: now,
-        last_activity: now,
-        last_verified: now,
-        participant_count: instanceData.users?.length || 0,
-        discord_verified: true,
-        location: instanceData.location
-      };
-
-      await env.PISHOCK_KV.put(
-        `instance:${instanceId}:status`, 
-        JSON.stringify(statusData), 
-        { expirationTtl: 21600 }
-      );
-    } catch (kvError) {
-      // Don't fail the verification if KV update fails
-    }
-
+    // No KV writes needed - verification complete
     return jsonResponse({ 
       valid: true, 
       instanceData: {
@@ -130,33 +97,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     });
 
   } catch (error) {
-    const instanceId = url.searchParams.get('instance_id');
-    if (instanceId) {
-      try {
-        const kvStatus = await env.PISHOCK_KV.get(`instance:${instanceId}:status`);
-        
-        if (kvStatus) {
-          const status = JSON.parse(kvStatus);
-          const lastVerified = new Date(status.last_verified || status.created_at);
-          const oneHourAgo = new Date(Date.now() - 3600000);
-          
-          if (lastVerified > oneHourAgo && status.status === 'active') {
-            return jsonResponse({ 
-              valid: true, 
-              instanceData: {
-                instanceId,
-                fallback: true,
-                lastVerified: status.last_verified,
-                participantCount: status.participant_count || 0
-              }
-            });
-          }
-        }
-      } catch (kvError) {
-        // Silently handle KV fallback errors
-      }
-    }
-
+    // No fallback to KV - just fail verification
     return jsonResponse({ 
       valid: false, 
       error: 'Instance verification failed due to network error. Please try again.',
