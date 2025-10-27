@@ -27,15 +27,8 @@ async function requireAuth(request: Request): Promise<string | null> {
   return auth.slice(7);
 }
 
-async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
+async function validateDiscordToken(token: string): Promise<any> {
   try {
-    const cacheKey = `discord_token_validation:${token.slice(-8)}`; // Use last 8 chars to avoid storing full token
-    const cached = await kv.get(cacheKey);
-    if (cached) {
-      const cachedData = JSON.parse(cached);
-      return cachedData;
-    }
-    
     const response = await fetch('https://discord.com/api/users/@me', {
       headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -45,11 +38,6 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     }
     
     const userData = await response.json();
-    
-    await kv.put(cacheKey, JSON.stringify(userData), {
-      expirationTtl: 300 // 5 minutes
-    });
-    
     return userData;
   } catch (error) {
     return null;
@@ -291,7 +279,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const token = await requireAuth(request);
   if (!token) return new Response('Unauthorized', { status: 401 });
 
-  const user = await validateDiscordToken(token, env.PISHOCK_KV);
+  const user = await validateDiscordToken(token);
   if (!user) return new Response('Invalid token', { status: 401 });
 
   // Users can only manage their own PiShock settings
@@ -492,17 +480,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       
       if (hasSettingsChanged(existingUserData, userData)) {
         await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
-      }
-
-      try {
-        const cacheKeys = [
-          `cache:user_status:${userId}`,
-          `user_status_cache:${userId}`,
-        ];
-        
-        await Promise.allSettled(cacheKeys.map(key => env.PISHOCK_KV.delete(key)));
-      } catch (error) {
-        // Silently handle cache clear errors
       }
 
       return jsonResponse({ 

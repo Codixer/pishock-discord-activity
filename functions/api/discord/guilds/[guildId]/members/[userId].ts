@@ -8,15 +8,8 @@ async function requireAuth(request: Request): Promise<string | null> {
   return auth.slice(7);
 }
 
-async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
+async function validateDiscordToken(token: string): Promise<any> {
   try {
-    const cacheKey = `discord_token_validation:${token.slice(-8)}`; // Use last 8 chars to avoid storing full token
-    const cached = await kv.get(cacheKey);
-    if (cached) {
-      const cachedData = JSON.parse(cached);
-      return cachedData;
-    }
-    
     const response = await fetch('https://discord.com/api/users/@me', {
       headers: { 'Authorization': `Bearer ${token}` },
     });
@@ -26,11 +19,6 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
     }
     
     const userData = await response.json();
-    
-    await kv.put(cacheKey, JSON.stringify(userData), {
-      expirationTtl: 300 // 5 minutes
-    });
-    
     return userData;
   } catch (error) {
     return null;
@@ -76,31 +64,21 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const token = await requireAuth(request);
   if (!token) return new Response('Unauthorized', { status: 401 });
 
-  const user = await validateDiscordToken(token, env.PISHOCK_KV);
+  const user = await validateDiscordToken(token);
   if (!user) return new Response('Invalid token', { status: 401 });
 
   try {
-    const cacheKey = `discord_guild_member:${guildId}:${userId}`;
-    
-    let memberData = await env.PISHOCK_KV.get(cacheKey);
-    if (!memberData) {
-      try {
-        const response = await fetch(`https://discord.com/api/guilds/${guildId}/members/${userId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+    // Fetch guild member data directly without caching
+    const response = await fetch(`https://discord.com/api/guilds/${guildId}/members/${userId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
-        if (!response.ok) {
-          return jsonResponse({ error: 'Failed to fetch guild member' }, response.status);
-        }
-
-        memberData = await response.text();
-        await env.PISHOCK_KV.put(cacheKey, memberData, { expirationTtl: 600 });
-      } catch (error) {
-        console.error('Failed to fetch guild member:', error);
-        return jsonResponse({ error: 'Failed to fetch guild member' }, 500);
-      }
+    if (!response.ok) {
+      return jsonResponse({ error: 'Failed to fetch guild member' }, response.status);
     }
 
+    const memberData = await response.text();
+    
     return new Response(memberData, { 
       status: 200, 
       headers: { 

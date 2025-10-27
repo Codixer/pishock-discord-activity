@@ -63,22 +63,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return jsonResponse({ error: 'Missing code or instanceId' }, 400);
     }
 
-    // Check instance status before allowing authentication
-    try {
-      const instanceStatusData = await env.PISHOCK_KV.get(`instance:${instanceId}:status`);
-      if (instanceStatusData) {
-        const instanceStatus = JSON.parse(instanceStatusData);
-        if (instanceStatus.status === 'inactive') {
-          return jsonResponse({ 
-            error: 'This Discord Activity session has ended. Please start a new session.',
-            instanceExpired: true
-          }, 403);
-        }
-      }
-    } catch (error) {
-      // Continue with authentication if status check fails
-    }
-
     const params = new URLSearchParams();
     params.append('client_id', env.DISCORD_CLIENT_ID);
     params.append('client_secret', env.DISCORD_CLIENT_SECRET);
@@ -113,24 +97,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     const user = await userRes.json();
 
-    await Promise.all([
-      env.PISHOCK_KV.put(`discord_token:${user.id}`, access_token, { 
-        expirationTtl: expires_in - 60
-      }),
-      env.PISHOCK_KV.put(`discord_user:${user.id}`, JSON.stringify(user), {
-        expirationTtl: 86400
-      }),
-      env.PISHOCK_KV.put(`discord_token_validation:${access_token.slice(-8)}`, JSON.stringify(user), {
-        expirationTtl: Math.min(expires_in - 60, 1800)
-      }),
-      env.PISHOCK_KV.put(`instance:${instanceId}:status`, JSON.stringify({
-        status: 'active',
-        last_activity: new Date().toISOString(),
-        participant_count: 1,
-        created_at: new Date().toISOString(),
-        last_authenticated_user: user.id
-      }), { expirationTtl: 21600 })
-    ]);
+    // Only store the access token - no caching
+    await env.PISHOCK_KV.put(`discord_token:${user.id}`, access_token, { 
+      expirationTtl: expires_in - 60
+    });
 
     return jsonResponse({ access_token, user });
   } catch (error) {
