@@ -66,7 +66,7 @@ By using this application, you acknowledge that you have read, understood, and a
 
 ### Technical Features
 - **Cloudflare Workers**: Serverless backend with global edge deployment
-- **Real-time Caching**: Optimized API calls with intelligent client-side caching (10-minute intervals)
+- **Real-time Caching**: Optimized API calls with client-side caching (5-minute TTL) and background polling (10-minute intervals)
 - **Responsive Design**: Works seamlessly across desktop, mobile, and Discord's PIP mode
 - **Error Handling**: Comprehensive error reporting and graceful failure handling
 - **Version Management**: Dynamic build versioning for tracking deployments
