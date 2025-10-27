@@ -10,6 +10,7 @@ interface UserSelectorProps {
   instanceData: InstanceData;
   userPiShockStatus: Record<string, any>;
   refreshParticipants?: () => void;
+  refreshUserStatuses?: () => void;
   isEmbedded?: boolean;
 }
 
@@ -21,6 +22,7 @@ export function UserSelector({
   instanceData, 
   userPiShockStatus,
   refreshParticipants,
+  refreshUserStatuses,
   isEmbedded = false
 }: UserSelectorProps) {
   const getDefaultAvatarIndex = (userId: string) => {
@@ -61,15 +63,29 @@ export function UserSelector({
           <span className="text-xs sm:text-sm text-gray-400 flex-shrink-0">({members.length})</span>
         </div>
         
-        {isEmbedded && refreshParticipants && (
-          <button
-            onClick={refreshParticipants}
-            className="flex items-center space-x-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors text-xs font-medium ml-2"
-            title="Refresh participant list"
-          >
-            <RefreshCw className="h-3 w-3" />
-            <span className="hidden sm:inline">Refresh</span>
-          </button>
+        {isEmbedded && (
+          <div className="flex items-center space-x-1 ml-2">
+            {refreshUserStatuses && (
+              <button
+                onClick={refreshUserStatuses}
+                className="flex items-center space-x-1 px-2 py-1 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors text-xs font-medium"
+                title="Refresh PiShock status for all participants"
+              >
+                <Zap className="h-3 w-3" />
+                <span className="hidden sm:inline">Status</span>
+              </button>
+            )}
+            {refreshParticipants && (
+              <button
+                onClick={refreshParticipants}
+                className="flex items-center space-x-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors text-xs font-medium"
+                title="Refresh participant list from Discord"
+              >
+                <RefreshCw className="h-3 w-3" />
+                <span className="hidden sm:inline">List</span>
+              </button>
+            )}
+          </div>
         )}
       </div>
 

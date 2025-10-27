@@ -113,16 +113,42 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     const user = await userRes.json();
 
+    // Calculate token expiration timestamp
+    const expiresAt = Math.floor(Date.now() / 1000) + expires_in;
+
     await Promise.all([
+      // Store complete token metadata including refresh_token
+      env.PISHOCK_KV.put(`discord_token_metadata:${user.id}`, JSON.stringify({
+        access_token,
+        refresh_token,
+        expires_at: expiresAt,
+        expires_in,
+        token_type,
+        user_id: user.id,
+        created_at: Math.floor(Date.now() / 1000)
+      }), { 
+        expirationTtl: expires_in + 86400 // Token lifetime + 1 day buffer
+      }),
+      
+      // Keep legacy token storage for backward compatibility (will phase out)
       env.PISHOCK_KV.put(`discord_token:${user.id}`, access_token, { 
         expirationTtl: expires_in - 60
       }),
+      
+      // Store user profile info
       env.PISHOCK_KV.put(`discord_user:${user.id}`, JSON.stringify(user), {
-        expirationTtl: 86400
+        expirationTtl: 604800 // 7 days - reduced KV writes
       }),
-      env.PISHOCK_KV.put(`discord_token_validation:${access_token.slice(-8)}`, JSON.stringify(user), {
-        expirationTtl: Math.min(expires_in - 60, 1800)
+      
+      // Validation cache - match token expiry instead of capping at 3h
+      env.PISHOCK_KV.put(`discord_token_validation:${access_token.slice(-8)}`, JSON.stringify({
+        ...user,
+        token_expires_at: expiresAt // Add expiry info to cached data
+      }), {
+        expirationTtl: expires_in - 60 // Match actual token lifetime (usually 7 days)
       }),
+      
+      // Instance status
       env.PISHOCK_KV.put(`instance:${instanceId}:status`, JSON.stringify({
         status: 'active',
         last_activity: new Date().toISOString(),

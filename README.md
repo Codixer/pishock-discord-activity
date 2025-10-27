@@ -14,6 +14,14 @@
 
 A production-ready Discord Activity application that enables consensual control of PiShock electrical devices in a multiplayer Discord environment. This application provides a safe, transparent, and accountable way for Discord users to interact with PiShock devices through a purpose-built interface with comprehensive safety features and activity logging.
 
+---
+
+## 🚀 Wanna host this yourself? Use the following button!
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Codixer/pishock-discord-activity)
+
+---
+
 ## ⚠️ **CRITICAL SAFETY WARNING** ⚠️
 
 **This application controls electrical shock devices that can cause physical harm, injury, or death if misused.**
@@ -24,6 +32,27 @@ A production-ready Discord Activity application that enables consensual control 
 - **Legal Compliance**: Ensure compliance with all local laws and regulations
 - **Personal Responsibility**: Users assume all risks and responsibility for safe use
 
+By using this application, you acknowledge that you have read, understood, and agree to be bound by the [Terms of Service](src/components/TermsOfService.tsx) and [Privacy Policy](src/components/PrivacyPolicy.tsx).
+
+---
+
+## Table of Contents
+
+- [Features Overview](#features-overview)
+- [Architecture Overview](#architecture-overview)
+- [Complete Setup Guide](#complete-setup-guide)
+- [User Guide](#user-guide)
+- [Development](#development)
+- [API Reference](#api-reference)
+- [Data Storage & KV Structure](#data-storage--kv-structure)
+- [Safety & Security Features](#safety--security-features)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [Legal & Compliance](#legal--compliance)
+- [Support & Resources](#support--resources)
+
+---
+
 ## Features Overview
 
 ### Core Functionality
@@ -32,6 +61,7 @@ A production-ready Discord Activity application that enables consensual control 
 - **Multiplayer Support**: Multiple users can participate with their own devices
 - **Real-time Updates**: Live participant list and activity feed
 - **Session Management**: 6-hour session limits with automatic cleanup
+- **Picture-in-Picture Mode**: Optimized UI for Discord's PIP layout mode
 
 ### Safety & Security Features
 - **User-configurable Limits**: Individual max intensity and duration settings
@@ -40,13 +70,17 @@ A production-ready Discord Activity application that enables consensual control 
 - **Ban System**: Users can block specific individuals from controlling their devices
 - **Encrypted Storage**: All PiShock credentials encrypted with automatic expiration
 - **Instance Verification**: Sessions verified against Discord's API for validity
+- **Emergency Procedures**: Built-in safety reminders and emergency stop capabilities
 
 ### Technical Features
 - **Cloudflare Workers**: Serverless backend with global edge deployment
-- **Real-time Caching**: Optimized API calls with intelligent client-side caching
+- **Real-time Caching**: Optimized API calls with client-side caching (5-minute TTL) and background polling (10-minute intervals)
 - **Responsive Design**: Works seamlessly across desktop, mobile, and Discord's PIP mode
 - **Error Handling**: Comprehensive error reporting and graceful failure handling
-- **Version Management**: Automatic version checking and update notifications
+- **Version Management**: Dynamic build versioning for tracking deployments
+- **Content Security Policy**: Nuclear CSP blocking all external scripts and injection
+
+---
 
 ## Architecture Overview
 
@@ -60,10 +94,56 @@ Discord Client → Discord Activity → Cloudflare Workers → PiShock API
 
 ### Technology Stack
 - **Frontend**: React 18, TypeScript, Tailwind CSS, Vite
-- **Backend**: Cloudflare Workers, Cloudflare KV
-- **Discord Integration**: Discord Embedded App SDK
+- **Backend**: Cloudflare Workers (Pages Functions), Cloudflare KV
+- **Discord Integration**: Discord Embedded App SDK v1.1.0
 - **Device API**: PiShock Legacy & V3 APIs
 - **Deployment**: Cloudflare Pages with Workers
+- **Build Tools**: Vite 5, TypeScript 5.5, ESLint 9
+
+### Project Structure
+```
+pishock-discord-activity/
+├── functions/                 # Cloudflare Workers (API endpoints)
+│   ├── _middleware.ts        # Global middleware
+│   └── api/
+│       ├── version.ts        # Version endpoint
+│       ├── verify-instance.ts # Instance verification
+│       ├── instances/        # Instance-specific endpoints
+│       └── users/            # User-specific endpoints
+├── src/                      # React frontend
+│   ├── components/           # React components
+│   │   ├── ActivityLog.tsx
+│   │   ├── ConnectionStatus.tsx
+│   │   ├── NotificationSystem.tsx
+│   │   ├── PiShockController.tsx
+│   │   ├── PiShockSettingsModal.tsx
+│   │   ├── PrivacyPolicy.tsx
+│   │   ├── SafetyWarning.tsx
+│   │   ├── TermsOfService.tsx
+│   │   └── UserSelector.tsx
+│   ├── hooks/                # Custom React hooks
+│   │   ├── useInstanceData.ts
+│   │   ├── useNotifications.ts
+│   │   ├── useParticipants.ts
+│   │   ├── useUserStatusCache.ts
+│   │   └── useVersionCheck.ts
+│   ├── App.tsx               # Main application
+│   ├── main.tsx              # Entry point
+│   └── index.css             # Global styles
+├── public/                   # Static assets
+├── scripts/                  # Build and deployment scripts
+│   ├── deploy-workers.js
+│   └── post-build.js
+├── _headers                  # Cloudflare Pages headers
+├── _redirects                # Cloudflare Pages redirects
+├── vite.config.ts            # Vite configuration
+├── wrangler.jsonc            # Cloudflare Workers config
+├── tailwind.config.js        # Tailwind CSS config
+├── tsconfig.json             # TypeScript config
+└── package.json              # Dependencies
+```
+
+---
 
 ## Complete Setup Guide
 
@@ -123,6 +203,8 @@ Discord Client → Discord Activity → Cloudflare Workers → PiShock API
    - **Tags**: Add relevant tags like "social", "utility"
    - **Age Rating**: Set to 18+ (Required)
 
+---
+
 ### Step 2: Repository Setup
 
 #### 2.1 Clone and Install Dependencies
@@ -150,7 +232,7 @@ npx wrangler kv:namespace create "PISHOCK_KV" --preview
 ```
 
 #### 2.3 Configure wrangler.jsonc
-Update the KV namespace IDs in `wrangler.jsonc`:
+Update the KV namespace IDs in [`wrangler.jsonc`](wrangler.jsonc):
 ```jsonc
 {
   "kv_namespaces": [
@@ -163,6 +245,8 @@ Update the KV namespace IDs in `wrangler.jsonc`:
 }
 ```
 
+---
+
 ### Step 3: Environment Configuration
 
 #### 3.1 Build-time Variables (Frontend)
@@ -173,13 +257,40 @@ VITE_DISCORD_CLIENT_ID=your_discord_application_id_here
 ```
 
 #### 3.2 Runtime Variables (Backend Functions)
-Set these in **Cloudflare Workers Dashboard** → Your Worker → **Settings** → **Variables**:
 
-| Variable | Value | Purpose |
-|----------|-------|---------|
-| `DISCORD_BOT_TOKEN` | `your_discord_bot_token_here` | Discord bot authentication |
+Set these as **encrypted secrets** in Cloudflare. These are sensitive values that must be encrypted.
 
-**⚠️ Security Note**: Never use `VITE_` prefix for sensitive data like bot tokens!
+##### Method 1: Via Wrangler CLI (Recommended)
+
+```bash
+# Discord secrets (Required)
+npx wrangler secret put DISCORD_BOT_TOKEN
+npx wrangler secret put DISCORD_CLIENT_ID
+npx wrangler secret put DISCORD_CLIENT_SECRET
+npx wrangler secret put VITE_DISCORD_CLIENT_SECRET
+```
+
+##### Method 2: Via Cloudflare Dashboard
+
+1. Go to **Workers & Pages** → Your Worker → **Settings** → **Variables**
+2. Click **Add Variable**
+3. Set **Type** to **Secret** (encrypted)
+4. Add each variable:
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `DISCORD_BOT_TOKEN` | ✅ Yes | Discord bot authentication token |
+| `DISCORD_CLIENT_ID` | ✅ Yes | Discord application ID |
+| `DISCORD_CLIENT_SECRET` | ✅ Yes | Discord OAuth2 client secret |
+| `VITE_DISCORD_CLIENT_SECRET` | ✅ Yes | Discord client secret for frontend OAuth |
+
+**⚠️ Security Notes**:
+
+- Never use `VITE_` prefix for sensitive data like bot tokens or secrets!
+- Always use **Secret** type (encrypted) for tokens and secrets, not plain text variables
+- Secrets are encrypted at rest and only decrypted in the Worker runtime
+
+---
 
 ### Step 4: Build and Deploy
 
@@ -188,6 +299,12 @@ Set these in **Cloudflare Workers Dashboard** → Your Worker → **Settings** �
 # Build with environment variables
 npm run build
 ```
+
+The build process:
+1. Compiles React frontend with Vite
+2. Builds Cloudflare Workers functions
+3. Generates dynamic build version
+4. Creates `dist/version.json` with deployment info
 
 #### 4.2 Deploy to Cloudflare Workers
 ```bash
@@ -202,13 +319,15 @@ export DISCORD_CLIENT_ID="your_discord_application_id_here"
 npm run deploy:auto
 ```
 
+---
+
 ### Step 5: Final Discord Configuration
 
 #### 5.1 Update Activity URL
 In Discord Developer Portal → Your Application → Activities:
 1. Update **Activity URL** to your deployed Cloudflare domain:
    ```
-   https://your-worker-name.your-subdomain.workers.dev
+   https://your-project-name.pages.dev
    ```
 
 #### 5.2 Test the Activity
@@ -225,18 +344,18 @@ In Discord Developer Portal → Your Application → Activities:
 
 #### Initial Setup
 1. **Join a Discord Activity**: Click Activities in a voice channel and select "PiShock Controller"
-2. **Accept Safety Warnings**: Read and acknowledge all safety requirements
+2. **Accept Safety Warnings**: Read and acknowledge all safety requirements (see [`SafetyWarning.tsx`](src/components/SafetyWarning.tsx))
 3. **Configure PiShock Credentials**:
-   - Click the "PiShock Settings" button
+   - Click the "PiShock Settings" button (see [`PiShockSettingsModal.tsx`](src/components/PiShockSettingsModal.tsx))
    - Enter your PiShock API key, username, and share code
-   - Set your maximum intensity and duration limits
+   - Set your maximum intensity (1-100%) and duration (1-15s) limits
    - Test the connection to verify everything works
 
 #### Using the Application
-1. **Select Target**: Choose another participant with a configured PiShock device
+1. **Select Target**: Choose another participant with a configured PiShock device (see [`UserSelector.tsx`](src/components/UserSelector.tsx))
 2. **Adjust Settings**: Set intensity (1-100%) and duration (1-15s)
-3. **Send Commands**: Use Shock, Vibrate, or Beep buttons
-4. **Monitor Activity**: All actions are logged in the activity feed
+3. **Send Commands**: Use Shock, Vibrate, or Beep buttons (see [`PiShockController.tsx`](src/components/PiShockController.tsx))
+4. **Monitor Activity**: All actions are logged in the activity feed (see [`ActivityLog.tsx`](src/components/ActivityLog.tsx))
 5. **Safety Management**: Use ban system to block unwanted users
 
 #### Safety Features
@@ -262,18 +381,21 @@ npm run dev
 npm run workers:dev
 ```
 
+The development server runs at `http://localhost:3000` with hot module replacement.
+
 ### Available Scripts
-```bash
-npm run dev              # Start development server
-npm run build            # Build for production
-npm run workers:deploy   # Deploy to Cloudflare Workers
-npm run deploy           # Build and deploy
-npm run deploy:auto      # Automated deployment with env vars
-npm run lint             # Run ESLint
-npm run lint:fix         # Fix ESLint issues
-npm run preview          # Preview production build
-npm run type-check       # TypeScript type checking
-```
+
+| Script | Description |
+|--------|-------------|
+| `npm run dev` | Start development server |
+| `npm run build` | Build for production |
+| `npm run workers:deploy` | Deploy to Cloudflare Workers |
+| `npm run deploy` | Build and deploy |
+| `npm run deploy:auto` | Automated deployment with env vars |
+| `npm run lint` | Run ESLint |
+| `npm run lint:fix` | Fix ESLint issues |
+| `npm run preview` | Preview production build |
+| `npm run type-check` | TypeScript type checking |
 
 ### Development vs Production
 
@@ -282,20 +404,27 @@ npm run type-check       # TypeScript type checking
 | **Development** | Mock data | Simulated | No real PiShock control |
 | **Production** | Discord API | OAuth2 | Full functionality |
 
+See [`App.tsx`](src/App.tsx) lines 438-475 for development mode implementation.
+
 ### Environment Variables Reference
 
 | Variable | Type | Required | Description |
 |----------|------|----------|-------------|
 | `VITE_DISCORD_CLIENT_ID` | Build | Yes | Discord Application ID (public) |
-| `DISCORD_BOT_TOKEN` | Runtime | Yes | Discord Bot Token (sensitive) |
+| `DISCORD_BOT_TOKEN` | Runtime Secret | Yes | Discord Bot Token (sensitive) |
+| `DISCORD_CLIENT_ID` | Runtime Secret | Yes | Discord Application ID (sensitive) |
+| `DISCORD_CLIENT_SECRET` | Runtime Secret | Yes | Discord OAuth2 client secret (sensitive) |
+| `VITE_DISCORD_CLIENT_SECRET` | Runtime Secret | Yes | Discord client secret for frontend OAuth (sensitive) |
+
+**Note**: Runtime secrets must be set using `npx wrangler secret put <VAR_NAME>` or via Cloudflare Dashboard as encrypted secrets.
 
 ---
 
 ## API Reference
 
 ### Public Endpoints
-- `GET /api/version` - Application version information
-- `GET /api/verify-instance` - Discord instance validation
+- `GET /api/version` - Application version information (see [`functions/api/version.ts`](functions/api/version.ts))
+- `GET /api/verify-instance` - Discord instance validation (see [`functions/api/verify-instance.ts`](functions/api/verify-instance.ts))
 
 ### Authenticated Endpoints
 All require Discord OAuth2 Bearer token in Authorization header.
@@ -306,76 +435,127 @@ All require Discord OAuth2 Bearer token in Authorization header.
 - `PUT /api/users/{userId}/pishock-settings` - Update user's PiShock settings
 - `DELETE /api/users/{userId}/pishock-settings` - Remove user's PiShock credentials
 - `POST /api/users/{userId}/pishock-test` - Test user's PiShock connection
-- `POST /api/users/{userId}/pishock-execute` - Execute PiShock command
+- `POST /api/users/{userId}/pishock-execute` - Execute PiShock command (see [`functions/api/users/[userId]/pishock-execute.ts`](functions/api/users/[userId]/pishock-execute.ts))
 
 #### Instance Management
 - `GET /api/instances/{instanceId}/status` - Get instance status
 - `PUT /api/instances/{instanceId}/status` - Update instance status
 - `GET /api/instances/{instanceId}/data` - Get instance data
 - `PUT /api/instances/{instanceId}/data` - Update instance data
+- `POST /api/instances/{instanceId}/pishock-execute` - Execute command (instance-scoped) (see [`functions/api/instances/[instanceId]/pishock-execute.ts`](functions/api/instances/[instanceId]/pishock-execute.ts))
 
 #### Activity & Logging
-- `GET /api/activity-log` - Retrieve activity history
-- `POST /api/activity-log` - Add activity log entry
+- `GET /api/instances/{instanceId}/activity-log` - Retrieve activity history
+- `POST /api/activity-log/batch` - Batch activity log processing
 
 #### Discord Integration
-- `POST /api/auth/discord` - Discord OAuth2 authentication
-- `GET /api/discord/guilds/{guildId}/members/{userId}` - Get guild member data
+- `POST /api/oauth2/token` - Discord OAuth2 token exchange
+- `GET /api/discord/user` - Get Discord user information
 
 ---
 
 ## Data Storage & KV Structure
 
-### KV Storage Schema
-```
-instance:{instanceId}:status          - Instance validity and metadata
-instance_data:{instanceId}            - Instance-specific application data  
-user:{userId}:data                    - User PiShock credentials (encrypted)
-activity:batch:{date}                 - Activity logs grouped by date
-discord_user:{userId}                 - Cached Discord user information
-discord_token_validation:{hash}       - Token validation cache
-cache:user_status:{userId}            - User status cache
+### Cloudflare KV Namespaces
+All data stored in Cloudflare KV with automatic expiration (see [`wrangler.jsonc`](wrangler.jsonc)):
+
+#### User Data
+```typescript
+// Key: user:{userId}:pishock
+{
+  apiKey: string;      // Encrypted
+  username: string;    // Encrypted
+  sharecode: string;   // Encrypted
+  maxIntensity: number;
+  maxDuration: number;
+  bannedUsers: string[];
+  expiration: TTL      // 6 hours
+}
 ```
 
-### Data Retention Policies
-- **Instance Data**: 6 hours maximum
-- **Activity Logs**: 7 days (150 entries per batch)
-- **User Credentials**: Until manually deleted
-- **Token Cache**: 5 minutes
-- **Status Cache**: 1 minute
+#### Instance Data
+```typescript
+// Key: instance:{instanceId}:status
+{
+  instance_id: string;
+  application_id: string;
+  participant_count: number;
+  discord_verified: boolean;
+  location: string;
+  expiration: TTL      // 6 hours
+}
+```
 
-### Security Measures
-- **Encryption**: All PiShock credentials encrypted with base64 encoding
-- **Automatic Cleanup**: Expired data automatically removed
-- **Access Control**: Users can only access their own credentials
-- **Audit Trail**: All device interactions logged
+#### Activity Logs
+```typescript
+// Key: activity:batch:{date}
+{
+  entries: ActivityLogEntry[];  // Up to 5,000 entries
+  expiration: TTL                // Auto-purged after several months
+}
+
+interface ActivityLogEntry {
+  id: string;
+  timestamp: string;
+  instanceId: string;
+  executorUserId: string;
+  executorUsername: string;
+  executorAvatar?: string;
+  targetUserId: string;
+  targetUsername: string;
+  targetAvatar?: string;
+  action: 'shock' | 'vibrate' | 'beep';
+  intensity: number;
+  duration: number;
+  guildId?: string;
+  guildName?: string;
+}
+```
+
+See [`functions/api/instances/[instanceId]/pishock-execute.ts`](functions/api/instances/[instanceId]/pishock-execute.ts) for interface definitions.
+
+#### Session Tokens
+```typescript
+// Key: discord:token:{userId}
+{
+  access_token: string;
+  refresh_token: string;
+  expires_at: number;
+}
+```
 
 ---
 
 ## Safety & Security Features
 
 ### Built-in Safety Mechanisms
-- **Explicit Consent**: Safety warnings must be acknowledged before use
-- **Activity Logging**: All device commands publicly logged with timestamps
-- **User Limits**: Each user sets their own maximum intensity and duration
-- **Session Timeouts**: 6-hour maximum session duration with auto-cleanup
-- **Instance Verification**: Sessions verified against Discord's API
-- **Encrypted Storage**: All PiShock credentials encrypted in storage
+- **User-configurable Limits**: Each user sets max intensity (1-100%) and duration (1-15s)
+- **Activity Logging**: All commands publicly logged with full details
 - **Ban System**: Users can block specific individuals
+- **Session Timeouts**: Maximum 6-hour session duration
+- **Explicit Consent**: Safety warnings required before use (see [`SafetyWarning.tsx`](src/components/SafetyWarning.tsx))
+- **Emergency Procedures**: Built-in safety reminders
 
 ### Data Protection
-- **KV Storage**: All data stored in Cloudflare KV with automatic expiration
-- **No Logging**: Sensitive data not logged in application logs
-- **User Control**: Users can remove their credentials at any time
-- **Transparency**: All device actions visible in activity feed
-- **Privacy Policy**: Comprehensive privacy policy included
+- **Encryption**: All PiShock credentials encrypted with base64 (minimum)
+- **Automatic Expiration**: User data expires after 6 hours of inactivity
+- **Access Control**: OAuth2-based authentication required
+- **No Third-party Sharing**: Data only shared with Discord and PiShock APIs
+- **Privacy Policy**: See [`PrivacyPolicy.tsx`](src/components/PrivacyPolicy.tsx)
 
 ### Security Headers
-The application implements comprehensive security headers:
-- **CSP**: Strict Content Security Policy blocking external scripts
+The application implements comprehensive security headers (see [`_headers`](_headers)):
+- **CSP**: Strict Content Security Policy blocking external scripts and inline execution
 - **Cloudflare Features**: All analytics and optimization features disabled
 - **CORS**: Proper CORS headers for API endpoints
 - **Cache Control**: Appropriate caching policies for different content types
+- **X-Frame-Options**: Prevents clickjacking
+- **X-Content-Type-Options**: Prevents MIME sniffing
+
+From [`index.html`](index.html):
+```html
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' blob:; script-src-elem 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.discordapp.com; connect-src 'self' https://discord.com https://do.pishock.com https://auth.pishock.com https://ps.pishock.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests; block-all-mixed-content">
+```
 
 ---
 
@@ -401,12 +581,12 @@ npm run deploy:auto
 1. Verify PiShock credentials in account settings
 2. Ensure device is online and connected
 3. Check share code is correct and not expired
-4. Test connection using the built-in test feature
+4. Test connection using the built-in test feature (see [`PiShockSettingsModal.tsx`](src/components/PiShockSettingsModal.tsx))
 
 #### Workers Deployment Failed
 **Cause**: Missing KV namespace or incorrect configuration
 **Solution**:
-1. Verify KV namespace IDs in `wrangler.jsonc`
+1. Verify KV namespace IDs in [`wrangler.jsonc`](wrangler.jsonc)
 2. Ensure Cloudflare account has Workers access
 3. Check environment variables are set correctly
 4. Run `npx wrangler login` to re-authenticate
@@ -445,9 +625,9 @@ npx wrangler kv:key list --namespace-id="your_namespace_id"
 ```
 
 ### Performance Optimization
-- **Client-side Caching**: User status cached for 1 minute
+- **Client-side Caching**: User status cached for 1 minute (see [`useUserStatusCache.ts`](src/hooks/useUserStatusCache.ts))
 - **Batch Processing**: Activity logs stored in daily batches
-- **Optimized API Calls**: Reduced frequency with intelligent caching
+- **Optimized API Calls**: Status checks reduced to 10-minute intervals (see [`App.tsx`](src/App.tsx) lines 576-590)
 - **CDN**: Static assets served via Cloudflare CDN
 
 ---
@@ -461,12 +641,13 @@ npx wrangler kv:key list --namespace-id="your_namespace_id"
 - **Documentation**: Update documentation for any API or feature changes
 
 ### Code Standards
-- **TypeScript**: Strict TypeScript configuration required
-- **ESLint**: Code must pass all linting rules
+- **TypeScript**: Strict TypeScript configuration required ([`tsconfig.json`](tsconfig.json))
+- **ESLint**: Code must pass all linting rules ([`eslint.config.js`](eslint.config.js))
 - **File Organization**: Maximum 300 lines per file, modular architecture
 - **Error Handling**: Comprehensive error handling for all operations
 
 ### Pull Request Requirements
+See [`.github/pull_request_template.md`](.github/pull_request_template.md):
 - [ ] All safety mechanisms intact
 - [ ] Comprehensive testing completed
 - [ ] Documentation updated
@@ -479,6 +660,7 @@ npx wrangler kv:key list --namespace-id="your_namespace_id"
 ## Legal & Compliance
 
 ### Terms of Service
+See [`TermsOfService.tsx`](src/components/TermsOfService.tsx):
 - This application is provided for educational and consensual adult use only
 - Users must be 18+ years of age
 - Explicit consent required from all participants
@@ -499,6 +681,7 @@ npx wrangler kv:key list --namespace-id="your_namespace_id"
 - Monitor all participants for consent and comfort
 
 ### Data Privacy
+See [`PrivacyPolicy.tsx`](src/components/PrivacyPolicy.tsx):
 - All data stored in compliance with international standards
 - Users have full control over their stored credentials
 - Activity logs maintained for safety and accountability
@@ -531,12 +714,12 @@ npx wrangler kv:key list --namespace-id="your_namespace_id"
 ## Version History & Updates
 
 ### Current Version
-- **Build Version**: Dynamic based on deployment timestamp
+- **Build Version**: Dynamic based on deployment timestamp (see [`vite.config.ts`](vite.config.ts))
 - **Last Updated**: Continuous deployment from main branch
 - **Compatibility**: Discord SDK v1.1.0+, Node.js 18+
 
 ### Update Mechanism
-- **Automatic Checks**: Version verification on session start
+- **Automatic Checks**: Version verification on session start (see [`useVersionCheck.ts`](src/hooks/useVersionCheck.ts))
 - **Graceful Updates**: Users notified of new versions
 - **Session Management**: Active sessions gracefully terminated for updates
 
@@ -561,12 +744,32 @@ npx wrangler pages deploy dist --compatibility-date=2024-01-15
 ### Monitoring & Analytics
 - **Worker Logs**: Available through Cloudflare dashboard
 - **KV Metrics**: Monitor storage usage and performance
-- **Error Tracking**: Built-in error reporting and handling
+- **Error Tracking**: Built-in error reporting and handling (see [`NotificationSystem.tsx`](src/components/NotificationSystem.tsx))
 
 ### Security Hardening
-- **CSP Configuration**: Modify `_headers` file for stricter policies
+- **CSP Configuration**: Modify [`_headers`](_headers) file for stricter policies
 - **Rate Limiting**: Implement additional rate limiting if needed
-- **Custom Encryption**: Replace base64 with stronger encryption
+- **Custom Encryption**: Replace base64 with stronger encryption in [`functions/api/instances/[instanceId]/pishock-execute.ts`](functions/api/instances/[instanceId]/pishock-execute.ts)
+
+---
+
+## Quick Start Checklist
+
+- [ ] Discord Application created with correct OAuth2 settings
+- [ ] Discord Bot created with required privileged intents
+- [ ] Cloudflare account set up with KV namespaces created
+- [ ] Build-time environment variable configured (`VITE_DISCORD_CLIENT_ID`)
+- [ ] Runtime secrets configured via Wrangler CLI or Dashboard:
+  - [ ] `DISCORD_BOT_TOKEN` set as encrypted secret
+  - [ ] `DISCORD_CLIENT_ID` set as encrypted secret
+  - [ ] `DISCORD_CLIENT_SECRET` set as encrypted secret
+  - [ ] `VITE_DISCORD_CLIENT_SECRET` set as encrypted secret
+- [ ] Application built and deployed to Cloudflare Workers
+- [ ] Discord Activity URL updated to deployed domain
+- [ ] Application tested in Discord voice channel
+- [ ] Safety warnings and terms reviewed and understood
+- [ ] PiShock credentials configured and tested
+- [ ] Emergency procedures established before first use
 
 ---
 
@@ -574,16 +777,17 @@ npx wrangler pages deploy dist --compatibility-date=2024-01-15
 
 ---
 
-## Quick Start Checklist
+## License
 
-- [ ] Discord Application created with correct OAuth2 settings
-- [ ] Cloudflare account set up with KV namespaces created
-- [ ] Environment variables configured (`VITE_DISCORD_CLIENT_ID`, `DISCORD_BOT_TOKEN`)
-- [ ] Application built and deployed to Cloudflare Workers
-- [ ] Discord Activity URL updated to deployed domain
-- [ ] Application tested in Discord voice channel
-- [ ] Safety warnings and terms reviewed and understood
-- [ ] PiShock credentials configured and tested
-- [ ] Emergency procedures established before first use
+This project is provided for educational purposes. Users are responsible for ensuring compliance with all applicable laws and regulations in their jurisdiction.
+
+## Acknowledgments
+
+- Built with [Bolt.new](https://bolt.new) AI assistance
+- Powered by Discord's Embedded App SDK
+- Hosted on Cloudflare Workers
+- Uses PiShock API for device control
+
+---
 
 For questions, issues, or contributions, please ensure all safety protocols are followed and refer to the comprehensive documentation above.
