@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 
 interface UserStatus {
   isConnected: boolean;
@@ -106,12 +106,12 @@ export function useUserStatusCache() {
     return cleaned;
   }, []);
 
-  return {
+  return useMemo(() => ({
     getCachedStatus,
     setCachedStatus,
     invalidateUser,
     clearCache,
     getCacheStats,
     cleanupExpired
-  };
+  }), [getCachedStatus, setCachedStatus, invalidateUser, clearCache, getCacheStats, cleanupExpired]);
 }

@@ -78,28 +78,32 @@ export function PiShockController({
 
   const effectiveLimits = getEffectiveLimits();
 
-  // Update intensity and duration when limits change
+  // Update intensity and duration when selected user or limits change
   useEffect(() => {
     const limits = getEffectiveLimits();
     setSelectedUserLimits(limits);
     
     // Clamp current values to new limits
-    if (intensity > limits.maxIntensity) {
-      setIntensity(limits.maxIntensity);
-    }
-    if (duration > limits.maxDuration) {
-      setDuration(limits.maxDuration);
-    }
-  }, [selectedUser, intensity, duration]);
+    setIntensity(prevIntensity => {
+      if (prevIntensity > limits.maxIntensity) {
+        return limits.maxIntensity;
+      }
+      return prevIntensity;
+    });
+    
+    setDuration(prevDuration => {
+      if (prevDuration > limits.maxDuration) {
+        return limits.maxDuration;
+      }
+      return prevDuration;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUser]); // Only depend on selectedUser, not intensity/duration
 
   // Load current user's PiShock connection status when component mounts
-  useEffect(() => {
-    if (currentUser && auth) {
-      checkCurrentUserCredentials();
-    }
-  }, [currentUser, auth]);
-
   const checkCurrentUserCredentials = async () => {
+    if (!currentUser || !auth) return;
+    
     try {
       const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-status`, {
         headers: {
@@ -125,6 +129,11 @@ export function PiShockController({
       // Silently handle credential check errors
     }
   };
+  
+  useEffect(() => {
+    checkCurrentUserCredentials();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id, auth?.access_token]); // Only run when user or auth token changes
 
   const handleShock = async (operation: number) => {
     if (!selectedUser) {
