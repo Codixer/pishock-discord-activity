@@ -14,6 +14,14 @@
 
 A production-ready Discord Activity application that enables consensual control of PiShock electrical devices in a multiplayer Discord environment. This application provides a safe, transparent, and accountable way for Discord users to interact with PiShock devices through a purpose-built interface with comprehensive safety features and activity logging.
 
+---
+
+## 🚀 Wanna host this yourself? Use the following button!
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Codixer/pishock-discord-activity)
+
+---
+
 ## ⚠️ **CRITICAL SAFETY WARNING** ⚠️
 
 **This application controls electrical shock devices that can cause physical harm, injury, or death if misused.**
