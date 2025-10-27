@@ -1,5 +1,3 @@
-import { v4 as uuidv4 } from 'uuid';
-
 // Type declarations for Cloudflare Workers
 declare global {
   interface KVNamespace {

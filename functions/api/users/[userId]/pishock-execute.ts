@@ -1,5 +1,3 @@
-import { v4 as uuidv4 } from 'uuid';
-
 interface Env {
   PISHOCK_KV: KVNamespace;
 }
@@ -299,7 +297,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       // Create activity log entry for this session
       const logEntry: ActivityLogEntry = {
-        id: uuidv4(),
+        id: crypto.randomUUID(),
         timestamp: new Date().toISOString(),
         instanceId: 'user-session',  // User-level sessions don't have instanceId, use generic identifier
         executorUserId,

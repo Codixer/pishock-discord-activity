@@ -1,5 +1,3 @@
-import { v4 as uuidv4 } from 'uuid';
-
 interface Env {
   PISHOCK_KV: KVNamespace;
 }
@@ -165,7 +163,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         }, 400);
       }
 
-      const id = uuidv4();
+      const id = crypto.randomUUID();
       const timestamp = new Date().toISOString();
       
       const logEntry: ActivityLogEntry = { 
