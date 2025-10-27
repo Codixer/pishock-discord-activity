@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Clock, Zap, Play, Square, Users, Eye, EyeOff, RefreshCw } from 'lucide-react';
+import { Clock, Zap, Play, Square, Users, Eye, EyeOff, RefreshCw, Timer } from 'lucide-react';
 
 interface ActivityLogEntry {
   id: string;
@@ -16,6 +16,16 @@ interface ActivityLogEntry {
   duration: number;
   guildId?: string;
   guildName?: string;
+}
+
+interface SessionStatus {
+  active: boolean;
+  createdAt?: string;
+  expiresAt?: string;
+  lastActivity?: string;
+  extensionsRemaining?: number;
+  timeRemaining?: number;
+  message?: string;
 }
 
 interface ActivityLogProps {
@@ -44,22 +54,32 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
   const [isVisible, setIsVisible] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null);
   const intervalRef = useRef<NodeJS.Timeout>();
   const logContainerRef = useRef<HTMLDivElement>(null);
 
+  // Initialize session on mount
+  useEffect(() => {
+    if (auth && instanceId) {
+      initializeSession();
+    }
+  }, [auth, instanceId]);
+
   // Load initial activity log
   useEffect(() => {
-    if (auth) {
+    if (auth && instanceId) {
       loadActivityLog();
+      checkSessionStatus();
     }
-  }, [auth]);
+  }, [auth, instanceId]);
 
   // Set up auto-refresh when enabled
   useEffect(() => {
-    if (autoRefresh && auth) {
+    if (autoRefresh && auth && instanceId) {
       intervalRef.current = setInterval(() => {
         loadActivityLog(true);
-      }, 60000); // Refresh every 60 seconds to minimize KV reads
+        checkSessionStatus();
+      }, 30000); // Refresh every 30 seconds
 
       return () => {
         if (intervalRef.current) {
@@ -67,13 +87,74 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
         }
       };
     }
-  }, [autoRefresh, auth]);
+  }, [autoRefresh, auth, instanceId]);
+
+  const initializeSession = async () => {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/session-status?instanceId=${instanceId}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action: 'create' }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSessionStatus(data.session);
+      }
+    } catch (error) {
+      console.error('Failed to initialize session:', error);
+    }
+  };
+
+  const checkSessionStatus = async () => {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/session-status?instanceId=${instanceId}`, {
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSessionStatus(data);
+      }
+    } catch (error) {
+      console.error('Failed to check session status:', error);
+    }
+  };
+
+  const extendSession = async () => {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/session-status?instanceId=${instanceId}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action: 'extend' }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSessionStatus(data.session);
+        addNotification('success', 'Session Extended', 'Session extended by 6 hours');
+      } else {
+        const error = await response.json();
+        addNotification('error', 'Extension Failed', error.error || 'Failed to extend session');
+      }
+    } catch (error) {
+      addNotification('error', 'Extension Failed', 'Failed to extend session');
+    }
+  };
 
   const loadActivityLog = async (silent = false) => {
     if (!silent) setLoading(true);
     
     try {
-      const response = await fetch(`${getApiBaseUrl()}/activity-log`, {
+      const response = await fetch(`${getApiBaseUrl()}/activity-log?instanceId=${instanceId}`, {
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
         },
@@ -82,10 +163,10 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
       if (response.ok) {
         const data = await response.json();
         const previousCount = entries.length;
-        setEntries(data.entries);
+        setEntries(data.entries || []);
         setLastRefresh(new Date());
 
-        if (silent && data.entries.length > previousCount) {
+        if (silent && data.entries && data.entries.length > previousCount) {
           setTimeout(() => {
             if (logContainerRef.current) {
               logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
@@ -102,6 +183,16 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
     } finally {
       if (!silent) setLoading(false);
     }
+  };
+
+  const formatTimeRemaining = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    }
+    return `${minutes}m`;
   };
 
   const getActionIcon = (action: string) => {
@@ -194,14 +285,48 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
     <div className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 flex flex-col h-full">
       {/* Header */}
       <div className="p-4 pb-3 flex-shrink-0">
-        <div className="flex items-center space-x-3">
-          <Clock className="h-5 w-5 text-purple-400" />
-          <div>
-            <h3 className="text-base sm:text-lg font-semibold">Public Activity Log</h3>
-            <span className="text-sm text-gray-400">({entries.length} entries)</span>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center space-x-3">
+            <Clock className="h-5 w-5 text-purple-400" />
+            <div>
+              <h3 className="text-base sm:text-lg font-semibold">Public Activity Log</h3>
+              <span className="text-sm text-gray-400">({entries.length} entries)</span>
+            </div>
           </div>
         </div>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-2 mt-3">
+
+        {/* Session Status */}
+        {sessionStatus && sessionStatus.active && (
+          <div className="mb-3 p-2 rounded-lg bg-purple-900/30 border border-purple-500/30">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Timer className="h-4 w-4 text-purple-400" />
+                <span className="text-xs text-gray-300">
+                  Session expires in: <span className="font-semibold text-purple-300">{formatTimeRemaining(sessionStatus.timeRemaining || 0)}</span>
+                </span>
+              </div>
+              {sessionStatus.extensionsRemaining && sessionStatus.extensionsRemaining > 0 && (
+                <button
+                  onClick={extendSession}
+                  className="px-2 py-1 rounded bg-purple-600 hover:bg-purple-700 text-xs transition-colors"
+                >
+                  +6h ({sessionStatus.extensionsRemaining} left)
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {sessionStatus && !sessionStatus.active && (
+          <div className="mb-3 p-2 rounded-lg bg-red-900/30 border border-red-500/30">
+            <div className="flex items-center space-x-2">
+              <Timer className="h-4 w-4 text-red-400" />
+              <span className="text-xs text-red-300">Session expired - No new actions allowed</span>
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-2">
           <button
             onClick={() => setAutoRefresh(!autoRefresh)}
             className={`flex items-center space-x-1 px-2 py-1 rounded text-xs transition-colors ${
