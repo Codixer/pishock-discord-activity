@@ -101,7 +101,9 @@ export function useUserStatusCache() {
       }
     }
     
+    if (cleaned > 0) {
       setLastCacheUpdate(now);
+    }
     
     return cleaned;
   }, []);

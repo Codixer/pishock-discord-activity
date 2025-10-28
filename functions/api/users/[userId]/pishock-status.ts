@@ -294,9 +294,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     let hasDevice = false;
     let deviceCount = 0;
     let piShockUserId = userData?.piShockUserId;
-    let lastTested = userData?.lastTested;
-    let hasOwnDevice = userData?.hasOwnDevice || false;
-    let encrypted = userData?.credentials;
+    const lastTested = userData?.lastTested;
+    const hasOwnDevice = userData?.hasOwnDevice || false;
+    const encrypted = userData?.credentials;
     
     let maxIntensity = 100;
     let maxDuration = 15;
@@ -318,13 +318,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           hasDevice = deviceCheck.hasDevices;
           deviceCount = deviceCheck.devices?.length || 0;
           
+          // Only write to KV if piShockUserId has changed
           if (piShockUserId !== userData?.piShockUserId) {
             userData.piShockUserId = piShockUserId;
+            userData.lastTested = new Date().toISOString();
             await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
           }
-          
-          userData.lastTested = new Date().toISOString();
-          await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
         }
       } catch (error) {
         isConnected = false;
