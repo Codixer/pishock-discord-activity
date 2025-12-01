@@ -29,29 +29,57 @@ const SHOCK_PAST_LIMIT_SKU_ID = "1418562984946569267";
 
 async function fetchUserEntitlements(token: string, env: Env): Promise<any[] | null> {
   try {
-    if (!env.DISCORD_CLIENT_ID) {
-      console.error('DISCORD_CLIENT_ID not configured');
-      return null;
+    // Try the application ID endpoint first
+    if (env.DISCORD_CLIENT_ID) {
+      try {
+        const response = await fetch(`https://discord.com/api/v9/users/@me/applications/${env.DISCORD_CLIENT_ID}/entitlements?exclude_consumed=true`, {
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          // Discord API returns an array directly or wrapped in an object
+          const entitlements = Array.isArray(data) ? data : (data.entitlements || []);
+          if (Array.isArray(entitlements)) {
+            return entitlements;
+          }
+        } else {
+          console.warn(`Application ID endpoint failed: ${response.status} ${response.statusText}`);
+        }
+      } catch (error) {
+        console.warn('Application ID endpoint error:', error);
+      }
     }
     
-    const response = await fetch(`https://discord.com/api/v9/users/@me/applications/${env.DISCORD_CLIENT_ID}/entitlements?exclude_consumed=true`, {
-      headers: { 
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-    });
-    
-    if (!response.ok) {
-      console.error(`Failed to fetch entitlements: ${response.status} ${response.statusText}`);
-      const errorText = await response.text().catch(() => 'Unknown error');
-      console.error(`Error response: ${errorText}`);
-      return null;
+    // Fallback to the @me endpoint
+    try {
+      const response = await fetch('https://discord.com/api/v9/applications/@me/entitlements', {
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        // Discord API returns an array directly or wrapped in an object
+        const entitlements = Array.isArray(data) ? data : (data.entitlements || []);
+        if (Array.isArray(entitlements)) {
+          return entitlements;
+        }
+      } else {
+        console.error(`Failed to fetch entitlements: ${response.status} ${response.statusText}`);
+        const errorText = await response.text().catch(() => 'Unknown error');
+        console.error(`Error response: ${errorText}`);
+      }
+    } catch (error) {
+      console.error('Error fetching entitlements from @me endpoint:', error);
     }
     
-    const data = await response.json();
-    // Discord API returns an array directly or wrapped in an object
-    const entitlements = Array.isArray(data) ? data : (data.entitlements || []);
-    return entitlements;
+    return null;
   } catch (error) {
     console.error('Error fetching entitlements:', error);
     return null;
@@ -439,26 +467,37 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           console.error('Failed to fetch entitlements or invalid response:', {
             entitlements,
             isArray: Array.isArray(entitlements),
-            executorUserId
+            executorUserId,
+            hasClientId: !!env.DISCORD_CLIENT_ID
           });
           return jsonResponse({ 
             success: false, 
-            error: 'Failed to verify SKU entitlement. Please ensure you have purchased the "Shock Past User Limit" consumable.' 
+            error: 'Failed to verify SKU entitlement. Please ensure you have purchased the "Shock Past User Limit" consumable and try again.' 
           }, 500);
         }
         
-            // Check by SKU ID and consumed status, not type (type can be 3 or 4)
+        console.log(`Fetched ${entitlements.length} entitlements for user ${executorUserId}`);
+        
+        // Check by SKU ID and consumed status, not type (type can be 3 or 4)
             const availableEntitlement = entitlements.find((ent: any) => 
               ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && 
-              !ent.consumed
+              !(ent.consumed ?? false)
             );
         
         if (!availableEntitlement) {
+          console.log(`No available entitlement found. Entitlements:`, entitlements.map((ent: any) => ({
+            id: ent.id,
+            sku_id: ent.sku_id,
+            consumed: ent.consumed,
+            type: ent.type
+          })));
           return jsonResponse({ 
             success: false, 
-            error: 'No available "Shock Past Limit" SKU found. Please purchase more.' 
+            error: 'No available "Shock Past Limit" SKU found. Please purchase more in the Store.' 
           }, 403);
         }
+        
+        console.log(`Found available entitlement: ${availableEntitlement.id} for SKU ${SHOCK_PAST_LIMIT_SKU_ID}`);
         
         // Store entitlement ID for consumption after successful execution
         entitlementIdToConsume = availableEntitlement.id;
@@ -503,7 +542,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
 
       const responseText = await response.text();
-      const isPiShockSuccess = response.ok && responseText.includes('Operation Succeeded');
+      // PiShock API can return "Operation Succeeded" or "Operation Attempted" as success messages
+      const isPiShockSuccess = response.ok && (
+        responseText.includes('Operation Succeeded') || 
+        responseText.includes('Operation Attempted')
+      );
 
       if (!isPiShockSuccess) {
         let errorMessage = `PiShock API error: HTTP ${response.status} - ${responseText}`;
