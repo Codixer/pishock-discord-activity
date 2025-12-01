@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { DiscordSDK } from '@discord/embedded-app-sdk';
 
 // SKU IDs
@@ -33,6 +33,25 @@ interface MonetizationState {
   error: string | null;
 }
 
+// Global cache to prevent multiple simultaneous requests
+let globalEntitlementsCache: {
+  data: MonetizationState | null;
+  timestamp: number;
+  pendingRequest: Promise<void> | null;
+} = {
+  data: null,
+  timestamp: 0,
+  pendingRequest: null
+};
+
+const CACHE_DURATION = 60000; // 1 minute cache
+const MIN_REQUEST_INTERVAL = 10000; // Minimum 10 seconds between requests
+let lastRequestTime = 0;
+
+// Rate limit tracking
+let rateLimitUntil = 0;
+const RATE_LIMIT_BACKOFF = 60000; // 1 minute backoff on rate limit
+
 function getApiBaseUrl(): string {
   const urlParams = new URLSearchParams(window.location.search);
   const isEmbedded = urlParams.has('frame_id');
@@ -45,6 +64,7 @@ function getApiBaseUrl(): string {
 }
 
 export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boolean, auth: any) {
+  const mountedRef = useRef(true);
   const [state, setState] = useState<MonetizationState>({
     skus: [],
     entitlements: [],
@@ -54,18 +74,40 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     error: null
   });
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const fetchSkus = useCallback(async () => {
     if (!discordSdk || !isEmbedded) {
       setState(prev => ({ ...prev, loading: false }));
       return;
     }
 
+    // Check rate limit
+    if (Date.now() < rateLimitUntil) {
+      console.warn('Rate limited, skipping SKU fetch');
+      return;
+    }
+
     try {
       const skus = await discordSdk.commands.getSkus();
-      setState(prev => ({ ...prev, skus: skus.skus || [] }));
-    } catch (error) {
+      if (mountedRef.current) {
+        setState(prev => ({ ...prev, skus: skus.skus || [] }));
+      }
+    } catch (error: any) {
       console.error('Failed to fetch SKUs:', error);
-      setState(prev => ({ ...prev, error: 'Failed to load SKUs' }));
+      // Handle rate limiting
+      if (error?.code === 1000 || error?.message?.includes('429') || error?.message?.includes('rate limit')) {
+        rateLimitUntil = Date.now() + RATE_LIMIT_BACKOFF;
+        console.warn('Rate limited on SKU fetch, backing off for 1 minute');
+      }
+      if (mountedRef.current) {
+        setState(prev => ({ ...prev, error: 'Failed to load SKUs' }));
+      }
     }
   }, [discordSdk, isEmbedded]);
 
@@ -75,51 +117,126 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
       return;
     }
 
-    try {
-      const entitlements = await discordSdk.commands.getEntitlements();
-      const entitlementsList = entitlements.entitlements || [];
-      
-      let hasShockPastLimit = false;
-      let hasControllerPlus = false;
-      let subscriptionExpiresAt: number | undefined;
+    // Check rate limit
+    if (Date.now() < rateLimitUntil) {
+      console.warn('Rate limited, using cached entitlements');
+      if (globalEntitlementsCache.data) {
+        setState(prev => ({ ...prev, ...globalEntitlementsCache.data, loading: false }));
+      }
+      return;
+    }
 
-      for (const entitlement of entitlementsList) {
-        // Check for consumable SKU (Shock Past Limit)
-        if (entitlement.sku_id === SHOCK_PAST_LIMIT_SKU_ID) {
-          if (entitlement.type === 3 && !entitlement.consumed) {
-            hasShockPastLimit = true;
-          }
-        }
+    // Check if there's a pending request
+    if (globalEntitlementsCache.pendingRequest) {
+      await globalEntitlementsCache.pendingRequest;
+      if (globalEntitlementsCache.data) {
+        setState(prev => ({ ...prev, ...globalEntitlementsCache.data, loading: false }));
+      }
+      return;
+    }
+
+    // Check cache
+    const now = Date.now();
+    if (globalEntitlementsCache.data && (now - globalEntitlementsCache.timestamp) < CACHE_DURATION) {
+      setState(prev => ({ ...prev, ...globalEntitlementsCache.data, loading: false }));
+      return;
+    }
+
+    // Throttle requests
+    const timeSinceLastRequest = now - lastRequestTime;
+    if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
+      // Use cached data if available
+      if (globalEntitlementsCache.data) {
+        setState(prev => ({ ...prev, ...globalEntitlementsCache.data, loading: false }));
+      }
+      return;
+    }
+
+    lastRequestTime = now;
+
+    // Create pending request promise
+    const requestPromise = (async () => {
+      try {
+        const entitlements = await discordSdk.commands.getEntitlements();
+        const entitlementsList = Array.isArray(entitlements?.entitlements) ? entitlements.entitlements : [];
         
-        // Check for subscription SKU (Controller+)
-        if (entitlement.sku_id === CONTROLLER_PLUS_SKU_ID) {
-          if (entitlement.type === 5) {
-            if (entitlement.ends_at) {
-              const expiresAt = new Date(entitlement.ends_at).getTime() / 1000;
-              const now = Math.floor(Date.now() / 1000);
-              if (expiresAt > now) {
+        let hasShockPastLimit = false;
+        let hasControllerPlus = false;
+        let subscriptionExpiresAt: number | undefined;
+
+        for (const entitlement of entitlementsList) {
+          // Check for consumable SKU (Shock Past Limit)
+          if (entitlement.sku_id === SHOCK_PAST_LIMIT_SKU_ID) {
+            if (entitlement.type === 3 && !entitlement.consumed) {
+              hasShockPastLimit = true;
+            }
+          }
+          
+          // Check for subscription SKU (Controller+)
+          if (entitlement.sku_id === CONTROLLER_PLUS_SKU_ID) {
+            if (entitlement.type === 5) {
+              if (entitlement.ends_at) {
+                const expiresAt = new Date(entitlement.ends_at).getTime() / 1000;
+                const now = Math.floor(Date.now() / 1000);
+                if (expiresAt > now) {
+                  hasControllerPlus = true;
+                  subscriptionExpiresAt = expiresAt;
+                }
+              } else {
                 hasControllerPlus = true;
-                subscriptionExpiresAt = expiresAt;
               }
-            } else {
-              hasControllerPlus = true;
             }
           }
         }
-      }
 
-      setState(prev => ({
-        ...prev,
-        entitlements: entitlementsList,
-        hasShockPastLimit,
-        hasControllerPlus,
-        subscriptionExpiresAt,
-        loading: false
-      }));
-    } catch (error) {
-      console.error('Failed to fetch entitlements:', error);
-      setState(prev => ({ ...prev, error: 'Failed to load entitlements', loading: false }));
-    }
+        const newState: MonetizationState = {
+          skus: [],
+          entitlements: entitlementsList,
+          hasShockPastLimit,
+          hasControllerPlus,
+          subscriptionExpiresAt,
+          loading: false,
+          error: null
+        };
+
+        // Update global cache
+        globalEntitlementsCache = {
+          data: newState,
+          timestamp: now,
+          pendingRequest: null
+        };
+
+        if (mountedRef.current) {
+          setState(prev => ({
+            ...prev,
+            ...newState,
+            loading: false
+          }));
+        }
+      } catch (error: any) {
+        console.error('Failed to fetch entitlements:', error);
+        
+        // Handle rate limiting
+        if (error?.code === 1000 || error?.message?.includes('429') || error?.message?.includes('rate limit') || error?.message?.includes('Too Many Requests')) {
+          rateLimitUntil = Date.now() + RATE_LIMIT_BACKOFF;
+          console.warn('Rate limited on entitlements fetch, backing off for 1 minute');
+        }
+        
+        // Use cached data if available
+        if (mountedRef.current) {
+          if (globalEntitlementsCache.data) {
+            setState(prev => ({ ...prev, ...globalEntitlementsCache.data, loading: false, error: 'Using cached data due to rate limit' }));
+          } else {
+            setState(prev => ({ ...prev, error: 'Failed to load entitlements', loading: false }));
+          }
+        }
+        
+        globalEntitlementsCache.pendingRequest = null;
+      }
+    })();
+
+    globalEntitlementsCache.pendingRequest = requestPromise;
+    await requestPromise;
   }, [discordSdk, isEmbedded]);
 
   const startPurchase = useCallback(async (skuId: string): Promise<boolean> => {
@@ -133,7 +250,9 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
       });
       
       if (result.status === 'purchase_complete') {
-        // Refresh entitlements after purchase
+        // Invalidate cache and refresh entitlements after purchase
+        globalEntitlementsCache.data = null;
+        globalEntitlementsCache.timestamp = 0;
         await fetchEntitlements();
         return true;
       }
@@ -155,7 +274,9 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
         entitlement_id: entitlementId
       });
       
-      // Refresh entitlements after consumption
+      // Invalidate cache and refresh entitlements after consumption
+      globalEntitlementsCache.data = null;
+      globalEntitlementsCache.timestamp = 0;
       await fetchEntitlements();
       return true;
     } catch (error) {
@@ -179,23 +300,33 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
 
       if (response.ok) {
         const data = await response.json();
-        setState(prev => ({
-          ...prev,
-          hasShockPastLimit: data.hasShockPastLimit || prev.hasShockPastLimit,
-          hasControllerPlus: data.hasControllerPlus || prev.hasControllerPlus,
-          subscriptionExpiresAt: data.subscriptionExpiresAt || prev.subscriptionExpiresAt
-        }));
+        if (mountedRef.current) {
+          setState(prev => ({
+            ...prev,
+            hasShockPastLimit: data.hasShockPastLimit || prev.hasShockPastLimit,
+            hasControllerPlus: data.hasControllerPlus || prev.hasControllerPlus,
+            subscriptionExpiresAt: data.subscriptionExpiresAt || prev.subscriptionExpiresAt
+          }));
+        }
       }
     } catch (error) {
       console.error('Failed to fetch backend SKU status:', error);
     }
   }, [auth]);
 
-  // Initial load
+  // Initial load - only fetch SKUs once, entitlements are cached globally
   useEffect(() => {
     if (isEmbedded && discordSdk) {
-      fetchSkus();
-      fetchEntitlements();
+      // Fetch SKUs only once (they don't change often)
+      const now = Date.now();
+      if (!globalEntitlementsCache.data || (now - globalEntitlementsCache.timestamp) > CACHE_DURATION) {
+        fetchSkus();
+        fetchEntitlements();
+      } else {
+        // Use cached data
+        setState(prev => ({ ...prev, ...globalEntitlementsCache.data, loading: false }));
+        fetchSkus(); // SKUs can be fetched separately
+      }
     } else {
       setState(prev => ({ ...prev, loading: false }));
     }
@@ -208,14 +339,18 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     }
   }, [auth, fetchBackendSkuStatus]);
 
-  // Refresh entitlements periodically (every 5 minutes)
+  // Refresh entitlements periodically (every 10 minutes, longer to avoid rate limits)
   useEffect(() => {
     if (!isEmbedded || !discordSdk) return;
 
     const interval = setInterval(() => {
-      fetchEntitlements();
+      // Only refresh if cache is stale and not rate limited
+      const now = Date.now();
+      if (now >= rateLimitUntil && (!globalEntitlementsCache.data || (now - globalEntitlementsCache.timestamp) > CACHE_DURATION * 10)) {
+        fetchEntitlements();
+      }
       fetchBackendSkuStatus();
-    }, 300000); // 5 minutes
+    }, 600000); // 10 minutes (reduced frequency to avoid rate limits)
 
     return () => clearInterval(interval);
   }, [isEmbedded, discordSdk, fetchEntitlements, fetchBackendSkuStatus]);
