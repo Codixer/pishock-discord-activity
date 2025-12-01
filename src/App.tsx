@@ -302,6 +302,11 @@ function MainApp() {
       return;
     }
 
+    // Prevent multiple initializations
+    if (auth && isEmbedded) {
+      return;
+    }
+
     const initializeDiscord = async () => {
       try {
         setLoading(true); // Start loading only after safety accepted
@@ -344,18 +349,40 @@ function MainApp() {
             return;
           }
 
-          const { code } = await discordSdk.commands.authorize({
-            client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
-            response_type: 'code',
-            state: '',
-            prompt: 'none',
-            scope: [
-              'identify',
-              'guilds',
-              'guilds.members.read',
-              'rpc.activities.write',
-            ],
-          });
+          // Try to authorize, but handle "Already authenticated" gracefully
+          let code: string;
+          try {
+            const authorizeResult = await discordSdk.commands.authorize({
+              client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
+              response_type: 'code',
+              state: '',
+              prompt: 'none',
+              scope: [
+                'identify',
+                'guilds',
+                'guilds.members.read',
+                'rpc.activities.write',
+              ],
+            });
+            code = authorizeResult.code;
+          } catch (authError: any) {
+            // Handle "Already authenticated" error (code 4002) - this is expected in some cases
+            if (authError?.code === 4002 || authError?.message?.includes('Already authenticated')) {
+              // Try to get existing auth state from window storage
+              const existingAuth = (window as any).discordAuth;
+              if (existingAuth) {
+                setAuth(existingAuth);
+                setLoading(false);
+                return;
+              }
+              // If no existing auth, the user is already authenticated but we don't have the token
+              // This is a normal state - just continue without showing an error
+              console.log('Already authenticated, continuing with existing session');
+              setLoading(false);
+              return;
+            }
+            throw authError;
+          }
 
           const response = await fetch(`${getApiBaseUrl()}/auth/discord`, {
             method: 'POST',
@@ -374,6 +401,8 @@ function MainApp() {
             access_token,
           });
 
+          // Store auth in window for persistence
+          (window as any).discordAuth = authResult;
           setAuth(authResult);
 
           discordSdk.subscribe(
@@ -431,13 +460,28 @@ function MainApp() {
         }
 
         setLoading(false);
-      } catch (error) {
-        console.error('Discord initialization error:', error); // Add logging for debugging
+      } catch (error: any) {
+        // Handle "Already authenticated" error gracefully - this is not a fatal error
+        if (error?.code === 4002 || error?.message?.includes('Already authenticated')) {
+          console.log('User already authenticated, continuing with existing session');
+          setLoading(false);
+          // Try to use existing auth if available
+          const existingAuth = (window as any).discordAuth;
+          if (existingAuth) {
+            setAuth(existingAuth);
+          }
+          return;
+        }
+        
+        console.error('Discord initialization error:', error);
         if (!isEmbedded && error instanceof Error && error.message.includes('Cannot convert')) {
           setLoading(false);
           return;
         }
-        addNotification('error', 'Connection Failed', 'Failed to connect to Discord. Please try again.');
+        // Only show error notification for actual failures, not "already authenticated"
+        if (error?.code !== 4002) {
+          addNotification('error', 'Connection Failed', 'Failed to connect to Discord. Please try again.');
+        }
         setLoading(false);
       }
     };
@@ -452,7 +496,7 @@ function MainApp() {
         }
       }
     };
-  }, [safetyAccepted, addNotification, updateParticipants, handleLayoutModeUpdate]);
+  }, [safetyAccepted, auth, addNotification, updateParticipants, handleLayoutModeUpdate, isEmbedded]);
 
   useEffect(() => {
     if (instanceId && auth) {
