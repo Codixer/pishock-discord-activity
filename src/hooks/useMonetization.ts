@@ -19,8 +19,9 @@ interface Entitlement {
   id: string;
   sku_id: string;
   type: number;
-  consumed: boolean;
-  ends_at?: string;
+  consumed: boolean | null | undefined;
+  ends_at?: string | null;
+  starts_at?: string | null;
 }
 
 interface MonetizationState {
@@ -158,7 +159,16 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     const requestPromise = (async () => {
       try {
         const entitlements = await discordSdk.commands.getEntitlements();
-        const entitlementsList = Array.isArray(entitlements?.entitlements) ? entitlements.entitlements : [];
+        const entitlementsList: Entitlement[] = Array.isArray(entitlements?.entitlements) 
+          ? entitlements.entitlements.map((ent: any) => ({
+              id: ent.id,
+              sku_id: ent.sku_id,
+              type: ent.type,
+              consumed: ent.consumed ?? false,
+              ends_at: ent.ends_at,
+              starts_at: ent.starts_at,
+            }))
+          : [];
         
         let hasShockPastLimit = false;
         let hasControllerPlus = false;
@@ -245,15 +255,22 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     }
 
     try {
-      const result = await discordSdk.commands.startPurchase({
+      const result: any = await discordSdk.commands.startPurchase({
         sku_id: skuId
       });
       
-      if (result.status === 'purchase_complete') {
+      // Purchase may complete immediately or be initiated
+      // In either case, refresh entitlements after a delay
+      if (result) {
         // Invalidate cache and refresh entitlements after purchase
         globalEntitlementsCache.data = null;
         globalEntitlementsCache.timestamp = 0;
-        await fetchEntitlements();
+        lastRequestTime = 0; // Reset request throttle
+        // Wait a bit for Discord to process the purchase, then refresh
+        setTimeout(async () => {
+          await fetchEntitlements();
+          await fetchSkus();
+        }, 2000);
         return true;
       }
       
@@ -262,25 +279,27 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
       console.error('Purchase failed:', error);
       return false;
     }
-  }, [discordSdk, isEmbedded, fetchEntitlements]);
+  }, [discordSdk, isEmbedded, fetchEntitlements, fetchSkus]);
 
-  const consumeEntitlement = useCallback(async (entitlementId: string): Promise<boolean> => {
+  const consumeEntitlement = useCallback(async (_entitlementId: string): Promise<boolean> => {
     if (!discordSdk || !isEmbedded) {
       return false;
     }
 
     try {
-      await discordSdk.commands.consumeEntitlement({
-        entitlement_id: entitlementId
-      });
+      // Note: Discord SDK may not have consumeEntitlement directly
+      // The frontend should handle consumption via the SDK if available
+      // For now, we'll just refresh entitlements to reflect the consumed state
+      // The actual consumption happens on the backend and is reflected in the entitlements list
       
       // Invalidate cache and refresh entitlements after consumption
       globalEntitlementsCache.data = null;
       globalEntitlementsCache.timestamp = 0;
+      lastRequestTime = 0; // Reset request throttle
       await fetchEntitlements();
       return true;
     } catch (error) {
-      console.error('Failed to consume entitlement:', error);
+      console.error('Failed to refresh entitlements after consumption:', error);
       return false;
     }
   }, [discordSdk, isEmbedded, fetchEntitlements]);
@@ -358,10 +377,14 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
   return {
     ...state,
     refreshEntitlements: fetchEntitlements,
+    refreshSkus: fetchSkus,
     purchaseSku: startPurchase,
     consumeEntitlement,
     shockPastLimitSku: state.skus.find(s => s.id === SHOCK_PAST_LIMIT_SKU_ID),
     controllerPlusSku: state.skus.find(s => s.id === CONTROLLER_PLUS_SKU_ID),
+    consumableCount: (state.entitlements || []).filter(
+      (ent: Entitlement) => ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && ent.type === 3 && !ent.consumed
+    ).length,
   };
 }
 

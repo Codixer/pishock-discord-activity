@@ -72,6 +72,22 @@ html, body {
 .limited-slider::-webkit-slider-track {
   background: linear-gradient(to right, #374151 0%, #f59e0b 100%);
 }
+
+/* Danger slider styling for bypassed limits */
+.slider-danger::-webkit-slider-thumb {
+  background: #ef4444;
+  border-color: #fca5a5;
+}
+
+.slider-danger::-moz-range-thumb {
+  background: #ef4444;
+  border-color: #fca5a5;
+}
+
+.slider-danger::-webkit-slider-track {
+  background: linear-gradient(to right, #374151 0%, #ef4444 100%);
+}
+
 .slider::-moz-range-thumb {
 /* Larger slider styling for control panel */
 .slider-large::-webkit-slider-thumb {

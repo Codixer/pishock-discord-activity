@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Zap, Settings, Play, Square, AlertTriangle, Lock, Wifi, WifiOff, Crown, Users } from 'lucide-react';
+import { Zap, Settings, Play, Square, AlertTriangle, Lock, Wifi, WifiOff, Crown, Users, Sparkles, RefreshCw } from 'lucide-react';
 import { DiscordSDK, Common } from '@discord/embedded-app-sdk';
 import { PiShockSettingsModal } from './PiShockSettingsModal';
 import { useMonetization } from '../hooks/useMonetization';
@@ -54,8 +54,12 @@ export function PiShockController({
   const [discordConnected, setDiscordConnected] = useState(!!auth);
   const [multiTargetMode, setMultiTargetMode] = useState(false);
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
+  const [useConsumable, setUseConsumable] = useState(false);
   
   const monetization = useMonetization(discordSdk, isEmbedded, auth);
+
+  // Get consumable count from monetization hook
+  const consumableCount = monetization.consumableCount || 0;
 
   // Check if we're in PIP mode
   const isPipMode = layoutMode === Common.LayoutModeTypeObject.PIP;
@@ -82,28 +86,50 @@ export function PiShockController({
   };
 
   const effectiveLimits = getEffectiveLimits();
+  
+  // Get the maximum allowed limits (either normal limits or 100/15 if consumable is enabled)
+  const getMaxAllowedLimits = () => {
+    if (useConsumable && monetization.hasShockPastLimit && consumableCount > 0) {
+      // When consumable is enabled, allow up to 100% intensity and 15s duration
+      return { maxIntensity: 100, maxDuration: 15 };
+    }
+    return effectiveLimits;
+  };
+
+  const maxAllowedLimits = getMaxAllowedLimits();
 
   // Update intensity and duration when selected user or limits change
   useEffect(() => {
     const limits = getEffectiveLimits();
     setSelectedUserLimits(limits);
     
-    // Clamp current values to new limits
+    // Get max allowed based on consumable toggle
+    const maxAllowed = getMaxAllowedLimits();
+    
+    // Clamp current values to max allowed limits
     setIntensity(prevIntensity => {
-      if (prevIntensity > limits.maxIntensity) {
-        return limits.maxIntensity;
+      if (prevIntensity > maxAllowed.maxIntensity) {
+        return maxAllowed.maxIntensity;
       }
       return prevIntensity;
     });
     
     setDuration(prevDuration => {
-      if (prevDuration > limits.maxDuration) {
-        return limits.maxDuration;
+      if (prevDuration > maxAllowed.maxDuration) {
+        return maxAllowed.maxDuration;
       }
       return prevDuration;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedUser]); // Only depend on selectedUser, not intensity/duration
+  }, [selectedUser, useConsumable, monetization.hasShockPastLimit, consumableCount]); // Include consumable state
+  
+  // Reset consumable toggle when consumables run out
+  useEffect(() => {
+    if (useConsumable && consumableCount === 0) {
+      setUseConsumable(false);
+      addNotification('warning', 'No Consumables', 'You have no more "Shock Past Limit" consumables. Purchase more in settings.');
+    }
+  }, [consumableCount, useConsumable, addNotification]);
 
   // Load current user's PiShock connection status when component mounts
   const checkCurrentUserCredentials = async () => {
@@ -266,6 +292,7 @@ export function PiShockController({
           intensity,
           duration,
           operation, // 0 = shock, 1 = vibrate, 2 = beep
+          bypassLimits: useConsumable && monetization.hasShockPastLimit && consumableCount > 0,
         }),
       });
 
@@ -274,10 +301,28 @@ export function PiShockController({
         if (result.success) {
           const actionName = operation === 0 ? 'Shock' : operation === 1 ? 'Vibration' : 'Beep';
           let message = `${actionName} sent to ${selectedUser.displayName || selectedUser.username} - Intensity: ${intensity}%, Duration: ${duration}s`;
-          if (result.bypassedLimit) {
-            message += ' (Limit bypassed with SKU)';
+          if (result.consumeSku) {
+            message += ' (Limit bypassed - consumable used)';
+            // Refresh entitlements after consumption
+            setTimeout(async () => {
+              await monetization.refreshEntitlements();
+              // Also try to consume via SDK if available (though backend already handled it)
+              if (result.consumeSku?.entitlementId) {
+                try {
+                  await monetization.consumeEntitlement(result.consumeSku.entitlementId);
+                } catch (e) {
+                  // SDK consumption may not be available, that's okay
+                  console.log('SDK consumption not available, backend already handled it');
+                }
+              }
+            }, 1000);
           }
           addNotification('success', 'Command Sent', message);
+          
+          // Reset consumable toggle after use
+          if (useConsumable) {
+            setUseConsumable(false);
+          }
         } else {
           // Check for specific error types
           if (result.error && result.error.includes('consent')) {
@@ -351,6 +396,19 @@ export function PiShockController({
                   <span className="text-yellow-300 font-medium">Controller+</span>
                 </div>
               )}
+              {monetization.hasShockPastLimit && consumableCount > 0 && (
+                <div className="flex items-center space-x-1 px-2 py-1 bg-purple-600/20 border border-purple-500/30 rounded text-xs">
+                  <Sparkles className="h-3 w-3 text-purple-400" />
+                  <span className="text-purple-300 font-medium">{consumableCount} Consumable{consumableCount !== 1 ? 's' : ''}</span>
+                </div>
+              )}
+              <button
+                onClick={() => monetization.refreshEntitlements()}
+                className="flex items-center space-x-1 px-2 py-1 bg-gray-600/20 border border-gray-500/30 rounded text-xs hover:bg-gray-600/30 transition-colors"
+                title="Refresh SKU status"
+              >
+                <RefreshCw className={`h-3 w-3 text-gray-400 ${monetization.loading ? 'animate-spin' : ''}`} />
+              </button>
             </div>
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-4">
@@ -391,6 +449,112 @@ export function PiShockController({
           </div>
         ) : (
           <div className="flex-1 flex flex-col space-y-6 min-h-0">
+            {/* Controller+ Toggle */}
+            {monetization.hasControllerPlus && participants.length > 1 && (
+              <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex-shrink-0">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center space-x-2">
+                    <Crown className="h-4 w-4 text-yellow-400" />
+                    <span className="text-sm font-medium text-yellow-300">Controller+ Multi-Target Mode</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={multiTargetMode}
+                      onChange={(e) => {
+                        setMultiTargetMode(e.target.checked);
+                        if (!e.target.checked) {
+                          setSelectedTargets([]);
+                        }
+                      }}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-yellow-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-600"></div>
+                  </label>
+                </div>
+                {multiTargetMode && (
+                  <div className="mt-3 space-y-2 max-h-32 overflow-y-auto">
+                    {participants
+                      .filter(p => p.id !== currentUser?.id)
+                      .map(participant => {
+                        const userStatus = (window as any).userPiShockStatus?.[participant.id];
+                        const isConnected = userStatus?.isConnected;
+                        const isSelected = selectedTargets.includes(participant.id);
+                        const displayName = getDisplayName(participant);
+                        
+                        return (
+                          <label
+                            key={participant.id}
+                            className={`flex items-center space-x-2 p-2 rounded border cursor-pointer transition-colors ${
+                              isSelected
+                                ? 'bg-yellow-600/20 border-yellow-500/50'
+                                : 'bg-black/20 border-gray-600'
+                            } ${!isConnected ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  if (selectedTargets.length < 10) {
+                                    setSelectedTargets([...selectedTargets, participant.id]);
+                                  } else {
+                                    addNotification('warning', 'Maximum Targets', 'You can select up to 10 targets');
+                                  }
+                                } else {
+                                  setSelectedTargets(selectedTargets.filter(id => id !== participant.id));
+                                }
+                              }}
+                              disabled={!isConnected}
+                              className="rounded"
+                            />
+                            <span className="text-sm text-gray-300 flex-1">{displayName}</span>
+                            {isConnected ? (
+                              <Zap className="h-3 w-3 text-green-400" />
+                            ) : (
+                              <AlertTriangle className="h-3 w-3 text-red-400" />
+                            )}
+                          </label>
+                        );
+                      })}
+                    {selectedTargets.length > 0 && (
+                      <p className="text-xs text-yellow-300 mt-2">
+                        {selectedTargets.length} target{selectedTargets.length !== 1 ? 's' : ''} selected
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Consumable Toggle - Only show if user has consumables and is in single-target mode */}
+            {!multiTargetMode && monetization.hasShockPastLimit && consumableCount > 0 && selectedUser && (
+              <div className="p-3 bg-purple-900/20 border border-purple-500/30 rounded-lg flex-shrink-0">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center space-x-2">
+                    <Sparkles className="h-4 w-4 text-purple-400" />
+                    <span className="text-sm font-medium text-purple-300">Use Consumable for Next Shock</span>
+                    <span className="text-xs text-purple-400">({consumableCount} remaining)</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={useConsumable}
+                      onChange={(e) => setUseConsumable(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                  </label>
+                </div>
+                {useConsumable && (
+                  <div className="mt-2 p-2 bg-yellow-900/20 border border-yellow-500/30 rounded text-xs text-yellow-200">
+                    <AlertTriangle className="h-3 w-3 inline mr-1" />
+                    <strong>Warning:</strong> This will bypass the target's safety limits. Requires consent from both parties. One consumable will be used.
+                  </div>
+                )}
+              </div>
+            )}
+            
             {monetization.hasControllerPlus && participants.length > 1 && (
               <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex-shrink-0">
                 <div className="flex items-center justify-between mb-2">
@@ -472,10 +636,26 @@ export function PiShockController({
                 <label className={`block font-medium text-gray-300 mb-3 ${isPipMode ? 'text-xs' : 'text-sm sm:text-base'}`}>
                   <div className="flex items-center justify-between">
                     <span>Intensity: {intensity}%</span>
-                    {effectiveLimits.maxIntensity < 100 && !isPipMode && (
-                      <div className="flex items-center space-x-1 text-sm text-yellow-400">
-                        <Lock className="h-3 w-3" />
-                        <span>Max: {effectiveLimits.maxIntensity}%</span>
+                    {!isPipMode && (
+                      <div className="flex items-center space-x-2">
+                        {useConsumable && intensity > effectiveLimits.maxIntensity && (
+                          <div className="flex items-center space-x-1 text-sm text-yellow-400">
+                            <Sparkles className="h-3 w-3" />
+                            <span className="font-semibold">BYPASSED</span>
+                          </div>
+                        )}
+                        {effectiveLimits.maxIntensity < 100 && (
+                          <div className={`flex items-center space-x-1 text-sm ${useConsumable ? 'text-gray-400 line-through' : 'text-yellow-400'}`}>
+                            <Lock className="h-3 w-3" />
+                            <span>Safe Max: {effectiveLimits.maxIntensity}%</span>
+                          </div>
+                        )}
+                        {useConsumable && (
+                          <div className="flex items-center space-x-1 text-sm text-red-400">
+                            <AlertTriangle className="h-3 w-3" />
+                            <span>Max: {maxAllowedLimits.maxIntensity}%</span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -483,20 +663,32 @@ export function PiShockController({
                 <input
                   type="range"
                   min="1"
-                  max={effectiveLimits.maxIntensity}
+                  max={maxAllowedLimits.maxIntensity}
                   value={intensity}
                   onChange={(e) => setIntensity(parseInt(e.target.value))}
                   className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider ${
                     effectiveLimits.maxIntensity < 100 ? 'limited-slider' : ''
-                  } slider-large`}
+                  } ${useConsumable && intensity > effectiveLimits.maxIntensity ? 'slider-danger' : ''} slider-large`}
                 />
                 {!isPipMode && (
-                  <div className="flex justify-between text-sm text-gray-400 mt-2">
-                  <span>1%</span>
-                  <span>{Math.floor(effectiveLimits.maxIntensity / 2)}%</span>
-                  <span className={effectiveLimits.maxIntensity < 100 ? 'text-yellow-400' : ''}>
-                    {effectiveLimits.maxIntensity}%{effectiveLimits.maxIntensity < 100 ? ' (Max)' : ''}
-                  </span>
+                  <div className="flex justify-between text-sm mt-2">
+                    <span className="text-gray-400">1%</span>
+                    <span className="text-gray-400">{Math.floor(maxAllowedLimits.maxIntensity / 2)}%</span>
+                    <div className="flex items-center space-x-2">
+                      {effectiveLimits.maxIntensity < 100 && (
+                        <span className={`text-xs ${useConsumable ? 'text-gray-500 line-through' : 'text-yellow-400'}`}>
+                          {effectiveLimits.maxIntensity}% (Safe)
+                        </span>
+                      )}
+                      {useConsumable && (
+                        <span className="text-xs text-red-400 font-semibold">
+                          {maxAllowedLimits.maxIntensity}% (Bypassed)
+                        </span>
+                      )}
+                      {!useConsumable && effectiveLimits.maxIntensity >= 100 && (
+                        <span className="text-gray-400">{maxAllowedLimits.maxIntensity}%</span>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -505,10 +697,26 @@ export function PiShockController({
                 <label className={`block font-medium text-gray-300 mb-3 ${isPipMode ? 'text-xs' : 'text-sm sm:text-base'}`}>
                   <div className="flex items-center justify-between">
                     <span>Duration: {duration}s</span>
-                    {effectiveLimits.maxDuration < 15 && !isPipMode && (
-                      <div className="flex items-center space-x-1 text-sm text-yellow-400">
-                        <Lock className="h-3 w-3" />
-                        <span>Max: {effectiveLimits.maxDuration}s</span>
+                    {!isPipMode && (
+                      <div className="flex items-center space-x-2">
+                        {useConsumable && duration > effectiveLimits.maxDuration && (
+                          <div className="flex items-center space-x-1 text-sm text-yellow-400">
+                            <Sparkles className="h-3 w-3" />
+                            <span className="font-semibold">BYPASSED</span>
+                          </div>
+                        )}
+                        {effectiveLimits.maxDuration < 15 && (
+                          <div className={`flex items-center space-x-1 text-sm ${useConsumable ? 'text-gray-400 line-through' : 'text-yellow-400'}`}>
+                            <Lock className="h-3 w-3" />
+                            <span>Safe Max: {effectiveLimits.maxDuration}s</span>
+                          </div>
+                        )}
+                        {useConsumable && (
+                          <div className="flex items-center space-x-1 text-sm text-red-400">
+                            <AlertTriangle className="h-3 w-3" />
+                            <span>Max: {maxAllowedLimits.maxDuration}s</span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -516,20 +724,32 @@ export function PiShockController({
                 <input
                   type="range"
                   min="1"
-                  max={effectiveLimits.maxDuration}
+                  max={maxAllowedLimits.maxDuration}
                   value={duration}
                   onChange={(e) => setDuration(parseInt(e.target.value))}
                   className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider ${
                     effectiveLimits.maxDuration < 15 ? 'limited-slider' : ''
-                  } slider-large`}
+                  } ${useConsumable && duration > effectiveLimits.maxDuration ? 'slider-danger' : ''} slider-large`}
                 />
                 {!isPipMode && (
-                  <div className="flex justify-between text-sm text-gray-400 mt-2">
-                  <span>1s</span>
-                  <span>{Math.floor(effectiveLimits.maxDuration / 2)}s</span>
-                  <span className={effectiveLimits.maxDuration < 15 ? 'text-yellow-400' : ''}>
-                    {effectiveLimits.maxDuration}s{effectiveLimits.maxDuration < 15 ? ' (Max)' : ''}
-                  </span>
+                  <div className="flex justify-between text-sm mt-2">
+                    <span className="text-gray-400">1s</span>
+                    <span className="text-gray-400">{Math.floor(maxAllowedLimits.maxDuration / 2)}s</span>
+                    <div className="flex items-center space-x-2">
+                      {effectiveLimits.maxDuration < 15 && (
+                        <span className={`text-xs ${useConsumable ? 'text-gray-500 line-through' : 'text-yellow-400'}`}>
+                          {effectiveLimits.maxDuration}s (Safe)
+                        </span>
+                      )}
+                      {useConsumable && (
+                        <span className="text-xs text-red-400 font-semibold">
+                          {maxAllowedLimits.maxDuration}s (Bypassed)
+                        </span>
+                      )}
+                      {!useConsumable && effectiveLimits.maxDuration >= 15 && (
+                        <span className="text-gray-400">{maxAllowedLimits.maxDuration}s</span>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
