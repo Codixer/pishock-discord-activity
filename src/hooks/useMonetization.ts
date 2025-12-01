@@ -176,6 +176,8 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
 
         for (const entitlement of entitlementsList) {
           // Check for consumable SKU (Shock Past Limit)
+          // Note: Discord entitlement types: 1=Purchase, 2=Premium Subscription, 3=Developer Gift, 4=One-time Purchase, 5=Subscription
+          // For consumables, we check by SKU ID and that it's not consumed, regardless of type
           if (entitlement.sku_id === SHOCK_PAST_LIMIT_SKU_ID) {
             console.log('[Monetization] Found Shock Past Limit entitlement:', {
               id: entitlement.id,
@@ -183,12 +185,14 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
               consumed: entitlement.consumed,
               sku_id: entitlement.sku_id
             });
-            if (entitlement.type === 3 && !(entitlement.consumed ?? false)) {
+            // Check if not consumed (type 4 is one-time purchase, but we check consumed status)
+            if (!(entitlement.consumed ?? false)) {
               hasShockPastLimit = true;
             }
           }
           
           // Check for subscription SKU (Controller+)
+          // Type 1 = Purchase, Type 5 = Subscription - both can be valid for subscriptions
           if (entitlement.sku_id === CONTROLLER_PLUS_SKU_ID) {
             console.log('[Monetization] Found Controller+ entitlement:', {
               id: entitlement.id,
@@ -196,7 +200,8 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
               ends_at: entitlement.ends_at,
               sku_id: entitlement.sku_id
             });
-            if (entitlement.type === 5) {
+            // Accept type 1 (Purchase) or type 5 (Subscription) for Controller+
+            if (entitlement.type === 1 || entitlement.type === 5) {
               if (entitlement.ends_at) {
                 const expiresAt = new Date(entitlement.ends_at).getTime();
                 const now = Date.now();
@@ -205,7 +210,7 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
                   subscriptionExpiresAt = expiresAt;
                 }
               } else {
-                hasControllerPlus = true; // Perpetual subscription
+                hasControllerPlus = true; // Perpetual subscription or purchase
               }
             }
           }
@@ -216,7 +221,7 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
           hasShockPastLimit,
           hasControllerPlus,
           consumableCount: entitlementsList.filter((ent: Entitlement) => 
-            ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && ent.type === 3 && !(ent.consumed ?? false)
+            ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && !(ent.consumed ?? false)
           ).length,
           subscriptionExpiresAt
         });
@@ -409,7 +414,7 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
   }, [isEmbedded, discordSdk, fetchEntitlements, fetchBackendSkuStatus]);
 
   const consumableCount = (state.entitlements || []).filter(
-    (ent: Entitlement) => ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && ent.type === 3 && !(ent.consumed ?? false)
+    (ent: Entitlement) => ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && !(ent.consumed ?? false)
   ).length;
 
   // Log state changes for debugging

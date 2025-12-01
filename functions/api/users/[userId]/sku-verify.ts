@@ -182,16 +182,18 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (entitlements && Array.isArray(entitlements)) {
       for (const entitlement of entitlements) {
         // Check for consumable SKU (Shock Past Limit)
+        // Check by SKU ID and consumed status, not type (type can be 3 or 4)
         if (entitlement.sku_id === SHOCK_PAST_LIMIT_SKU_ID) {
           // For consumables, check if it's not consumed
-          if (entitlement.type === 3 && !entitlement.consumed) {
+          if (!entitlement.consumed) {
             hasShockPastLimit = true;
           }
         }
         
         // Check for subscription SKU (Controller+)
+        // Accept type 1 (Purchase) or type 5 (Subscription)
         if (entitlement.sku_id === CONTROLLER_PLUS_SKU_ID) {
-          if (entitlement.type === 5) { // Subscription type
+          if (entitlement.type === 1 || entitlement.type === 5) {
             // Check if subscription is active
             if (entitlement.ends_at) {
               const expiresAt = new Date(entitlement.ends_at).getTime() / 1000;
@@ -201,7 +203,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
                 subscriptionExpiresAt = expiresAt;
               }
             } else {
-              // No expiration means active subscription
+              // No expiration means active subscription/purchase
               hasControllerPlus = true;
             }
           }

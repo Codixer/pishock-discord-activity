@@ -229,7 +229,8 @@ async function verifyControllerPlus(token: string): Promise<boolean> {
   }
   
   for (const entitlement of entitlements) {
-    if (entitlement.sku_id === CONTROLLER_PLUS_SKU_ID && entitlement.type === 5) {
+    // Accept type 1 (Purchase) or type 5 (Subscription) for Controller+
+    if (entitlement.sku_id === CONTROLLER_PLUS_SKU_ID && (entitlement.type === 1 || entitlement.type === 5)) {
       // Check if subscription is active
       if (entitlement.ends_at) {
         const expiresAt = new Date(entitlement.ends_at).getTime() / 1000;

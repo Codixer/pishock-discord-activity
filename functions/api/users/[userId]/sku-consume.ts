@@ -165,9 +165,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     // Find an unconsumed entitlement for this SKU
+    // Check by SKU ID and consumed status, not type (type can be 3 or 4)
     const entitlement = entitlements.find((ent: any) => 
       ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && 
-      ent.type === 3 && // Consumable type
       !ent.consumed
     );
 

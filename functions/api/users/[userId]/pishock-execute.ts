@@ -418,11 +418,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           }, 500);
         }
         
-        const availableEntitlement = entitlements.find((ent: any) => 
-          ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && 
-          ent.type === 3 && // Consumable type
-          !ent.consumed
-        );
+            // Check by SKU ID and consumed status, not type (type can be 3 or 4)
+            const availableEntitlement = entitlements.find((ent: any) => 
+              ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && 
+              !ent.consumed
+            );
         
         if (!availableEntitlement) {
           return jsonResponse({ 
@@ -485,9 +485,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         if (bypassedLimit) {
           const entitlements = await fetchUserEntitlements(token);
           if (entitlements && Array.isArray(entitlements)) {
+            // Check by SKU ID and consumed status, not type (type can be 3 or 4)
             const availableEntitlement = entitlements.find((ent: any) => 
               ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && 
-              ent.type === 3 && 
               !ent.consumed
             );
             
