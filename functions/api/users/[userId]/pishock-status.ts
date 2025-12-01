@@ -278,13 +278,21 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const user = await validateDiscordToken(token, env.PISHOCK_KV);
   if (!user) return new Response('Invalid token', { status: 401 });
   
+  // Check if user is checking their own status (for Controller+ check)
+  const isOwnStatus = user.id === userId;
+  
   try {
     const cachedStatus = await getCachedUserStatus(env.PISHOCK_KV, userId);
     if (cachedStatus) {
-      return jsonResponse(cachedStatus, 200, {
-        'Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
-        'X-Cache-Status': 'HIT'
-      });
+      // If checking own status and cache doesn't have Controller+ info, refresh it
+      if (isOwnStatus && cachedStatus.hasControllerPlus === undefined) {
+        // Will check Controller+ below
+      } else {
+        return jsonResponse(cachedStatus, 200, {
+          'Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
+          'X-Cache-Status': 'HIT'
+        });
+      }
     }
     
     const userDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
@@ -331,6 +339,49 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
     }
 
+    // Check Controller+ subscription status (only if checking own status)
+    let hasControllerPlus = false;
+    if (isOwnStatus) {
+      try {
+        const entitlementsResponse = await fetch('https://discord.com/api/v9/applications/@me/entitlements', {
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+        });
+        
+        if (entitlementsResponse.ok) {
+          const entitlements = await entitlementsResponse.json();
+          if (Array.isArray(entitlements)) {
+            for (const entitlement of entitlements) {
+              if (entitlement.sku_id === "1387037988558606457") { // Controller+ SKU ID
+                if (entitlement.type === 1 || entitlement.type === 5) {
+                  if (entitlement.ends_at) {
+                    const expiresAt = new Date(entitlement.ends_at).getTime() / 1000;
+                    const now = Math.floor(Date.now() / 1000);
+                    if (expiresAt > now) {
+                      hasControllerPlus = true;
+                    }
+                  } else {
+                    hasControllerPlus = true; // Perpetual subscription
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (error) {
+        // Silently handle entitlement check errors
+      }
+    } else {
+      // For other users, try to get from cached status or user data
+      if (cachedStatus?.hasControllerPlus !== undefined) {
+        hasControllerPlus = cachedStatus.hasControllerPlus;
+      } else if (userData?.hasControllerPlus !== undefined) {
+        hasControllerPlus = userData.hasControllerPlus;
+      }
+    }
+
     const result = { 
       hasCredentials: !!userData?.credentials, 
       isConnected, 
@@ -341,8 +392,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       lastTested,
       isRelay: false,
       maxIntensity,
-      maxDuration
+      maxDuration,
+      hasControllerPlus
     };
+    
+    // Store Controller+ status in user data if checking own status
+    if (isOwnStatus && hasControllerPlus !== (userData?.hasControllerPlus || false)) {
+      if (!userData) {
+        await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify({ hasControllerPlus }));
+      } else {
+        userData.hasControllerPlus = hasControllerPlus;
+        await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
+      }
+    }
     
     await setCachedUserStatus(env.PISHOCK_KV, userId, result);
     

@@ -135,8 +135,13 @@ export function UserSelector({
                         }}
                       />
                       <div className="min-w-0 flex-1">
-                        <p className="font-medium text-blue-300 text-xs sm:text-sm truncate">
-                          {getDisplayName(currentUser)}
+                        <p className="font-medium text-blue-300 text-xs sm:text-sm truncate flex items-center space-x-1">
+                          <span>{getDisplayName(currentUser)}</span>
+                          {userPiShockStatus[currentUser.id]?.hasControllerPlus && (
+                            <span title="Controller+ Subscriber">
+                              <Crown className="h-3 w-3 sm:h-4 sm:w-4 text-yellow-400 flex-shrink-0" />
+                            </span>
+                          )}
                         </p>
                         <div className="flex flex-col space-y-1 mt-1">
                           <div className="flex items-center space-x-1">
@@ -232,8 +237,13 @@ export function UserSelector({
                               }}
                             />
                             <div className="min-w-0 flex-1">
-                              <p className="font-medium text-white text-xs sm:text-sm truncate">
-                                {getDisplayName(member)}
+                              <p className="font-medium text-white text-xs sm:text-sm truncate flex items-center space-x-1">
+                                <span>{getDisplayName(member)}</span>
+                                {userStatus?.hasControllerPlus && (
+                                  <span title="Controller+ Subscriber">
+                                    <Crown className="h-3 w-3 sm:h-4 sm:w-4 text-yellow-400 flex-shrink-0" />
+                                  </span>
+                                )}
                               </p>
                               <div className="flex flex-col space-y-1 mt-1">
                                 <div className="flex items-center space-x-1">

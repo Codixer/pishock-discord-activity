@@ -307,7 +307,18 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   if (!user) return new Response('Invalid token', { status: 401 });
 
   try {
-    const { executorUserId, intensity, duration, operation } = await request.json();
+    let requestBody;
+    try {
+      requestBody = await request.json();
+    } catch (parseError) {
+      console.error('Failed to parse request body:', parseError);
+      return jsonResponse({ 
+        success: false, 
+        error: 'Invalid request body format' 
+      }, 400);
+    }
+    
+    const { executorUserId, intensity, duration, operation, bypassLimits = false } = requestBody;
 
     if (!executorUserId || intensity < 1 || intensity > 100 || duration < 1 || duration > 15 || ![0, 1, 2].includes(operation)) {
       return jsonResponse({ 
@@ -387,10 +398,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const targetMaxIntensity = creds.maxIntensity || 100;
       const targetMaxDuration = creds.maxDuration || 15;
       
-      // Check if limit bypass is needed
-      const needsBypass = intensity > targetMaxIntensity || duration > targetMaxDuration;
+      // Check if limit bypass is requested and if limits are actually exceeded
+      const limitsExceeded = intensity > targetMaxIntensity || duration > targetMaxDuration;
+      const needsBypass = bypassLimits && limitsExceeded;
       let bypassedLimit = false;
       let skuConsumed: string | undefined;
+      let entitlementIdToConsume: string | undefined;
       
       if (needsBypass) {
         // Verify 2-sided consent
@@ -431,12 +444,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           }, 403);
         }
         
-        // We'll consume the SKU after successful execution
+        // Store entitlement ID for consumption after successful execution
+        entitlementIdToConsume = availableEntitlement.id;
         bypassedLimit = true;
-      }
-      
-      // Validate limits (only if not bypassing)
-      if (!needsBypass) {
+      } else if (limitsExceeded && !bypassLimits) {
+        // Limits are exceeded but bypass was not requested
         if (intensity > targetMaxIntensity) {
           return jsonResponse({ 
             success: false, 
@@ -475,60 +487,45 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
 
       const responseText = await response.text();
+      const isPiShockSuccess = response.ok && responseText.includes('Operation Succeeded');
 
-      if (!response.ok) {
-        throw new Error(`PiShock API error: HTTP ${response.status} - ${responseText}`);
+      if (!isPiShockSuccess) {
+        let errorMessage = `PiShock API error: HTTP ${response.status} - ${responseText}`;
+        if (responseText.includes("This code doesn't exist")) {
+          errorMessage = 'Share code not found. Please check device configuration.';
+        } else if (responseText.includes('Not Authorized')) {
+          errorMessage = 'Not authorized. Please check API credentials.';
+        } else if (responseText.includes('Shocker is Paused')) {
+          errorMessage = 'Device is paused. Please unpause it in the PiShock web panel.';
+        } else if (responseText.includes('Device currently not connected')) {
+          errorMessage = 'Device is not connected. Please ensure the device is online.';
+        } else if (responseText.includes('already been used by somebody else')) {
+          errorMessage = 'Share code is already in use. Please generate a new one.';
+        } else if (responseText.includes('Unknown Op')) {
+          errorMessage = 'Invalid operation specified.';
+        } else if (responseText.includes('Intensity must be between')) {
+          errorMessage = 'Invalid intensity specified.';
+        } else if (responseText.includes('Duration must be between')) {
+          errorMessage = 'Invalid duration specified.';
+        }
+        throw new Error(errorMessage);
       }
 
-      if (responseText.includes('Operation Succeeded')) {
-        // Command successful - now consume SKU if limit was bypassed
-        if (bypassedLimit) {
-          const entitlements = await fetchUserEntitlements(token);
-          if (entitlements && Array.isArray(entitlements)) {
-            // Check by SKU ID and consumed status, not type (type can be 3 or 4)
-            const availableEntitlement = entitlements.find((ent: any) => 
-              ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && 
-              !ent.consumed
-            );
-            
-            if (availableEntitlement) {
-              const consumed = await consumeEntitlement(token, availableEntitlement.id);
-              if (consumed) {
-                skuConsumed = SHOCK_PAST_LIMIT_SKU_ID;
-                // Invalidate SKU status cache
-                try {
-                  await env.PISHOCK_KV.delete(`cache:sku_status:${executorUserId}`);
-                } catch (error) {
-                  // Silently handle cache invalidation errors
-                }
-              } else {
-                // Log error but don't fail the command since it already succeeded
-                // The command was successful, but SKU consumption failed - this is logged for monitoring
-                console.error(`Failed to consume SKU ${SHOCK_PAST_LIMIT_SKU_ID} for user ${executorUserId} after successful command execution. Command succeeded but SKU was not consumed.`);
-                // Note: We don't set skuConsumed flag since consumption failed
-              }
-            }
+      // Command successful - now consume SKU if limit was bypassed
+      if (bypassedLimit && entitlementIdToConsume) {
+        const consumed = await consumeEntitlement(token, entitlementIdToConsume);
+        if (consumed) {
+          skuConsumed = SHOCK_PAST_LIMIT_SKU_ID;
+          // Invalidate SKU status cache
+          try {
+            await env.PISHOCK_KV.delete(`cache:sku_status:${executorUserId}`);
+            await env.PISHOCK_KV.delete(`sku_verify_cache:${executorUserId}`);
+          } catch (error) {
+            // Silently handle cache invalidation errors
           }
-        }
-      } else {
-        if (responseText.includes("This code doesn't exist")) {
-          throw new Error('Share code not found. Please check device configuration.');
-        } else if (responseText.includes('Not Authorized')) {
-          throw new Error('Not authorized. Please check API credentials.');
-        } else if (responseText.includes('Shocker is Paused')) {
-          throw new Error('Device is paused. Please unpause it in the PiShock web panel.');
-        } else if (responseText.includes('Device currently not connected')) {
-          throw new Error('Device is not connected. Please ensure the device is online.');
-        } else if (responseText.includes('already been used by somebody else')) {
-          throw new Error('Share code is already in use. Please generate a new one.');
-        } else if (responseText.includes('Unknown Op')) {
-          throw new Error('Invalid operation specified.');
-        } else if (responseText.includes('Intensity must be between')) {
-          throw new Error('Invalid intensity specified.');
-        } else if (responseText.includes('Duration must be between')) {
-          throw new Error('Invalid duration specified.');
         } else {
-          // Unexpected response but proceed
+          // Log error but don't fail the command since it already succeeded
+          console.error(`Failed to consume SKU ${SHOCK_PAST_LIMIT_SKU_ID} for user ${executorUserId} after successful command execution. Command succeeded but SKU was not consumed.`);
         }
       }
 
@@ -561,19 +558,34 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return jsonResponse({ 
         success: true, 
         logEntryId: logEntry.id,
-        message: `${operationName} command executed successfully`
+        message: `${operationName} command executed successfully`,
+        consumeSku: bypassedLimit && entitlementIdToConsume ? { entitlementId: entitlementIdToConsume, skuId: SHOCK_PAST_LIMIT_SKU_ID } : undefined,
       });
 
     } catch (error) {
+      console.error('Error executing PiShock command:', error);
+      console.error('Error details:', {
+        executorUserId: typeof executorUserId !== 'undefined' ? executorUserId : 'undefined',
+        targetUserId,
+        intensity: typeof intensity !== 'undefined' ? intensity : 'undefined',
+        duration: typeof duration !== 'undefined' ? duration : 'undefined',
+        operation: typeof operation !== 'undefined' ? operation : 'undefined',
+        bypassLimits: typeof bypassLimits !== 'undefined' ? bypassLimits : 'undefined',
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
       return jsonResponse({ 
         success: false, 
         error: error instanceof Error ? error.message : 'Command execution failed' 
       });
     }
   } catch (error) {
+    console.error('Error in pishock-execute endpoint:', error);
+    console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
     return jsonResponse({ 
       error: 'Internal server error',
-      message: error instanceof Error ? error.message : 'Unknown error'
+      message: error instanceof Error ? error.message : 'Unknown error',
+      details: error instanceof Error ? error.stack : undefined
     }, 500);
   }
 };

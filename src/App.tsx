@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { DiscordSDK, Events, Common } from '@discord/embedded-app-sdk';
-import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText } from 'lucide-react';
+import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText, ShoppingCart, Crown } from 'lucide-react';
 import { PiShockController } from './components/PiShockController';
 import { SafetyWarning } from './components/SafetyWarning';
 import { UserSelector } from './components/UserSelector';
@@ -10,6 +10,8 @@ import { NotificationSystem } from './components/NotificationSystem';
 import { ActivityLog } from './components/ActivityLog';
 import { PrivacyPolicy } from './components/PrivacyPolicy';
 import { TermsOfService } from './components/TermsOfService';
+import { StoreModal } from './components/StoreModal';
+import { useMonetization } from './hooks/useMonetization';
 import { useNotifications } from './hooks/useNotifications';
 import { useInstanceData } from './hooks/useInstanceData';
 import { useParticipants } from './hooks/useParticipants';
@@ -94,6 +96,7 @@ function MainApp() {
   const [isInstanceValid, setIsInstanceValid] = useState(true);
   const [layoutMode, setLayoutMode] = useState<number>(Common.LayoutModeTypeObject.FOCUSED);
   const [isPipMode, setIsPipMode] = useState(false);
+  const [showStore, setShowStore] = useState(false);
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
   
@@ -106,6 +109,7 @@ function MainApp() {
   // Custom hooks for managing instance data and participants
   const { instanceData, updateInstanceData } = useInstanceData(instanceId);
   const { participants, updateParticipants } = useParticipants(discordSdk, isEmbedded);
+  const monetization = useMonetization(discordSdk, isEmbedded, auth);
 
   // Handle layout mode updates
   const handleLayoutModeUpdate = useCallback((update: { layout_mode: number }) => {
@@ -159,7 +163,9 @@ function MainApp() {
                 isRelay: status.isRelay || false, // Track if using relay account
                 maxIntensity: status.maxIntensity || 100,
                 maxDuration: status.maxDuration || 15,
-                bannedExecutors: []
+                bannedExecutors: [],
+                hasControllerPlus: status.hasControllerPlus || false,
+                lastChecked: Date.now()
               }
             };
             
@@ -844,6 +850,19 @@ function MainApp() {
                   Instance: {instanceId.slice(-8)}
                 </div>
               )}
+              {monetization.hasControllerPlus && (
+                <div className="flex items-center space-x-1 px-2 py-1 bg-yellow-600/20 border border-yellow-500/30 rounded text-xs">
+                  <Crown className="h-3 w-3 text-yellow-400" />
+                  <span className="text-yellow-300 font-medium hidden sm:inline">Controller+</span>
+                </div>
+              )}
+              <button
+                onClick={() => setShowStore(true)}
+                className="px-2 py-1 rounded-md bg-purple-600 hover:bg-purple-700 text-xs transition-colors flex items-center space-x-1"
+              >
+                <ShoppingCart className="h-3 w-3" />
+                <span className="hidden sm:inline">Store</span>
+              </button>
               <button
                 onClick={() => navigate('/terms')}
                 className="px-2 py-1 rounded-md bg-gray-700 hover:bg-gray-600 text-xs transition-colors flex items-center space-x-1"
@@ -939,12 +958,32 @@ function MainApp() {
         </div>
       </div>
       
+      <StoreModal
+        isOpen={showStore}
+        onClose={() => setShowStore(false)}
+        currentUser={auth?.user}
+        auth={auth}
+        discordSdk={discordSdk}
+        isEmbedded={isEmbedded}
+      />
+      
       <div className="fixed bottom-4 right-4 z-40 flex items-center space-x-2 bg-black/40 backdrop-blur-sm border border-white/10 rounded-lg px-3 py-2 text-xs">
-        <div className="flex items-center space-x-2">
-          <div className="w-2 h-2 rounded-full bg-green-400"></div>
-          <span className="text-gray-300 font-medium">
-            {import.meta.env.DEV ? 'dev' : `v${currentVersion.slice(-8)}`}
-          </span>
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <div className={`w-2 h-2 rounded-full ${auth ? 'bg-green-400' : 'bg-red-400'}`} />
+            <span className="text-gray-300">Discord</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <div className={`w-2 h-2 rounded-full ${piShockConnected ? 'bg-green-400' : 'bg-red-400'}`} />
+            <span className="text-gray-300">PiShock</span>
+          </div>
+          <div className="w-px h-4 bg-gray-600"></div>
+          <div className="flex items-center space-x-2">
+            <div className="w-2 h-2 rounded-full bg-green-400"></div>
+            <span className="text-gray-300 font-medium">
+              {import.meta.env.DEV ? 'dev' : `v${currentVersion.slice(-8)}`}
+            </span>
+          </div>
         </div>
       </div>
     </div>

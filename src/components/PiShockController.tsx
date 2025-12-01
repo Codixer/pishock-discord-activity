@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Zap, Settings, Play, Square, AlertTriangle, Lock, Wifi, WifiOff, Crown, Users, Sparkles, RefreshCw } from 'lucide-react';
+import { Zap, Settings, Play, Square, AlertTriangle, Lock, Crown, Users, Sparkles } from 'lucide-react';
 import { DiscordSDK, Common } from '@discord/embedded-app-sdk';
 import { PiShockSettingsModal } from './PiShockSettingsModal';
 import { useMonetization } from '../hooks/useMonetization';
@@ -51,7 +51,6 @@ export function PiShockController({
   const [showSettings, setShowSettings] = useState(false);
   const [currentUserPiShockConnected, setCurrentUserPiShockConnected] = useState(false);
   const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
-  const [discordConnected, setDiscordConnected] = useState(!!auth);
   const [multiTargetMode, setMultiTargetMode] = useState(false);
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
   const [useConsumable, setUseConsumable] = useState(false);
@@ -63,11 +62,6 @@ export function PiShockController({
 
   // Check if we're in PIP mode
   const isPipMode = layoutMode === Common.LayoutModeTypeObject.PIP;
-
-  // Update Discord connection status when auth changes
-  useEffect(() => {
-    setDiscordConnected(!!auth);
-  }, [auth]);
 
   // Get the effective limits based on selected user
   const getEffectiveLimits = () => {
@@ -390,73 +384,22 @@ export function PiShockController({
               <h3 className={`font-semibold ${isPipMode ? 'text-sm' : 'text-lg sm:text-xl'}`}>
                 Control Panel
               </h3>
-              {monetization.hasControllerPlus && (
-                <div className="flex items-center space-x-1 px-2 py-1 bg-yellow-600/20 border border-yellow-500/30 rounded text-xs">
-                  <Crown className="h-3 w-3 text-yellow-400" />
-                  <span className="text-yellow-300 font-medium">Controller+</span>
-                </div>
-              )}
               {monetization.hasShockPastLimit && consumableCount > 0 && (
                 <div className="flex items-center space-x-1 px-2 py-1 bg-purple-600/20 border border-purple-500/30 rounded text-xs">
                   <Sparkles className="h-3 w-3 text-purple-400" />
                   <span className="text-purple-300 font-medium">{consumableCount} Consumable{consumableCount !== 1 ? 's' : ''}</span>
                 </div>
               )}
+            </div>
+            {!isPipMode && (
               <button
-                onClick={async () => {
-                  console.log('[Monetization] Manual refresh triggered');
-                  await monetization.refreshEntitlements();
-                  console.log('[Monetization] Current state after refresh:', {
-                    hasShockPastLimit: monetization.hasShockPastLimit,
-                    hasControllerPlus: monetization.hasControllerPlus,
-                    consumableCount: monetization.consumableCount,
-                    entitlements: monetization.entitlements?.length || 0
-                  });
-                }}
-                className="flex items-center space-x-1 px-2 py-1 bg-gray-600/20 border border-gray-500/30 rounded text-xs hover:bg-gray-600/30 transition-colors"
-                title="Refresh SKU status"
+                onClick={() => setShowSettings(true)}
+                className="flex items-center space-x-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors text-sm font-medium"
               >
-                <RefreshCw className={`h-3 w-3 text-gray-400 ${monetization.loading ? 'animate-spin' : ''}`} />
+                <Settings className="h-4 w-4" />
+                <span>PiShock Settings</span>
               </button>
-              {/* Debug info - remove in production */}
-              {import.meta.env.DEV && (
-                <div className="text-xs text-gray-500 ml-2">
-                  L:{monetization.loading ? 'Y' : 'N'} 
-                  SPL:{monetization.hasShockPastLimit ? 'Y' : 'N'} 
-                  CP:{monetization.hasControllerPlus ? 'Y' : 'N'} 
-                  C:{consumableCount}
-                </div>
-              )}
-            </div>
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-4">
-                <div className="flex items-center space-x-2">
-                  <div className={`w-2 h-2 rounded-full ${discordConnected ? 'bg-green-400' : 'bg-red-400'}`} />
-                  <span className={`text-sm text-gray-300 ${isPipMode ? 'hidden' : ''}`}>Discord</span>
-                  {discordConnected ? (
-                    <Wifi className="h-4 w-4 text-green-400" />
-                  ) : (
-                    <WifiOff className="h-4 w-4 text-red-400" />
-                  )}
-                </div>
-                
-                <div className="flex items-center space-x-2">
-                  <div className={`w-2 h-2 rounded-full ${currentUserPiShockConnected ? 'bg-green-400' : 'bg-red-400'}`} />
-                  <span className={`text-sm text-gray-300 ${isPipMode ? 'hidden' : ''}`}>PiShock</span>
-                  <Zap className={`h-4 w-4 ${currentUserPiShockConnected ? 'text-green-400' : 'text-red-400'}`} />
-                </div>
-              </div>
-
-              {!isPipMode && (
-                <button
-                  onClick={() => setShowSettings(true)}
-                  className="flex items-center space-x-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors text-sm font-medium"
-                >
-                  <Settings className="h-4 w-4" />
-                  <span>PiShock Settings</span>
-                </button>
-              )}
-            </div>
+            )}
           </div>
 
         {!selectedUser ? (
@@ -845,7 +788,7 @@ export function PiShockController({
             </div>
           </div>
         )}
-      </div>
+        </div>
       </div>
     </>
   );
