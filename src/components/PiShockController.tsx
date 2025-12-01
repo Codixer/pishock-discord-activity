@@ -403,12 +403,30 @@ export function PiShockController({
                 </div>
               )}
               <button
-                onClick={() => monetization.refreshEntitlements()}
+                onClick={async () => {
+                  console.log('[Monetization] Manual refresh triggered');
+                  await monetization.refreshEntitlements();
+                  console.log('[Monetization] Current state after refresh:', {
+                    hasShockPastLimit: monetization.hasShockPastLimit,
+                    hasControllerPlus: monetization.hasControllerPlus,
+                    consumableCount: monetization.consumableCount,
+                    entitlements: monetization.entitlements?.length || 0
+                  });
+                }}
                 className="flex items-center space-x-1 px-2 py-1 bg-gray-600/20 border border-gray-500/30 rounded text-xs hover:bg-gray-600/30 transition-colors"
                 title="Refresh SKU status"
               >
                 <RefreshCw className={`h-3 w-3 text-gray-400 ${monetization.loading ? 'animate-spin' : ''}`} />
               </button>
+              {/* Debug info - remove in production */}
+              {import.meta.env.DEV && (
+                <div className="text-xs text-gray-500 ml-2">
+                  L:{monetization.loading ? 'Y' : 'N'} 
+                  SPL:{monetization.hasShockPastLimit ? 'Y' : 'N'} 
+                  CP:{monetization.hasControllerPlus ? 'Y' : 'N'} 
+                  C:{consumableCount}
+                </div>
+              )}
             </div>
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-4">
@@ -528,7 +546,7 @@ export function PiShockController({
             )}
             
             {/* Consumable Toggle - Only show if user has consumables and is in single-target mode */}
-            {!multiTargetMode && monetization.hasShockPastLimit && consumableCount > 0 && selectedUser && (
+            {!multiTargetMode && (monetization.hasShockPastLimit || consumableCount > 0) && selectedUser && (
               <div className="p-3 bg-purple-900/20 border border-purple-500/30 rounded-lg flex-shrink-0">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center space-x-2">

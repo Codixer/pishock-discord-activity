@@ -177,27 +177,49 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
         for (const entitlement of entitlementsList) {
           // Check for consumable SKU (Shock Past Limit)
           if (entitlement.sku_id === SHOCK_PAST_LIMIT_SKU_ID) {
-            if (entitlement.type === 3 && !entitlement.consumed) {
+            console.log('[Monetization] Found Shock Past Limit entitlement:', {
+              id: entitlement.id,
+              type: entitlement.type,
+              consumed: entitlement.consumed,
+              sku_id: entitlement.sku_id
+            });
+            if (entitlement.type === 3 && !(entitlement.consumed ?? false)) {
               hasShockPastLimit = true;
             }
           }
           
           // Check for subscription SKU (Controller+)
           if (entitlement.sku_id === CONTROLLER_PLUS_SKU_ID) {
+            console.log('[Monetization] Found Controller+ entitlement:', {
+              id: entitlement.id,
+              type: entitlement.type,
+              ends_at: entitlement.ends_at,
+              sku_id: entitlement.sku_id
+            });
             if (entitlement.type === 5) {
               if (entitlement.ends_at) {
-                const expiresAt = new Date(entitlement.ends_at).getTime() / 1000;
-                const now = Math.floor(Date.now() / 1000);
+                const expiresAt = new Date(entitlement.ends_at).getTime();
+                const now = Date.now();
                 if (expiresAt > now) {
                   hasControllerPlus = true;
                   subscriptionExpiresAt = expiresAt;
                 }
               } else {
-                hasControllerPlus = true;
+                hasControllerPlus = true; // Perpetual subscription
               }
             }
           }
         }
+        
+        console.log('[Monetization] Processed entitlements result:', {
+          total: entitlementsList.length,
+          hasShockPastLimit,
+          hasControllerPlus,
+          consumableCount: entitlementsList.filter((ent: Entitlement) => 
+            ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && ent.type === 3 && !(ent.consumed ?? false)
+          ).length,
+          subscriptionExpiresAt
+        });
 
         const newState: MonetizationState = {
           skus: [],
@@ -209,6 +231,8 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
           error: null
         };
 
+        console.log('[Monetization] Setting new state:', newState);
+
         // Update global cache
         globalEntitlementsCache = {
           data: newState,
@@ -217,11 +241,15 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
         };
 
         if (mountedRef.current) {
-          setState(prev => ({
-            ...prev,
-            ...newState,
-            loading: false
-          }));
+          setState(prev => {
+            const updated = {
+              ...prev,
+              ...newState,
+              loading: false
+            };
+            console.log('[Monetization] State updated in component:', updated);
+            return updated;
+          });
         }
       } catch (error: any) {
         console.error('Failed to fetch entitlements:', error);
@@ -335,21 +363,27 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
 
   // Initial load - only fetch SKUs once, entitlements are cached globally
   useEffect(() => {
-    if (isEmbedded && discordSdk) {
+    if (isEmbedded && discordSdk && auth?.access_token) {
+      console.log('[Monetization] Initializing monetization hook');
       // Fetch SKUs only once (they don't change often)
       const now = Date.now();
       if (!globalEntitlementsCache.data || (now - globalEntitlementsCache.timestamp) > CACHE_DURATION) {
+        console.log('[Monetization] Fetching SKUs and entitlements (cache miss)');
         fetchSkus();
         fetchEntitlements();
       } else {
         // Use cached data
+        console.log('[Monetization] Using cached entitlements data');
         setState(prev => ({ ...prev, ...globalEntitlementsCache.data, loading: false }));
         fetchSkus(); // SKUs can be fetched separately
       }
     } else {
+      if (!isEmbedded) console.log('[Monetization] Not embedded, skipping fetch');
+      if (!discordSdk) console.log('[Monetization] No Discord SDK, skipping fetch');
+      if (!auth?.access_token) console.log('[Monetization] No auth token, skipping fetch');
       setState(prev => ({ ...prev, loading: false }));
     }
-  }, [isEmbedded, discordSdk, fetchSkus, fetchEntitlements]);
+  }, [isEmbedded, discordSdk, auth?.access_token, fetchSkus, fetchEntitlements]);
 
   // Fetch backend status when auth is available
   useEffect(() => {
@@ -374,6 +408,28 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     return () => clearInterval(interval);
   }, [isEmbedded, discordSdk, fetchEntitlements, fetchBackendSkuStatus]);
 
+  const consumableCount = (state.entitlements || []).filter(
+    (ent: Entitlement) => ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && ent.type === 3 && !(ent.consumed ?? false)
+  ).length;
+
+  // Log state changes for debugging
+  useEffect(() => {
+    console.log('[Monetization] Hook state changed:', {
+      hasShockPastLimit: state.hasShockPastLimit,
+      hasControllerPlus: state.hasControllerPlus,
+      consumableCount,
+      entitlementsCount: state.entitlements.length,
+      loading: state.loading,
+      error: state.error,
+      entitlements: state.entitlements.map((e: Entitlement) => ({
+        id: e.id,
+        sku_id: e.sku_id,
+        type: e.type,
+        consumed: e.consumed
+      }))
+    });
+  }, [state.hasShockPastLimit, state.hasControllerPlus, consumableCount, state.entitlements.length, state.loading, state.error, state.entitlements]);
+
   return {
     ...state,
     refreshEntitlements: fetchEntitlements,
@@ -382,9 +438,7 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     consumeEntitlement,
     shockPastLimitSku: state.skus.find(s => s.id === SHOCK_PAST_LIMIT_SKU_ID),
     controllerPlusSku: state.skus.find(s => s.id === CONTROLLER_PLUS_SKU_ID),
-    consumableCount: (state.entitlements || []).filter(
-      (ent: Entitlement) => ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && ent.type === 3 && !ent.consumed
-    ).length,
+    consumableCount,
   };
 }
 
