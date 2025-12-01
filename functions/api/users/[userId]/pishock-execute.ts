@@ -27,9 +27,14 @@ interface ActivityLogEntry {
 
 const SHOCK_PAST_LIMIT_SKU_ID = "1418562984946569267";
 
-async function fetchUserEntitlements(token: string): Promise<any> {
+async function fetchUserEntitlements(token: string, env: Env): Promise<any[] | null> {
   try {
-    const response = await fetch('https://discord.com/api/v9/applications/@me/entitlements', {
+    if (!env.DISCORD_CLIENT_ID) {
+      console.error('DISCORD_CLIENT_ID not configured');
+      return null;
+    }
+    
+    const response = await fetch(`https://discord.com/api/v9/users/@me/applications/${env.DISCORD_CLIENT_ID}/entitlements?exclude_consumed=true`, {
       headers: { 
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
@@ -37,12 +42,18 @@ async function fetchUserEntitlements(token: string): Promise<any> {
     });
     
     if (!response.ok) {
+      console.error(`Failed to fetch entitlements: ${response.status} ${response.statusText}`);
+      const errorText = await response.text().catch(() => 'Unknown error');
+      console.error(`Error response: ${errorText}`);
       return null;
     }
     
-    const entitlements = await response.json();
+    const data = await response.json();
+    // Discord API returns an array directly or wrapped in an object
+    const entitlements = Array.isArray(data) ? data : (data.entitlements || []);
     return entitlements;
   } catch (error) {
+    console.error('Error fetching entitlements:', error);
     return null;
   }
 }
@@ -423,11 +434,16 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         }
         
         // Check if executor has available SKU
-        const entitlements = await fetchUserEntitlements(token);
+        const entitlements = await fetchUserEntitlements(token, env);
         if (!entitlements || !Array.isArray(entitlements)) {
+          console.error('Failed to fetch entitlements or invalid response:', {
+            entitlements,
+            isArray: Array.isArray(entitlements),
+            executorUserId
+          });
           return jsonResponse({ 
             success: false, 
-            error: 'Failed to verify SKU entitlement' 
+            error: 'Failed to verify SKU entitlement. Please ensure you have purchased the "Shock Past User Limit" consumable.' 
           }, 500);
         }
         
@@ -513,19 +529,33 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       // Command successful - now consume SKU if limit was bypassed
       if (bypassedLimit && entitlementIdToConsume) {
-        const consumed = await consumeEntitlement(token, entitlementIdToConsume);
-        if (consumed) {
-          skuConsumed = SHOCK_PAST_LIMIT_SKU_ID;
-          // Invalidate SKU status cache
-          try {
-            await env.PISHOCK_KV.delete(`cache:sku_status:${executorUserId}`);
-            await env.PISHOCK_KV.delete(`sku_verify_cache:${executorUserId}`);
-          } catch (error) {
-            // Silently handle cache invalidation errors
+        // Re-fetch entitlements to get the latest state before consuming
+        const latestEntitlements = await fetchUserEntitlements(token, env);
+        if (latestEntitlements && Array.isArray(latestEntitlements)) {
+          const latestEntitlement = latestEntitlements.find((ent: any) => 
+            ent.id === entitlementIdToConsume && 
+            ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && 
+            !ent.consumed
+          );
+          
+          if (latestEntitlement) {
+            const consumed = await consumeEntitlement(token, latestEntitlement.id);
+            if (consumed) {
+              skuConsumed = SHOCK_PAST_LIMIT_SKU_ID;
+              // Invalidate SKU status cache
+              try {
+                await env.PISHOCK_KV.delete(`cache:sku_status:${executorUserId}`);
+                await env.PISHOCK_KV.delete(`sku_verify_cache:${executorUserId}`);
+              } catch (error) {
+                // Silently handle cache invalidation errors
+              }
+            } else {
+              // Log error but don't fail the command since it already succeeded
+              console.error(`Failed to consume SKU ${SHOCK_PAST_LIMIT_SKU_ID} for user ${executorUserId} after successful command execution. Command succeeded but SKU was not consumed.`);
+            }
+          } else {
+            console.warn(`Entitlement ${entitlementIdToConsume} not found or already consumed when attempting to consume after successful command.`);
           }
-        } else {
-          // Log error but don't fail the command since it already succeeded
-          console.error(`Failed to consume SKU ${SHOCK_PAST_LIMIT_SKU_ID} for user ${executorUserId} after successful command execution. Command succeeded but SKU was not consumed.`);
         }
       }
 
