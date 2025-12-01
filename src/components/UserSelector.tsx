@@ -104,8 +104,26 @@ export function UserSelector({
                   <h3 className="text-xs sm:text-sm font-medium text-gray-400 mb-2 flex items-center space-x-1">
                     <Crown className="h-3 w-3" />
                     <span>You</span>
+                    <span className="text-xs text-gray-500 ml-1">(Click to target yourself)</span>
                   </h3>
-                  <div className="p-2 sm:p-3 rounded-lg border bg-blue-900/20 border-blue-500/30">
+                  <button
+                    onClick={() => {
+                      const currentUserStatus = userPiShockStatus[currentUser.id];
+                      const isConnected = currentUserStatus?.isConnected;
+                      if (isConnected) {
+                        onUserSelect(currentUser);
+                      }
+                    }}
+                    disabled={!userPiShockStatus[currentUser.id]?.isConnected}
+                    className={`w-full p-2 sm:p-3 rounded-lg border transition-all text-left ${
+                      !userPiShockStatus[currentUser.id]?.isConnected
+                        ? 'bg-gray-800/30 border-gray-600/30 opacity-60 cursor-not-allowed'
+                        : selectedUser?.id === currentUser.id
+                        ? 'bg-blue-600/20 border-blue-500/50 ring-2 ring-blue-500/20'
+                        : 'bg-blue-900/20 border-blue-500/30 hover:bg-blue-800/30 hover:border-blue-400/40'
+                    }`}
+                    title={!userPiShockStatus[currentUser.id]?.isConnected ? 'Configure your PiShock device in settings to target yourself' : 'Click to target yourself'}
+                  >
                     <div className="flex items-center space-x-3">
                       <img
                         src={getAvatarUrl(currentUser)}
@@ -159,10 +177,18 @@ export function UserSelector({
                               ID: {userPiShockStatus[currentUser.id].piShockUserId}
                             </div>
                           )}
+                          {userPiShockStatus[currentUser.id]?.maxIntensity < 100 || userPiShockStatus[currentUser.id]?.maxDuration < 15 ? (
+                            <div className="text-xs text-yellow-400">
+                              Limits: {userPiShockStatus[currentUser.id].maxIntensity}%/{userPiShockStatus[currentUser.id].maxDuration}s
+                            </div>
+                          ) : null}
                         </div>
                       </div>
+                      {selectedUser?.id === currentUser.id && userPiShockStatus[currentUser.id]?.isConnected && (
+                        <div className="w-2 h-2 bg-blue-400 rounded-full flex-shrink-0"></div>
+                      )}
                     </div>
-                  </div>
+                  </button>
                 </div>
               )}
 

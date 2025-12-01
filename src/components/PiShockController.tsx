@@ -493,7 +493,6 @@ export function PiShockController({
                 {multiTargetMode && (
                   <div className="mt-3 space-y-2 max-h-32 overflow-y-auto">
                     {participants
-                      .filter(p => p.id !== currentUser?.id)
                       .map(participant => {
                         const userStatus = (window as any).userPiShockStatus?.[participant.id];
                         const isConnected = userStatus?.isConnected;
@@ -526,7 +525,10 @@ export function PiShockController({
                               disabled={!isConnected}
                               className="rounded"
                             />
-                            <span className="text-sm text-gray-300 flex-1">{displayName}</span>
+                            <span className="text-sm text-gray-300 flex-1">
+                              {displayName}
+                              {participant.id === currentUser?.id && <span className="text-xs text-blue-400 ml-1">(You)</span>}
+                            </span>
                             {isConnected ? (
                               <Zap className="h-3 w-3 text-green-400" />
                             ) : (
@@ -598,7 +600,6 @@ export function PiShockController({
                 {multiTargetMode && (
                   <div className="mt-3 space-y-2 max-h-32 overflow-y-auto">
                     {participants
-                      .filter(p => p.id !== currentUser?.id)
                       .map(participant => {
                         const userStatus = (window as any).userPiShockStatus?.[participant.id];
                         const isConnected = userStatus?.isConnected;
@@ -631,7 +632,10 @@ export function PiShockController({
                               disabled={!isConnected}
                               className="rounded"
                             />
-                            <span className="text-sm text-gray-300 flex-1">{displayName}</span>
+                            <span className="text-sm text-gray-300 flex-1">
+                              {displayName}
+                              {participant.id === currentUser?.id && <span className="text-xs text-blue-400 ml-1">(You)</span>}
+                            </span>
                             {isConnected ? (
                               <Zap className="h-3 w-3 text-green-400" />
                             ) : (
