@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, X, Save, Loader, ExternalLink, Wifi, AlertTriangle, Shield, User, Lock } from 'lucide-react';
+import { Settings, X, Save, Loader, ExternalLink, Wifi, AlertTriangle, Shield, User, Lock, Zap, Crown, ShoppingCart } from 'lucide-react';
 import { DiscordSDK } from '@discord/embedded-app-sdk';
+import { useMonetization } from '../hooks/useMonetization';
 
 interface PiShockSettingsModalProps {
   isOpen: boolean;
@@ -41,10 +42,14 @@ export function PiShockSettingsModal({
   const [userMaxIntensity, setUserMaxIntensity] = useState(100);
   const [userMaxDuration, setUserMaxDuration] = useState(15);
   const [bannedExecutors, setBannedExecutors] = useState<string[]>([]);
+  const [allowShockPastLimit, setAllowShockPastLimit] = useState(false);
+  const [useShockPastLimit, setUseShockPastLimit] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [hasStoredCredentials, setHasStoredCredentials] = useState(false);
+  
+  const monetization = useMonetization(discordSdk, isEmbedded, auth);
   const [connectionStatus, setConnectionStatus] = useState<{
     connected: boolean;
     message: string;
@@ -147,6 +152,8 @@ export function PiShockSettingsModal({
           setUserMaxIntensity(settings.maxIntensity || 100);
           setUserMaxDuration(settings.maxDuration || 15);
           setBannedExecutors(settings.bannedExecutors || []);
+          setAllowShockPastLimit(settings.allowShockPastLimit || false);
+          setUseShockPastLimit(settings.useShockPastLimit || false);
         }
       }
     } catch (error) {
@@ -229,6 +236,8 @@ export function PiShockSettingsModal({
           maxIntensity: userMaxIntensity,
           maxDuration: userMaxDuration,
           bannedExecutors,
+          allowShockPastLimit,
+          useShockPastLimit,
         }),
       });
 
@@ -548,6 +557,116 @@ export function PiShockSettingsModal({
               <div className="text-sm text-red-300">
                 Currently blocking {bannedExecutors.length} user{bannedExecutors.length !== 1 ? 's' : ''}
               </div>
+            )}
+          </div>
+
+          <div className="space-y-4 p-4 bg-purple-900/20 border border-purple-500/30 rounded-lg">
+            <h3 className="text-lg font-medium text-purple-300 flex items-center space-x-2">
+              <Zap className="h-5 w-5" />
+              <span>Shock Past Limit</span>
+            </h3>
+            <p className="text-sm text-purple-200">
+              Allow others to shock you past your configured limits (requires 2-sided consent)
+            </p>
+            
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-3 bg-black/20 rounded border border-gray-600">
+                <div className="flex-1">
+                  <label className="text-sm font-medium text-gray-300">Allow Shock Past Limit</label>
+                  <p className="text-xs text-gray-400 mt-1">Enable this to allow others to shock you past your limits</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={allowShockPastLimit}
+                    onChange={(e) => setAllowShockPastLimit(e.target.checked)}
+                    disabled={loadingData}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-black/20 rounded border border-gray-600">
+                <div className="flex-1">
+                  <label className="text-sm font-medium text-gray-300">Use Shock Past Limit</label>
+                  <p className="text-xs text-gray-400 mt-1">Enable this to shock others past their limits (requires SKU)</p>
+                </div>
+                {monetization.hasShockPastLimit ? (
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={useShockPastLimit}
+                      onChange={(e) => setUseShockPastLimit(e.target.checked)}
+                      disabled={loadingData}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                  </label>
+                ) : (
+                  <button
+                    onClick={async () => {
+                      if (monetization.shockPastLimitSku) {
+                        const success = await monetization.purchaseSku(monetization.shockPastLimitSku.id);
+                        if (success) {
+                          alert('Purchase successful! You can now enable "Use Shock Past Limit".');
+                        } else {
+                          alert('Purchase failed or was cancelled.');
+                        }
+                      }
+                    }}
+                    disabled={loadingData || !monetization.shockPastLimitSku}
+                    className="px-3 py-1 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 rounded text-sm font-medium transition-colors flex items-center space-x-1"
+                  >
+                    <ShoppingCart className="h-4 w-4" />
+                    <span>Purchase</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4 p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
+            <h3 className="text-lg font-medium text-yellow-300 flex items-center space-x-2">
+              <Crown className="h-5 w-5" />
+              <span>Controller+</span>
+              {monetization.hasControllerPlus && (
+                <span className="text-xs bg-yellow-600 text-yellow-100 px-2 py-1 rounded">ACTIVE</span>
+              )}
+            </h3>
+            <p className="text-sm text-yellow-200">
+              Upgrade to Controller+ to send commands to multiple PiShock devices at once
+            </p>
+            
+            {monetization.hasControllerPlus ? (
+              <div className="p-3 bg-black/20 rounded border border-yellow-500/30">
+                <p className="text-sm text-yellow-200">
+                  ✓ Your Controller+ subscription is active
+                  {monetization.subscriptionExpiresAt && (
+                    <span className="block mt-1 text-xs text-yellow-300">
+                      Expires: {new Date(monetization.subscriptionExpiresAt * 1000).toLocaleDateString()}
+                    </span>
+                  )}
+                </p>
+              </div>
+            ) : (
+              <button
+                onClick={async () => {
+                  if (monetization.controllerPlusSku) {
+                    const success = await monetization.purchaseSku(monetization.controllerPlusSku.id);
+                    if (success) {
+                      alert('Purchase successful! Controller+ is now active.');
+                    } else {
+                      alert('Purchase failed or was cancelled.');
+                    }
+                  }
+                }}
+                disabled={loadingData || !monetization.controllerPlusSku}
+                className="w-full px-4 py-2 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 rounded-lg text-sm font-medium transition-colors flex items-center justify-center space-x-2"
+              >
+                <ShoppingCart className="h-4 w-4" />
+                <span>Purchase Controller+</span>
+              </button>
             )}
           </div>
         </div>

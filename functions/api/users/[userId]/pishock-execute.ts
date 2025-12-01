@@ -21,6 +21,46 @@ interface ActivityLogEntry {
   duration: number;
   guildId?: string;
   guildName?: string;
+  bypassedLimit?: boolean;
+  skuConsumed?: string;
+}
+
+const SHOCK_PAST_LIMIT_SKU_ID = "1418562984946569267";
+
+async function fetchUserEntitlements(token: string): Promise<any> {
+  try {
+    const response = await fetch('https://discord.com/api/v9/applications/@me/entitlements', {
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+    });
+    
+    if (!response.ok) {
+      return null;
+    }
+    
+    const entitlements = await response.json();
+    return entitlements;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function consumeEntitlement(token: string, entitlementId: string): Promise<boolean> {
+  try {
+    const response = await fetch(`https://discord.com/api/v9/applications/@me/entitlements/${entitlementId}/consume`, {
+      method: 'POST',
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+    });
+    
+    return response.ok;
+  } catch (error) {
+    return false;
+  }
 }
 
 function jsonResponse(body: any, status = 200) {
@@ -347,18 +387,69 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const targetMaxIntensity = creds.maxIntensity || 100;
       const targetMaxDuration = creds.maxDuration || 15;
       
-      if (intensity > targetMaxIntensity) {
-        return jsonResponse({ 
-          success: false, 
-          error: `Intensity ${intensity}% exceeds target user's maximum of ${targetMaxIntensity}%` 
-        });
+      // Check if limit bypass is needed
+      const needsBypass = intensity > targetMaxIntensity || duration > targetMaxDuration;
+      let bypassedLimit = false;
+      let skuConsumed: string | undefined;
+      
+      if (needsBypass) {
+        // Verify 2-sided consent
+        const executorUserDataStr = await env.PISHOCK_KV.get(`user:${executorUserId}:data`);
+        const executorUserData = executorUserDataStr ? JSON.parse(executorUserDataStr) : null;
+        const targetUserDataStr = await env.PISHOCK_KV.get(`user:${targetUserId}:data`);
+        const targetUserData = targetUserDataStr ? JSON.parse(targetUserDataStr) : null;
+        
+        const executorConsent = executorUserData?.useShockPastLimit || false;
+        const targetConsent = targetUserData?.allowShockPastLimit || false;
+        
+        if (!executorConsent || !targetConsent) {
+          return jsonResponse({ 
+            success: false, 
+            error: `Limit bypass requires consent from both users. Executor consent: ${executorConsent}, Target consent: ${targetConsent}` 
+          }, 403);
+        }
+        
+        // Check if executor has available SKU
+        const entitlements = await fetchUserEntitlements(token);
+        if (!entitlements || !Array.isArray(entitlements)) {
+          return jsonResponse({ 
+            success: false, 
+            error: 'Failed to verify SKU entitlement' 
+          }, 500);
+        }
+        
+        const availableEntitlement = entitlements.find((ent: any) => 
+          ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && 
+          ent.type === 3 && // Consumable type
+          !ent.consumed
+        );
+        
+        if (!availableEntitlement) {
+          return jsonResponse({ 
+            success: false, 
+            error: 'No available "Shock Past Limit" SKU found. Please purchase more.' 
+          }, 403);
+        }
+        
+        // We'll consume the SKU after successful execution
+        bypassedLimit = true;
       }
       
-      if (duration > targetMaxDuration) {
-        return jsonResponse({ 
-          success: false, 
-          error: `Duration ${duration}s exceeds target user's maximum of ${targetMaxDuration}s` 
-        });
+      // Validate limits (only if not bypassing)
+      if (!needsBypass) {
+        if (intensity > targetMaxIntensity) {
+          return jsonResponse({ 
+            success: false, 
+            error: `Intensity ${intensity}% exceeds target user's maximum of ${targetMaxIntensity}%` 
+          });
+        }
+        
+        if (duration > targetMaxDuration) {
+          return jsonResponse({ 
+            success: false, 
+            error: `Duration ${duration}s exceeds target user's maximum of ${targetMaxDuration}s` 
+          });
+        }
       }
       
       const operationNames = ['shock', 'vibrate', 'beep'];
@@ -390,7 +481,35 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
 
       if (responseText.includes('Operation Succeeded')) {
-        // Command successful
+        // Command successful - now consume SKU if limit was bypassed
+        if (bypassedLimit) {
+          const entitlements = await fetchUserEntitlements(token);
+          if (entitlements && Array.isArray(entitlements)) {
+            const availableEntitlement = entitlements.find((ent: any) => 
+              ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && 
+              ent.type === 3 && 
+              !ent.consumed
+            );
+            
+            if (availableEntitlement) {
+              const consumed = await consumeEntitlement(token, availableEntitlement.id);
+              if (consumed) {
+                skuConsumed = SHOCK_PAST_LIMIT_SKU_ID;
+                // Invalidate SKU status cache
+                try {
+                  await env.PISHOCK_KV.delete(`cache:sku_status:${executorUserId}`);
+                } catch (error) {
+                  // Silently handle cache invalidation errors
+                }
+              } else {
+                // Log error but don't fail the command since it already succeeded
+                // The command was successful, but SKU consumption failed - this is logged for monitoring
+                console.error(`Failed to consume SKU ${SHOCK_PAST_LIMIT_SKU_ID} for user ${executorUserId} after successful command execution. Command succeeded but SKU was not consumed.`);
+                // Note: We don't set skuConsumed flag since consumption failed
+              }
+            }
+          }
+        }
       } else {
         if (responseText.includes("This code doesn't exist")) {
           throw new Error('Share code not found. Please check device configuration.');
@@ -429,6 +548,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         action: operationName as 'shock' | 'vibrate' | 'beep',
         intensity,
         duration,
+        bypassedLimit: bypassedLimit || undefined,
+        skuConsumed: skuConsumed || undefined,
       };
 
       try {

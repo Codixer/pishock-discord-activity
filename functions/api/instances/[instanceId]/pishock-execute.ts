@@ -21,6 +21,10 @@ interface ActivityLogEntry {
   duration: number;
   guildId?: string;
   guildName?: string;
+  bypassedLimit?: boolean;
+  multiTarget?: boolean;
+  targetUserIds?: string[];
+  skuConsumed?: string;
 }
 
 function jsonResponse(body: any, status = 200) {

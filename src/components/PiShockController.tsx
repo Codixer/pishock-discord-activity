@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Zap, Settings, Play, Square, AlertTriangle, Lock, Wifi, WifiOff } from 'lucide-react';
+import { Zap, Settings, Play, Square, AlertTriangle, Lock, Wifi, WifiOff, Crown, Users } from 'lucide-react';
 import { DiscordSDK, Common } from '@discord/embedded-app-sdk';
 import { PiShockSettingsModal } from './PiShockSettingsModal';
+import { useMonetization } from '../hooks/useMonetization';
 
 interface PiShockControllerProps {
   selectedUser: any;
@@ -51,6 +52,10 @@ export function PiShockController({
   const [currentUserPiShockConnected, setCurrentUserPiShockConnected] = useState(false);
   const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
   const [discordConnected, setDiscordConnected] = useState(!!auth);
+  const [multiTargetMode, setMultiTargetMode] = useState(false);
+  const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
+  
+  const monetization = useMonetization(discordSdk, isEmbedded, auth);
 
   // Check if we're in PIP mode
   const isPipMode = layoutMode === Common.LayoutModeTypeObject.PIP;
@@ -135,7 +140,98 @@ export function PiShockController({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id, auth?.access_token]); // Only run when user or auth token changes
 
+  // Check subscription expiration and disable multi-target if expired
+  useEffect(() => {
+    if (monetization.subscriptionExpiresAt) {
+      const expiresAt = monetization.subscriptionExpiresAt * 1000;
+      const now = Date.now();
+      const timeUntilExpiry = expiresAt - now;
+      
+      // If subscription expires in less than 1 minute, disable multi-target mode
+      if (timeUntilExpiry < 60000 && multiTargetMode) {
+        setMultiTargetMode(false);
+        setSelectedTargets([]);
+        addNotification('warning', 'Subscription Expiring', 'Your Controller+ subscription is expiring soon. Multi-target mode has been disabled.');
+      }
+    } else if (!monetization.hasControllerPlus && multiTargetMode) {
+      // Subscription expired or cancelled
+      setMultiTargetMode(false);
+      setSelectedTargets([]);
+      addNotification('warning', 'Subscription Expired', 'Your Controller+ subscription has expired. Multi-target mode has been disabled.');
+    }
+  }, [monetization.hasControllerPlus, monetization.subscriptionExpiresAt, multiTargetMode, addNotification]);
+
   const handleShock = async (operation: number) => {
+    // Multi-target mode
+    if (multiTargetMode && monetization.hasControllerPlus) {
+      if (selectedTargets.length === 0) {
+        addNotification('warning', 'No Targets Selected', 'Please select at least one target for multi-target command');
+        return;
+      }
+
+      if (selectedTargets.length > 10) {
+        addNotification('error', 'Too Many Targets', 'Maximum 10 targets allowed for multi-target commands');
+        return;
+      }
+
+      setIsShocking(true);
+
+      try {
+        const endpoint = `${getApiBaseUrl()}/instances/${instanceId}/pishock-execute-multi`;
+
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${auth.access_token}`,
+          },
+          body: JSON.stringify({
+            targetUserIds: selectedTargets,
+            intensity,
+            duration,
+            operation,
+          }),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success) {
+            const actionName = operation === 0 ? 'Shock' : operation === 1 ? 'Vibration' : 'Beep';
+            addNotification('success', 'Multi-Target Command Sent', `${actionName} sent to ${result.summary.successful} of ${result.summary.total} targets - Intensity: ${intensity}%, Duration: ${duration}s`);
+          } else {
+            throw new Error(result.error || 'Command failed');
+          }
+        } else {
+          const errorData = await response.json().catch(() => ({}));
+          if (errorData.requiresControllerPlus) {
+            addNotification('error', 'Controller+ Required', 'Controller+ subscription required for multi-target commands. Please purchase Controller+ in settings.');
+            setMultiTargetMode(false);
+            setSelectedTargets([]);
+            return;
+          }
+          throw new Error(errorData.error || 'Multi-target command failed');
+        }
+      } catch (error) {
+        let errorMessage = 'Failed to send multi-target command. Please try again.';
+        
+        if (error instanceof Error) {
+          if (error.message.includes('Controller+ subscription required')) {
+            errorMessage = 'Controller+ subscription required for multi-target commands. Please purchase Controller+ in settings.';
+            setMultiTargetMode(false);
+            setSelectedTargets([]);
+          } else {
+            errorMessage = `Command failed: ${error.message}`;
+          }
+        }
+        
+        addNotification('error', 'Command Failed', errorMessage);
+      } finally {
+        setIsShocking(false);
+      }
+      return;
+    }
+
+    // Single-target mode
     if (!selectedUser) {
       addNotification('warning', 'No User Selected', 'Please select a user first');
       return;
@@ -177,12 +273,24 @@ export function PiShockController({
         const result = await response.json();
         if (result.success) {
           const actionName = operation === 0 ? 'Shock' : operation === 1 ? 'Vibration' : 'Beep';
-          addNotification('success', 'Command Sent', `${actionName} sent to ${selectedUser.displayName || selectedUser.username} - Intensity: ${intensity}%, Duration: ${duration}s`);
+          let message = `${actionName} sent to ${selectedUser.displayName || selectedUser.username} - Intensity: ${intensity}%, Duration: ${duration}s`;
+          if (result.bypassedLimit) {
+            message += ' (Limit bypassed with SKU)';
+          }
+          addNotification('success', 'Command Sent', message);
         } else {
-          throw new Error(result.error || 'Command failed');
+          // Check for specific error types
+          if (result.error && result.error.includes('consent')) {
+            addNotification('warning', 'Consent Required', 'Limit bypass requires consent from both users. Please enable "Shock Past Limit" in settings.');
+          } else if (result.error && result.error.includes('SKU')) {
+            addNotification('warning', 'SKU Required', 'No available "Shock Past Limit" SKU found. Please purchase more in settings.');
+          } else {
+            throw new Error(result.error || 'Command failed');
+          }
         }
       } else {
-        throw new Error('Shock command failed');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Shock command failed');
       }
     } catch (error) {
       
@@ -233,9 +341,17 @@ export function PiShockController({
       <div className="h-full flex flex-col space-y-4 overflow-y-auto">
         <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6 flex-1 flex flex-col min-h-0 ${isPipMode ? 'p-2' : ''}`}>
           <div className="flex items-center justify-between mb-6 flex-shrink-0">
-            <h3 className={`font-semibold ${isPipMode ? 'text-sm' : 'text-lg sm:text-xl'}`}>
-              Control Panel
-            </h3>
+            <div className="flex items-center space-x-2">
+              <h3 className={`font-semibold ${isPipMode ? 'text-sm' : 'text-lg sm:text-xl'}`}>
+                Control Panel
+              </h3>
+              {monetization.hasControllerPlus && (
+                <div className="flex items-center space-x-1 px-2 py-1 bg-yellow-600/20 border border-yellow-500/30 rounded text-xs">
+                  <Crown className="h-3 w-3 text-yellow-400" />
+                  <span className="text-yellow-300 font-medium">Controller+</span>
+                </div>
+              )}
+            </div>
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-4">
                 <div className="flex items-center space-x-2">
@@ -275,6 +391,82 @@ export function PiShockController({
           </div>
         ) : (
           <div className="flex-1 flex flex-col space-y-6 min-h-0">
+            {monetization.hasControllerPlus && participants.length > 1 && (
+              <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex-shrink-0">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center space-x-2">
+                    <Users className="h-4 w-4 text-yellow-400" />
+                    <span className="text-sm font-medium text-yellow-300">Multi-Target Mode</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={multiTargetMode}
+                      onChange={(e) => {
+                        setMultiTargetMode(e.target.checked);
+                        if (!e.target.checked) {
+                          setSelectedTargets([]);
+                        }
+                      }}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-yellow-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-600"></div>
+                  </label>
+                </div>
+                {multiTargetMode && (
+                  <div className="mt-3 space-y-2 max-h-32 overflow-y-auto">
+                    {participants
+                      .filter(p => p.id !== currentUser?.id)
+                      .map(participant => {
+                        const userStatus = (window as any).userPiShockStatus?.[participant.id];
+                        const isConnected = userStatus?.isConnected;
+                        const isSelected = selectedTargets.includes(participant.id);
+                        const displayName = getDisplayName(participant);
+                        
+                        return (
+                          <label
+                            key={participant.id}
+                            className={`flex items-center space-x-2 p-2 rounded border cursor-pointer transition-colors ${
+                              isSelected
+                                ? 'bg-yellow-600/20 border-yellow-500/50'
+                                : 'bg-black/20 border-gray-600'
+                            } ${!isConnected ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  if (selectedTargets.length < 10) {
+                                    setSelectedTargets([...selectedTargets, participant.id]);
+                                  } else {
+                                    addNotification('warning', 'Maximum Targets', 'You can select up to 10 targets');
+                                  }
+                                } else {
+                                  setSelectedTargets(selectedTargets.filter(id => id !== participant.id));
+                                }
+                              }}
+                              disabled={!isConnected}
+                              className="rounded"
+                            />
+                            <span className="text-sm text-gray-300 flex-1">{displayName}</span>
+                            {isConnected ? (
+                              <Zap className="h-3 w-3 text-green-400" />
+                            ) : (
+                              <AlertTriangle className="h-3 w-3 text-red-400" />
+                            )}
+                          </label>
+                        );
+                      })}
+                    {selectedTargets.length > 0 && (
+                      <p className="text-xs text-yellow-300 mt-2">
+                        {selectedTargets.length} target{selectedTargets.length !== 1 ? 's' : ''} selected
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="flex-1 flex flex-col space-y-4 min-h-0">
               <div>
                 <label className={`block font-medium text-gray-300 mb-3 ${isPipMode ? 'text-xs' : 'text-sm sm:text-base'}`}>

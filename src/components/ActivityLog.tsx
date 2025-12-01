@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Clock, Zap, Play, Square, Users, Eye, EyeOff, RefreshCw } from 'lucide-react';
+import { Clock, Zap, Play, Square, Users, Eye, EyeOff, RefreshCw, Crown, Sparkles } from 'lucide-react';
 
 interface ActivityLogEntry {
   id: string;
@@ -16,6 +16,10 @@ interface ActivityLogEntry {
   duration: number;
   guildId?: string;
   guildName?: string;
+  bypassedLimit?: boolean;
+  multiTarget?: boolean;
+  targetUserIds?: string[];
+  skuConsumed?: string;
 }
 
 interface ActivityLogProps {
@@ -312,10 +316,22 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
                     </div>
 
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3 text-xs">
+                      <div className="flex items-center space-x-3 text-xs flex-wrap">
                         <span className="capitalize font-medium">
                           {entry.action}
                         </span>
+                        {entry.multiTarget && (
+                          <span className="flex items-center space-x-1 px-1.5 py-0.5 bg-yellow-600/20 border border-yellow-500/30 rounded text-yellow-300">
+                            <Crown className="h-3 w-3" />
+                            <span>Multi</span>
+                          </span>
+                        )}
+                        {entry.bypassedLimit && (
+                          <span className="flex items-center space-x-1 px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded text-purple-300" title="Limit bypassed with SKU">
+                            <Sparkles className="h-3 w-3" />
+                            <span>Past Limit</span>
+                          </span>
+                        )}
                         <span className={`font-semibold ${getIntensityColor(entry.intensity)}`}>
                           {entry.intensity}%
                         </span>

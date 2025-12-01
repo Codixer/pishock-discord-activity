@@ -32,7 +32,7 @@ export function useNotifications() {
     }
 
     return id;
-  }, []);
+  }, [notifications]);
 
   const dismissNotification = useCallback((id: string) => {
     setNotifications(prev => prev.filter(n => n.id !== id));

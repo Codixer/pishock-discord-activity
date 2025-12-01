@@ -283,7 +283,10 @@ function hasSettingsChanged(existing: any, newData: any): boolean {
          existing.maxDuration !== newData.maxDuration ||
          JSON.stringify(existing.bannedExecutors || []) !== JSON.stringify(newData.bannedExecutors || []) ||
          existingCreds.username !== newData.username ||
-         existingCreds.sharecode !== newData.sharecode;
+         existingCreds.sharecode !== newData.sharecode ||
+         existing.allowShockPastLimit !== newData.allowShockPastLimit ||
+         existing.useShockPastLimit !== newData.useShockPastLimit ||
+         existing.controllerPlusEnabled !== newData.controllerPlusEnabled;
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {
@@ -339,7 +342,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           maxDuration: creds.maxDuration || 15,
           lastUpdated: userData.lastUpdated,
           piShockUserId: creds.piShockUserId,
-          bannedExecutors: userData.bannedExecutors || []
+          bannedExecutors: userData.bannedExecutors || [],
+          allowShockPastLimit: userData.allowShockPastLimit || false,
+          useShockPastLimit: userData.useShockPastLimit || false,
+          controllerPlusEnabled: userData.controllerPlusEnabled || false
         };
         
         return jsonResponse({ 
@@ -363,7 +369,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         hasOwnDevice, 
         maxIntensity = 100, 
         maxDuration = 15,
-        bannedExecutors = []
+        bannedExecutors = [],
+        allowShockPastLimit,
+        useShockPastLimit,
+        controllerPlusEnabled
       } = await request.json();
 
       const existingUserDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
@@ -373,6 +382,27 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const isBanListOnlyUpdate = !apiKey && !username && !sharecode && 
                                  Array.isArray(bannedExecutors) && 
                                  isExistingUser;
+      
+      // Handle consent flags update (can be done independently)
+      if (allowShockPastLimit !== undefined || useShockPastLimit !== undefined || controllerPlusEnabled !== undefined) {
+        const updatedUserData = {
+          ...existingUserData,
+          allowShockPastLimit: allowShockPastLimit !== undefined ? allowShockPastLimit : (existingUserData?.allowShockPastLimit || false),
+          useShockPastLimit: useShockPastLimit !== undefined ? useShockPastLimit : (existingUserData?.useShockPastLimit || false),
+          controllerPlusEnabled: controllerPlusEnabled !== undefined ? controllerPlusEnabled : (existingUserData?.controllerPlusEnabled || false),
+          lastUpdated: new Date().toISOString()
+        };
+        
+        await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(updatedUserData));
+        
+        return jsonResponse({ 
+          success: true,
+          consentFlagsUpdated: true,
+          allowShockPastLimit: updatedUserData.allowShockPastLimit,
+          useShockPastLimit: updatedUserData.useShockPastLimit,
+          controllerPlusEnabled: updatedUserData.controllerPlusEnabled
+        });
+      }
       
       if (isBanListOnlyUpdate) {
         const updatedUserData = {
@@ -503,7 +533,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         piShockUserId,
         deviceCount: deviceCheck.devices?.length || 0,
         lastUpdated: new Date().toISOString(),
-        bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : []
+        bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : [],
+        allowShockPastLimit: allowShockPastLimit !== undefined ? allowShockPastLimit : (existingUserData?.allowShockPastLimit || false),
+        useShockPastLimit: useShockPastLimit !== undefined ? useShockPastLimit : (existingUserData?.useShockPastLimit || false),
+        controllerPlusEnabled: controllerPlusEnabled !== undefined ? controllerPlusEnabled : (existingUserData?.controllerPlusEnabled || false)
       };
       
       if (hasSettingsChanged(existingUserData, userData)) {

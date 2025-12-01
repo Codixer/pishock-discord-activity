@@ -11,6 +11,10 @@ interface UserStatus {
   maxDuration: number;
   bannedExecutors: string[];
   lastChecked: number;
+  hasShockPastLimit?: boolean;
+  hasControllerPlus?: boolean;
+  allowShockPastLimit?: boolean;
+  useShockPastLimit?: boolean;
 }
 
 interface CacheEntry {
