@@ -565,11 +565,14 @@ export function PiShockController({
                   max={maxAllowedLimits.maxIntensity}
                   value={intensity}
                   onChange={(e) => setIntensity(parseInt(e.target.value))}
+                  style={useConsumable && effectiveLimits.maxIntensity < 100 ? {
+                    '--limit-percent': `${(effectiveLimits.maxIntensity / maxAllowedLimits.maxIntensity) * 100}%`
+                  } as React.CSSProperties : undefined}
                   className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider slider-large ${
                     useConsumable 
                       ? (intensity > effectiveLimits.maxIntensity ? 'slider-danger' : 'slider-safe')
                       : (effectiveLimits.maxIntensity < 100 ? 'limited-slider' : '')
-                  }`}
+                  } ${useConsumable && effectiveLimits.maxIntensity < 100 ? 'slider-safe-track' : ''}`}
                 />
                 {!isPipMode && (
                   <div className="flex justify-between text-sm mt-2">
@@ -628,11 +631,14 @@ export function PiShockController({
                   max={maxAllowedLimits.maxDuration}
                   value={duration}
                   onChange={(e) => setDuration(parseInt(e.target.value))}
+                  style={useConsumable && effectiveLimits.maxDuration < 15 ? {
+                    '--limit-percent': `${(effectiveLimits.maxDuration / maxAllowedLimits.maxDuration) * 100}%`
+                  } as React.CSSProperties : undefined}
                   className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider slider-large ${
                     useConsumable 
                       ? (duration > effectiveLimits.maxDuration ? 'slider-danger' : 'slider-safe')
                       : (effectiveLimits.maxDuration < 15 ? 'limited-slider' : '')
-                  }`}
+                  } ${useConsumable && effectiveLimits.maxDuration < 15 ? 'slider-safe-track' : ''}`}
                 />
                 {!isPipMode && (
                   <div className="flex justify-between text-sm mt-2">
