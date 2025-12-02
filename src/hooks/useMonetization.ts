@@ -315,47 +315,16 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     await requestPromise;
   }, [discordSdk, isEmbedded]);
 
-  const startPurchase = useCallback(async (skuId: string): Promise<boolean> => {
-    if (!discordSdk || !isEmbedded) {
-      return false;
-    }
-
-    try {
-      const result: any = await discordSdk.commands.startPurchase({
-        sku_id: skuId
-      });
-      
-      // Purchase may complete immediately or be initiated
-      // In either case, refresh entitlements after a delay
-      if (result) {
-        // Invalidate cache and refresh entitlements after purchase
-        globalEntitlementsCache.data = null;
-        globalEntitlementsCache.timestamp = 0;
-        lastRequestTime = 0; // Reset request throttle
-        // Wait a bit for Discord to process the purchase, then refresh
-        setTimeout(async () => {
-          await fetchEntitlements(true); // Force refresh
-          await fetchSkus();
-          await fetchBackendSkuStatus(); // Refresh backend status
-        }, 2000);
-        return true;
-      }
-      
-      return false;
-    } catch (error) {
-      console.error('Purchase failed:', error);
-      return false;
-    }
-  }, [discordSdk, isEmbedded, fetchEntitlements, fetchSkus]);
-
   // Also fetch from backend for server-side verification
-  const fetchBackendSkuStatus = useCallback(async () => {
+  const fetchBackendSkuStatus = useCallback(async (forceRefresh = false) => {
     if (!auth?.user?.id || !auth?.access_token) {
       return;
     }
 
     try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${auth.user.id}/sku-verify`, {
+      // Add cache-busting parameter if force refresh is requested
+      const url = `${getApiBaseUrl()}/users/${auth.user.id}/sku-verify${forceRefresh ? `?t=${Date.now()}` : ''}`;
+      const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
         },
@@ -385,6 +354,15 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
               });
             }
             
+            // If backend says we have consumables but frontend doesn't, refresh entitlements from Discord
+            if (data.hasShockPastLimit && !prev.hasShockPastLimit && forceRefresh) {
+              console.log('[Monetization] Backend indicates new consumables available, refreshing from Discord');
+              // Trigger a refresh of entitlements from Discord API
+              setTimeout(() => {
+                fetchEntitlements(true);
+              }, 500);
+            }
+            
             return updated;
           });
         }
@@ -392,7 +370,57 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     } catch (error) {
       console.error('Failed to fetch backend SKU status:', error);
     }
-  }, [auth]);
+  }, [auth, fetchEntitlements]);
+
+  const startPurchase = useCallback(async (skuId: string): Promise<boolean> => {
+    if (!discordSdk || !isEmbedded) {
+      return false;
+    }
+
+    try {
+      const result: any = await discordSdk.commands.startPurchase({
+        sku_id: skuId
+      });
+      
+      // Purchase may complete immediately or be initiated
+      // In either case, refresh entitlements after a delay
+      if (result) {
+        // Invalidate cache and refresh entitlements after purchase
+        globalEntitlementsCache.data = null;
+        globalEntitlementsCache.timestamp = 0;
+        lastRequestTime = 0; // Reset request throttle
+        
+        // Multiple refresh attempts with increasing delays to ensure we get fresh data
+        // Discord API may take a few seconds to process the purchase
+        const refreshAfterPurchase = async (attempt: number) => {
+          console.log(`[Monetization] Refreshing after purchase (attempt ${attempt})`);
+          
+          // Force refresh from Discord API
+          await fetchEntitlements(true);
+          await fetchSkus();
+          
+          // Refresh backend status with cache-busting
+          await fetchBackendSkuStatus(true);
+          
+          // If this is not the last attempt, schedule another refresh
+          if (attempt < 3) {
+            const delays = [3000, 5000, 8000]; // 3s, 5s, 8s delays
+            setTimeout(() => refreshAfterPurchase(attempt + 1), delays[attempt - 1]);
+          }
+        };
+        
+        // Start first refresh after 3 seconds (increased from 2s)
+        setTimeout(() => refreshAfterPurchase(1), 3000);
+        
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Purchase failed:', error);
+      return false;
+    }
+  }, [discordSdk, isEmbedded, fetchEntitlements, fetchSkus, fetchBackendSkuStatus]);
 
   const consumeEntitlement = useCallback(async (entitlementId: string): Promise<boolean> => {
     if (!auth?.user?.id || !auth?.access_token) {

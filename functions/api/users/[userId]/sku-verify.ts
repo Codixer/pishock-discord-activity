@@ -168,13 +168,21 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   }
 
   try {
-    // Check cache first
-    const cachedStatus = await getCachedSkuStatus(env.PISHOCK_KV, userId);
-    if (cachedStatus) {
-      return jsonResponse(cachedStatus, 200, {
-        'Cache-Control': 'public, max-age=300, stale-while-revalidate=60',
-        'X-Cache-Status': 'HIT'
-      });
+    // Check for cache-busting parameters
+    const url = new URL(request.url);
+    const forceRefresh = url.searchParams.get('force') === 'true' || 
+                         url.searchParams.get('nocache') === 'true' ||
+                         url.searchParams.has('t'); // timestamp parameter also bypasses cache
+    
+    // Check cache first (unless force refresh is requested)
+    if (!forceRefresh) {
+      const cachedStatus = await getCachedSkuStatus(env.PISHOCK_KV, userId);
+      if (cachedStatus) {
+        return jsonResponse(cachedStatus, 200, {
+          'Cache-Control': 'public, max-age=300, stale-while-revalidate=60',
+          'X-Cache-Status': 'HIT'
+        });
+      }
     }
 
     // Fetch entitlements from Discord
