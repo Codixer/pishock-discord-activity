@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { DiscordSDK } from '@discord/embedded-app-sdk';
 
 // SKU IDs
@@ -467,9 +467,12 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     return () => clearInterval(interval);
   }, [isEmbedded, discordSdk, fetchEntitlements, fetchBackendSkuStatus]);
 
-  const consumableCount = (state.entitlements || []).filter(
-    (ent: Entitlement) => ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && !(ent.consumed ?? false)
-  ).length;
+  // Calculate consumable count - memoized to ensure it updates when entitlements change
+  const consumableCount = useMemo(() => {
+    return (state.entitlements || []).filter(
+      (ent: Entitlement) => ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && !(ent.consumed ?? false)
+    ).length;
+  }, [state.entitlements]);
 
   // Log state changes for debugging
   useEffect(() => {

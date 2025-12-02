@@ -910,10 +910,11 @@ function MainApp() {
                   
                   {/* Use Consumable Toggle */}
                   {monetization.hasShockPastLimit || monetization.consumableCount > 0 ? (
-                    <label className="relative inline-flex items-center cursor-pointer" title="Toggle shock bypass">
+                    <label className={`relative inline-flex items-center ${monetization.consumableCount === 0 ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`} title={monetization.consumableCount === 0 ? 'No consumables available' : 'Toggle shock bypass'}>
                       <input
                         type="checkbox"
-                        checked={useConsumable}
+                        checked={useConsumable && monetization.consumableCount > 0}
+                        disabled={monetization.consumableCount === 0}
                         onChange={(e) => {
                           if (e.target.checked && monetization.consumableCount === 0) {
                             // User is trying to enable but has no consumables
@@ -925,12 +926,10 @@ function MainApp() {
                         }}
                         className="sr-only peer"
                       />
-                      <div className="flex items-center space-x-1 px-2 py-1 bg-purple-600/20 border border-purple-500/30 rounded text-xs peer-checked:bg-purple-600/40 transition-colors">
+                      <div className={`flex items-center space-x-1 px-2 py-1 bg-purple-600/20 border border-purple-500/30 rounded text-xs transition-colors ${monetization.consumableCount === 0 ? 'opacity-50' : 'peer-checked:bg-purple-600/40'}`}>
                         <Sparkles className="h-3 w-3 text-purple-400" />
                         <span className="text-purple-300 font-medium">Use Consumable</span>
-                        {monetization.consumableCount > 0 && (
-                          <span className="text-purple-400">({monetization.consumableCount})</span>
-                        )}
+                        <span className="text-purple-400">({monetization.consumableCount})</span>
                       </div>
                     </label>
                   ) : (
