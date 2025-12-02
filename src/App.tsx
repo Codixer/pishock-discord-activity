@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { DiscordSDK, Events, Common } from '@discord/embedded-app-sdk';
-import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText, ShoppingCart, Crown } from 'lucide-react';
+import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText, ShoppingCart, Crown, Sparkles } from 'lucide-react';
 import { PiShockController } from './components/PiShockController';
 import { SafetyWarning } from './components/SafetyWarning';
 import { UserSelector } from './components/UserSelector';
@@ -97,6 +97,7 @@ function MainApp() {
   const [layoutMode, setLayoutMode] = useState<number>(Common.LayoutModeTypeObject.FOCUSED);
   const [isPipMode, setIsPipMode] = useState(false);
   const [showStore, setShowStore] = useState(false);
+  const [useConsumable, setUseConsumable] = useState(false);
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
   
@@ -779,6 +780,10 @@ function MainApp() {
               discordSdk={discordSdk}
               isEmbedded={isEmbedded}
               layoutMode={layoutMode}
+              participants={participants}
+              useConsumable={useConsumable}
+              setUseConsumable={setUseConsumable}
+              onOpenStore={() => setShowStore(true)}
             />
           </div>
 
@@ -837,11 +842,45 @@ function MainApp() {
                   className="w-8 h-8 object-contain"
                 />
               </div>
-              <div>
-                <h1 className="text-lg font-bold">PiShock Controller</h1>
-                <p className="text-xs text-gray-300">
-                  Discord Activity • {participants.length} participant{participants.length !== 1 ? 's' : ''}
-                </p>
+              <div className="flex items-center space-x-3">
+                <div>
+                  <h1 className="text-lg font-bold">PiShock Controller</h1>
+                  <p className="text-xs text-gray-300">
+                    Discord Activity • {participants.length} participant{participants.length !== 1 ? 's' : ''}
+                  </p>
+                </div>
+                {/* Consumable/Shock Bypass Toggle */}
+                <div className="flex items-center space-x-2">
+                  {monetization.hasShockPastLimit || monetization.consumableCount > 0 ? (
+                    <label className="relative inline-flex items-center cursor-pointer" title="Toggle shock bypass">
+                      <input
+                        type="checkbox"
+                        checked={useConsumable}
+                        onChange={(e) => setUseConsumable(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="flex items-center space-x-1 px-2 py-1 bg-purple-600/20 border border-purple-500/30 rounded text-xs peer-checked:bg-purple-600/40 transition-colors">
+                        <Sparkles className="h-3 w-3 text-purple-400" />
+                        <span className="text-purple-300 font-medium">Bypass</span>
+                        {monetization.consumableCount > 0 && (
+                          <span className="text-purple-400">({monetization.consumableCount})</span>
+                        )}
+                      </div>
+                    </label>
+                  ) : (
+                    <div 
+                      className="flex items-center space-x-1 px-2 py-1 bg-gray-600/20 border border-gray-500/30 rounded text-xs cursor-pointer opacity-50 hover:opacity-75 transition-opacity"
+                      onClick={() => {
+                        setShowStore(true);
+                        addNotification('info', 'Purchase Required', 'You need to purchase "Shock Past User Limit" consumables to use this feature.');
+                      }}
+                      title="Click to purchase in Store"
+                    >
+                      <Sparkles className="h-3 w-3 text-gray-500" />
+                      <span className="text-gray-500 font-medium">Bypass</span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
             <div className="flex items-center space-x-4">
@@ -922,6 +961,9 @@ function MainApp() {
                 isEmbedded={isEmbedded}
                 layoutMode={layoutMode}
                 participants={participants}
+                useConsumable={useConsumable}
+                setUseConsumable={setUseConsumable}
+                onOpenStore={() => setShowStore(true)}
               />
             </div>
 

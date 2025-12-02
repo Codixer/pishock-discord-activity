@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Zap, Settings, Play, Square, AlertTriangle, Lock, Crown, Users, Sparkles } from 'lucide-react';
+import { Zap, Settings, Play, Square, AlertTriangle, Lock, Users, Sparkles } from 'lucide-react';
 import { DiscordSDK, Common } from '@discord/embedded-app-sdk';
 import { PiShockSettingsModal } from './PiShockSettingsModal';
 import { useMonetization } from '../hooks/useMonetization';
@@ -16,6 +16,9 @@ interface PiShockControllerProps {
   isEmbedded: boolean;
   layoutMode?: number;
   participants?: any[];
+  useConsumable: boolean;
+  setUseConsumable: (value: boolean) => void;
+  onOpenStore: () => void;
 }
 
 // Helper function to get the correct API base URL
@@ -43,7 +46,10 @@ export function PiShockController({
   discordSdk,
   isEmbedded,
   layoutMode = Common.LayoutModeTypeObject.FOCUSED,
-  participants = []
+  participants = [],
+  useConsumable,
+  setUseConsumable,
+  onOpenStore
 }: PiShockControllerProps) {
   const [intensity, setIntensity] = useState(1);
   const [duration, setDuration] = useState(1);
@@ -53,7 +59,6 @@ export function PiShockController({
   const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
   const [multiTargetMode, setMultiTargetMode] = useState(false);
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
-  const [useConsumable, setUseConsumable] = useState(false);
   
   const monetization = useMonetization(discordSdk, isEmbedded, auth);
 
@@ -424,16 +429,42 @@ export function PiShockController({
       <div className="h-full flex flex-col space-y-4 overflow-y-auto">
         <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6 flex-1 flex flex-col min-h-0 ${isPipMode ? 'p-2' : ''}`}>
           <div className="flex items-center justify-between mb-6 flex-shrink-0">
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-3">
               <h3 className={`font-semibold ${isPipMode ? 'text-sm' : 'text-lg sm:text-xl'}`}>
                 Control Panel
               </h3>
-              {monetization.hasShockPastLimit && consumableCount > 0 && (
-                <div className="flex items-center space-x-1 px-2 py-1 bg-purple-600/20 border border-purple-500/30 rounded text-xs">
-                  <Sparkles className="h-3 w-3 text-purple-400" />
-                  <span className="text-purple-300 font-medium">{consumableCount} Consumable{consumableCount !== 1 ? 's' : ''}</span>
+              {/* Multi-Shock Toggle */}
+              {monetization.hasControllerPlus && participants.length > 1 ? (
+                <label className="relative inline-flex items-center cursor-pointer" title="Toggle multi-target mode">
+                  <input
+                    type="checkbox"
+                    checked={multiTargetMode}
+                    onChange={(e) => {
+                      setMultiTargetMode(e.target.checked);
+                      if (!e.target.checked) {
+                        setSelectedTargets([]);
+                      }
+                    }}
+                    className="sr-only peer"
+                  />
+                  <div className="flex items-center space-x-1 px-2 py-1 bg-yellow-600/20 border border-yellow-500/30 rounded text-xs peer-checked:bg-yellow-600/40 transition-colors">
+                    <Users className="h-3 w-3 text-yellow-400" />
+                    <span className="text-yellow-300 font-medium">Multi-Shock</span>
+                  </div>
+                </label>
+              ) : participants.length > 1 ? (
+                <div 
+                  className="flex items-center space-x-1 px-2 py-1 bg-gray-600/20 border border-gray-500/30 rounded text-xs cursor-pointer opacity-50 hover:opacity-75 transition-opacity"
+                  onClick={() => {
+                    onOpenStore();
+                    addNotification('info', 'Purchase Required', 'You need Controller+ subscription to use multi-shock feature.');
+                  }}
+                  title="Click to purchase Controller+ in Store"
+                >
+                  <Users className="h-3 w-3 text-gray-500" />
+                  <span className="text-gray-500 font-medium">Multi-Shock</span>
                 </div>
-              )}
+              ) : null}
             </div>
             {!isPipMode && (
               <button
@@ -454,190 +485,82 @@ export function PiShockController({
           </div>
         ) : (
           <div className="flex-1 flex flex-col space-y-6 min-h-0">
-            {/* Controller+ Toggle */}
-            {monetization.hasControllerPlus && participants.length > 1 && (
+            {/* Multi-Target Selection - Only show when multi-target mode is enabled */}
+            {multiTargetMode && participants.length > 1 && (
               <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex-shrink-0">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center space-x-2">
-                    <Crown className="h-4 w-4 text-yellow-400" />
-                    <span className="text-sm font-medium text-yellow-300">Controller+ Multi-Target Mode</span>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={multiTargetMode}
-                      onChange={(e) => {
-                        setMultiTargetMode(e.target.checked);
-                        if (!e.target.checked) {
-                          setSelectedTargets([]);
-                        }
-                      }}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-yellow-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-600"></div>
-                  </label>
+                <div className="flex items-center space-x-2 mb-3">
+                  <Users className="h-4 w-4 text-yellow-400" />
+                  <span className="text-sm font-medium text-yellow-300">Select Targets</span>
                 </div>
-                {multiTargetMode && (
-                  <div className="mt-3 space-y-2 max-h-32 overflow-y-auto">
-                    {participants
-                      .map(participant => {
-                        const userStatus = (window as any).userPiShockStatus?.[participant.id];
-                        const isConnected = userStatus?.isConnected;
-                        const isSelected = selectedTargets.includes(participant.id);
-                        const displayName = getDisplayName(participant);
-                        
-                        return (
-                          <label
-                            key={participant.id}
-                            className={`flex items-center space-x-2 p-2 rounded border cursor-pointer transition-colors ${
-                              isSelected
-                                ? 'bg-yellow-600/20 border-yellow-500/50'
-                                : 'bg-black/20 border-gray-600'
-                            } ${!isConnected ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  if (selectedTargets.length < 10) {
-                                    setSelectedTargets([...selectedTargets, participant.id]);
-                                  } else {
-                                    addNotification('warning', 'Maximum Targets', 'You can select up to 10 targets');
-                                  }
+                <div className="space-y-2 max-h-32 overflow-y-auto">
+                  {participants
+                    .map(participant => {
+                      const userStatus = (window as any).userPiShockStatus?.[participant.id];
+                      const isConnected = userStatus?.isConnected;
+                      const isSelected = selectedTargets.includes(participant.id);
+                      const displayName = getDisplayName(participant);
+                      
+                      return (
+                        <label
+                          key={participant.id}
+                          className={`flex items-center space-x-2 p-2 rounded border cursor-pointer transition-colors ${
+                            isSelected
+                              ? 'bg-yellow-600/20 border-yellow-500/50'
+                              : 'bg-black/20 border-gray-600'
+                          } ${!isConnected ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                if (selectedTargets.length < 10) {
+                                  setSelectedTargets([...selectedTargets, participant.id]);
                                 } else {
-                                  setSelectedTargets(selectedTargets.filter(id => id !== participant.id));
+                                  addNotification('warning', 'Maximum Targets', 'You can select up to 10 targets');
                                 }
-                              }}
-                              disabled={!isConnected}
-                              className="rounded"
-                            />
-                            <span className="text-sm text-gray-300 flex-1">
-                              {displayName}
-                              {participant.id === currentUser?.id && <span className="text-xs text-blue-400 ml-1">(You)</span>}
-                            </span>
-                            {isConnected ? (
-                              <Zap className="h-3 w-3 text-green-400" />
-                            ) : (
-                              <AlertTriangle className="h-3 w-3 text-red-400" />
-                            )}
-                          </label>
-                        );
-                      })}
-                    {selectedTargets.length > 0 && (
-                      <p className="text-xs text-yellow-300 mt-2">
-                        {selectedTargets.length} target{selectedTargets.length !== 1 ? 's' : ''} selected
-                      </p>
-                    )}
-                  </div>
-                )}
+                              } else {
+                                setSelectedTargets(selectedTargets.filter(id => id !== participant.id));
+                              }
+                            }}
+                            disabled={!isConnected}
+                            className="rounded"
+                          />
+                          <span className="text-sm text-gray-300 flex-1">
+                            {displayName}
+                            {participant.id === currentUser?.id && <span className="text-xs text-blue-400 ml-1">(You)</span>}
+                          </span>
+                          {isConnected ? (
+                            <Zap className="h-3 w-3 text-green-400" />
+                          ) : (
+                            <AlertTriangle className="h-3 w-3 text-red-400" />
+                          )}
+                        </label>
+                      );
+                    })}
+                  {selectedTargets.length > 0 && (
+                    <p className="text-xs text-yellow-300 mt-2">
+                      {selectedTargets.length} target{selectedTargets.length !== 1 ? 's' : ''} selected
+                    </p>
+                  )}
+                </div>
               </div>
             )}
             
-            {/* Consumable Toggle - Only show if user has consumables and is in single-target mode */}
-            {!multiTargetMode && (monetization.hasShockPastLimit || consumableCount > 0) && selectedUser && (
-              <div className="p-3 bg-purple-900/20 border border-purple-500/30 rounded-lg flex-shrink-0">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center space-x-2">
-                    <Sparkles className="h-4 w-4 text-purple-400" />
-                    <span className="text-sm font-medium text-purple-300">Use Consumable for Next Shock</span>
-                    <span className="text-xs text-purple-400">({consumableCount} remaining)</span>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={useConsumable}
-                      onChange={(e) => setUseConsumable(e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
-                  </label>
-                </div>
-                {useConsumable && (
-                  <div className="mt-2 p-2 bg-yellow-900/20 border border-yellow-500/30 rounded text-xs text-yellow-200">
-                    <AlertTriangle className="h-3 w-3 inline mr-1" />
-                    <strong>Warning:</strong> This will bypass the target's safety limits. Requires consent from both parties. One consumable will be used.
-                  </div>
-                )}
-              </div>
-            )}
-            
-            {monetization.hasControllerPlus && participants.length > 1 && (
+            {/* Consumable Warning - Only show if consumable is enabled and in single-target mode */}
+            {!multiTargetMode && useConsumable && selectedUser && (
               <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex-shrink-0">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center space-x-2">
-                    <Users className="h-4 w-4 text-yellow-400" />
-                    <span className="text-sm font-medium text-yellow-300">Multi-Target Mode</span>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={multiTargetMode}
-                      onChange={(e) => {
-                        setMultiTargetMode(e.target.checked);
-                        if (!e.target.checked) {
-                          setSelectedTargets([]);
-                        }
-                      }}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-yellow-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-600"></div>
-                  </label>
-                </div>
-                {multiTargetMode && (
-                  <div className="mt-3 space-y-2 max-h-32 overflow-y-auto">
-                    {participants
-                      .map(participant => {
-                        const userStatus = (window as any).userPiShockStatus?.[participant.id];
-                        const isConnected = userStatus?.isConnected;
-                        const isSelected = selectedTargets.includes(participant.id);
-                        const displayName = getDisplayName(participant);
-                        
-                        return (
-                          <label
-                            key={participant.id}
-                            className={`flex items-center space-x-2 p-2 rounded border cursor-pointer transition-colors ${
-                              isSelected
-                                ? 'bg-yellow-600/20 border-yellow-500/50'
-                                : 'bg-black/20 border-gray-600'
-                            } ${!isConnected ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  if (selectedTargets.length < 10) {
-                                    setSelectedTargets([...selectedTargets, participant.id]);
-                                  } else {
-                                    addNotification('warning', 'Maximum Targets', 'You can select up to 10 targets');
-                                  }
-                                } else {
-                                  setSelectedTargets(selectedTargets.filter(id => id !== participant.id));
-                                }
-                              }}
-                              disabled={!isConnected}
-                              className="rounded"
-                            />
-                            <span className="text-sm text-gray-300 flex-1">
-                              {displayName}
-                              {participant.id === currentUser?.id && <span className="text-xs text-blue-400 ml-1">(You)</span>}
-                            </span>
-                            {isConnected ? (
-                              <Zap className="h-3 w-3 text-green-400" />
-                            ) : (
-                              <AlertTriangle className="h-3 w-3 text-red-400" />
-                            )}
-                          </label>
-                        );
-                      })}
-                    {selectedTargets.length > 0 && (
-                      <p className="text-xs text-yellow-300 mt-2">
-                        {selectedTargets.length} target{selectedTargets.length !== 1 ? 's' : ''} selected
-                      </p>
+                <div className="flex items-start space-x-2">
+                  <AlertTriangle className="h-4 w-4 text-yellow-400 flex-shrink-0 mt-0.5" />
+                  <div className="text-xs text-yellow-200">
+                    <strong>Warning:</strong> Bypass mode is enabled. This will bypass the target's safety limits. Requires consent from both parties. One consumable will be used.
+                    {consumableCount > 0 && (
+                      <span className="block mt-1 text-purple-300">
+                        {consumableCount} consumable{consumableCount !== 1 ? 's' : ''} remaining
+                      </span>
                     )}
                   </div>
-                )}
+                </div>
               </div>
             )}
             <div className="flex-1 flex flex-col space-y-4 min-h-0">
