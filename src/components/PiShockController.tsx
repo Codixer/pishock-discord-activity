@@ -297,14 +297,35 @@ export function PiShockController({
           let message = `${actionName} sent to ${selectedUser.displayName || selectedUser.username} - Intensity: ${intensity}%, Duration: ${duration}s`;
           if (result.consumeSku) {
             message += ' (Limit bypassed - consumable used)';
+            
+            // Immediately update local state to mark the entitlement as consumed
+            // This provides instant UI feedback while we wait for Discord API to update
+            if (result.consumeSku.entitlementId && monetization.markEntitlementConsumed) {
+              console.log('[PiShockController] Immediately updating UI to reflect consumed entitlement:', result.consumeSku.entitlementId);
+              monetization.markEntitlementConsumed(result.consumeSku.entitlementId);
+            }
+            
             // Refresh entitlements after consumption (backend already consumed it)
-            setTimeout(async () => {
-              console.log('[PiShockController] Refreshing entitlements after SKU consumption');
-              await monetization.refreshEntitlements();
+            // Use multiple attempts with delays to ensure Discord API has updated
+            const refreshEntitlements = async (attempt = 1) => {
+              console.log(`[PiShockController] Refreshing entitlements after SKU consumption (attempt ${attempt})`);
+              
+              // Force cache invalidation by clearing the global cache
+              if ((window as any).globalEntitlementsCache) {
+                (window as any).globalEntitlementsCache.data = null;
+                (window as any).globalEntitlementsCache.timestamp = 0;
+              }
+              
+              // Force refresh to bypass cache
+              if (monetization.refreshEntitlements) {
+                await monetization.refreshEntitlements(true);
+              }
+              
               // Also refresh backend status to ensure consistency
               if (auth?.user?.id) {
                 try {
-                  const statusResponse = await fetch(`${getApiBaseUrl()}/users/${auth.user.id}/sku-verify`, {
+                  // Invalidate backend cache by adding a cache-busting parameter
+                  const statusResponse = await fetch(`${getApiBaseUrl()}/users/${auth.user.id}/sku-verify?t=${Date.now()}`, {
                     headers: {
                       'Authorization': `Bearer ${auth.access_token}`,
                     },
@@ -312,12 +333,27 @@ export function PiShockController({
                   if (statusResponse.ok) {
                     const statusData = await statusResponse.json();
                     console.log('[PiShockController] Backend SKU status refreshed:', statusData);
+                    
+                    // Force another refresh after backend status is fetched
+                    if (monetization.refreshEntitlements) {
+                      setTimeout(() => {
+                        monetization.refreshEntitlements(true);
+                      }, 500);
+                    }
                   }
                 } catch (e) {
                   console.error('[PiShockController] Failed to refresh backend SKU status:', e);
                 }
               }
-            }, 1000);
+              
+              // Retry once more after a delay if this is the first attempt
+              if (attempt === 1) {
+                setTimeout(() => refreshEntitlements(2), 2000);
+              }
+            };
+            
+            // Start refresh after a short delay to allow Discord API to process
+            setTimeout(() => refreshEntitlements(1), 1500);
           }
           addNotification('success', 'Command Sent', message);
           

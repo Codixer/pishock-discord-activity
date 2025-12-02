@@ -45,6 +45,11 @@ let globalEntitlementsCache: {
   pendingRequest: null
 };
 
+// Expose cache to window for external invalidation
+if (typeof window !== 'undefined') {
+  (window as any).globalEntitlementsCache = globalEntitlementsCache;
+}
+
 const CACHE_DURATION = 60000; // 1 minute cache
 const MIN_REQUEST_INTERVAL = 10000; // Minimum 10 seconds between requests
 let lastRequestTime = 0;
@@ -112,14 +117,22 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     }
   }, [discordSdk, isEmbedded]);
 
-  const fetchEntitlements = useCallback(async () => {
+  const fetchEntitlements = useCallback(async (forceRefresh = false) => {
     if (!discordSdk || !isEmbedded) {
       setState(prev => ({ ...prev, loading: false }));
       return;
     }
 
-    // Check rate limit
-    if (Date.now() < rateLimitUntil) {
+    // If force refresh, clear cache
+    if (forceRefresh) {
+      console.log('[Monetization] Force refreshing entitlements - clearing cache');
+      globalEntitlementsCache.data = null;
+      globalEntitlementsCache.timestamp = 0;
+      lastRequestTime = 0;
+    }
+
+    // Check rate limit (but allow force refresh to bypass)
+    if (!forceRefresh && Date.now() < rateLimitUntil) {
       console.warn('Rate limited, using cached entitlements');
       if (globalEntitlementsCache.data) {
         setState(prev => ({ ...prev, ...globalEntitlementsCache.data, loading: false }));
@@ -127,8 +140,8 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
       return;
     }
 
-    // Check if there's a pending request
-    if (globalEntitlementsCache.pendingRequest) {
+    // Check if there's a pending request (but allow force refresh to bypass)
+    if (!forceRefresh && globalEntitlementsCache.pendingRequest) {
       await globalEntitlementsCache.pendingRequest;
       if (globalEntitlementsCache.data) {
         setState(prev => ({ ...prev, ...globalEntitlementsCache.data, loading: false }));
@@ -136,16 +149,16 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
       return;
     }
 
-    // Check cache
+    // Check cache (but allow force refresh to bypass)
     const now = Date.now();
-    if (globalEntitlementsCache.data && (now - globalEntitlementsCache.timestamp) < CACHE_DURATION) {
+    if (!forceRefresh && globalEntitlementsCache.data && (now - globalEntitlementsCache.timestamp) < CACHE_DURATION) {
       setState(prev => ({ ...prev, ...globalEntitlementsCache.data, loading: false }));
       return;
     }
 
-    // Throttle requests
+    // Throttle requests (but allow force refresh to bypass)
     const timeSinceLastRequest = now - lastRequestTime;
-    if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
+    if (!forceRefresh && timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
       // Use cached data if available
       if (globalEntitlementsCache.data) {
         setState(prev => ({ ...prev, ...globalEntitlementsCache.data, loading: false }));
@@ -158,6 +171,7 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     // Create pending request promise
     const requestPromise = (async () => {
       try {
+        console.log('[Monetization] Fetching entitlements from Discord SDK (forceRefresh:', forceRefresh, ')');
         const entitlements = await discordSdk.commands.getEntitlements();
         const entitlementsList: Entitlement[] = Array.isArray(entitlements?.entitlements) 
           ? entitlements.entitlements.map((ent: any) => ({
@@ -169,6 +183,13 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
               starts_at: ent.starts_at,
             }))
           : [];
+        
+        console.log('[Monetization] Raw entitlements from Discord SDK:', entitlementsList.map((e: Entitlement) => ({
+          id: e.id,
+          sku_id: e.sku_id,
+          consumed: e.consumed,
+          type: e.type
+        })));
         
         let hasShockPastLimit = false;
         let hasControllerPlus = false;
@@ -216,13 +237,15 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
           }
         }
         
+        const consumableCount = entitlementsList.filter((ent: Entitlement) => 
+          ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && !(ent.consumed ?? false)
+        ).length;
+        
         console.log('[Monetization] Processed entitlements result:', {
           total: entitlementsList.length,
           hasShockPastLimit,
           hasControllerPlus,
-          consumableCount: entitlementsList.filter((ent: Entitlement) => 
-            ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && !(ent.consumed ?? false)
-          ).length,
+          consumableCount,
           subscriptionExpiresAt
         });
 
@@ -244,6 +267,11 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
           timestamp: now,
           pendingRequest: null
         };
+        
+        // Update window reference
+        if (typeof window !== 'undefined') {
+          (window as any).globalEntitlementsCache = globalEntitlementsCache;
+        }
 
         if (mountedRef.current) {
           setState(prev => {
@@ -252,7 +280,12 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
               ...newState,
               loading: false
             };
-            console.log('[Monetization] State updated in component:', updated);
+            console.log('[Monetization] State updated in component:', {
+              ...updated,
+              consumableCount: updated.entitlements.filter((e: Entitlement) => 
+                e.sku_id === SHOCK_PAST_LIMIT_SKU_ID && !(e.consumed ?? false)
+              ).length
+            });
             return updated;
           });
         }
@@ -329,13 +362,30 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
 
       if (response.ok) {
         const data = await response.json();
+        console.log('[Monetization] Backend SKU status fetched:', data);
         if (mountedRef.current) {
-          setState(prev => ({
-            ...prev,
-            hasShockPastLimit: data.hasShockPastLimit || prev.hasShockPastLimit,
-            hasControllerPlus: data.hasControllerPlus || prev.hasControllerPlus,
-            subscriptionExpiresAt: data.subscriptionExpiresAt || prev.subscriptionExpiresAt
-          }));
+          setState(prev => {
+            // Update state with backend data
+            const updated = {
+              ...prev,
+              hasShockPastLimit: data.hasShockPastLimit ?? prev.hasShockPastLimit,
+              hasControllerPlus: data.hasControllerPlus ?? prev.hasControllerPlus,
+              subscriptionExpiresAt: data.subscriptionExpiresAt ?? prev.subscriptionExpiresAt
+            };
+            
+            // If backend says no consumables, update entitlements to mark them as consumed
+            if (!data.hasShockPastLimit && prev.hasShockPastLimit) {
+              console.log('[Monetization] Backend indicates no consumables, updating entitlements state');
+              updated.entitlements = prev.entitlements.map((ent: Entitlement) => {
+                if (ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && !ent.consumed) {
+                  return { ...ent, consumed: true };
+                }
+                return ent;
+              });
+            }
+            
+            return updated;
+          });
         }
       }
     } catch (error) {
@@ -459,12 +509,49 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     });
   }, [state.hasShockPastLimit, state.hasControllerPlus, consumableCount, state.entitlements.length, state.loading, state.error, state.entitlements]);
 
+  // Wrapper to allow calling with or without force parameter
+  const refreshEntitlements = useCallback((force = false) => {
+    return fetchEntitlements(force);
+  }, [fetchEntitlements]);
+
+  // Function to immediately mark an entitlement as consumed in local state
+  const markEntitlementConsumed = useCallback((entitlementId: string) => {
+    console.log(`[Monetization] Immediately marking entitlement ${entitlementId} as consumed in local state`);
+    setState(prev => {
+      const updatedEntitlements = prev.entitlements.map((ent: Entitlement) => {
+        if (ent.id === entitlementId && ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID) {
+          console.log(`[Monetization] Marking entitlement ${ent.id} as consumed`);
+          return { ...ent, consumed: true };
+        }
+        return ent;
+      });
+      
+      const newConsumableCount = updatedEntitlements.filter((ent: Entitlement) => 
+        ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && !(ent.consumed ?? false)
+      ).length;
+      
+      const updated = {
+        ...prev,
+        entitlements: updatedEntitlements,
+        hasShockPastLimit: newConsumableCount > 0
+      };
+      
+      console.log(`[Monetization] Updated state after marking consumed:`, {
+        consumableCount: newConsumableCount,
+        hasShockPastLimit: updated.hasShockPastLimit
+      });
+      
+      return updated;
+    });
+  }, []);
+
   return {
     ...state,
-    refreshEntitlements: fetchEntitlements,
+    refreshEntitlements,
     refreshSkus: fetchSkus,
     purchaseSku: startPurchase,
     consumeEntitlement,
+    markEntitlementConsumed,
     shockPastLimitSku: state.skus.find(s => s.id === SHOCK_PAST_LIMIT_SKU_ID),
     controllerPlusSku: state.skus.find(s => s.id === CONTROLLER_PLUS_SKU_ID),
     consumableCount,
