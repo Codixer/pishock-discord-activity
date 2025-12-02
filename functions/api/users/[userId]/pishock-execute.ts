@@ -65,16 +65,16 @@ async function fetchUserEntitlements(token: string, env: Env): Promise<any[] | n
   }
 }
 
-async function consumeEntitlement(token: string, entitlementId: string): Promise<boolean> {
+async function consumeEntitlement(token: string, entitlementId: string, applicationId: string): Promise<boolean> {
   try {
-    // Use DELETE method on user endpoint as per Discord API documentation
+    // Use POST method on applications endpoint as per Discord API documentation
+    // POST /applications/{application.id}/entitlements/{entitlement.id}/consume
     // https://discord.com/developers/docs/monetization/implementing-one-time-purchases
-    // https://discord.com/developers/docs/resources/entitlement
-    const url = `https://discord.com/api/v9/users/@me/entitlements/${entitlementId}`;
+    const url = `https://discord.com/api/v9/applications/${applicationId}/entitlements/${entitlementId}/consume`;
     console.log(`[PISHOCK-EXECUTE] Consuming entitlement ${entitlementId} via ${url}`);
     
     const response = await fetch(url, {
-      method: 'DELETE',
+      method: 'POST',
       headers: { 
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
@@ -83,19 +83,23 @@ async function consumeEntitlement(token: string, entitlementId: string): Promise
     
     console.log(`[PISHOCK-EXECUTE] Consume API response: ${response.status} ${response.statusText}`);
     
-    if (!response.ok) {
+    // Discord API returns 204 No Content on success
+    if (response.status === 204 || response.ok) {
+      console.log(`[PISHOCK-EXECUTE] Successfully consumed entitlement ${entitlementId}`);
+      return true;
+    } else {
       const errorBody = await response.text();
       console.error(`[PISHOCK-EXECUTE] Failed to consume entitlement ${entitlementId}:`, {
         status: response.status,
         statusText: response.statusText,
         errorBody: errorBody || '(empty)'
       });
+      return false;
     }
-    
-    return response.ok;
   } catch (error) {
     console.error(`[PISHOCK-EXECUTE] Exception while consuming entitlement ${entitlementId}:`, {
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
     });
     return false;
   }
@@ -589,23 +593,28 @@ export const onRequest: PagesFunction<Env> = async (context) => {
               consumed: latestEntitlement.consumed,
               type: latestEntitlement.type
             });
-            const consumed = await consumeEntitlement(token, latestEntitlement.id);
-            if (consumed) {
-              console.log(`[PISHOCK-EXECUTE] Successfully consumed entitlement ${latestEntitlement.id}`);
-              skuConsumed = SHOCK_PAST_LIMIT_SKU_ID;
-              // Invalidate SKU status cache
-              try {
-                await env.PISHOCK_KV.delete(`cache:sku_status:${executorUserId}`);
-                await env.PISHOCK_KV.delete(`sku_verify_cache:${executorUserId}`);
-              } catch (error) {
-                console.error(`[PISHOCK-EXECUTE] Error invalidating cache:`, error);
-              }
+            
+            if (!env.DISCORD_CLIENT_ID) {
+              console.error(`[PISHOCK-EXECUTE] Cannot consume entitlement: DISCORD_CLIENT_ID not configured`);
             } else {
-              // Log error but don't fail the command since it already succeeded
-              console.error(`[PISHOCK-EXECUTE] Failed to consume SKU ${SHOCK_PAST_LIMIT_SKU_ID} for user ${executorUserId} after successful command execution. Command succeeded but SKU was not consumed.`, {
-                entitlementId: latestEntitlement.id,
-                executorUserId
-              });
+              const consumed = await consumeEntitlement(token, latestEntitlement.id, env.DISCORD_CLIENT_ID);
+              if (consumed) {
+                console.log(`[PISHOCK-EXECUTE] Successfully consumed entitlement ${latestEntitlement.id}`);
+                skuConsumed = SHOCK_PAST_LIMIT_SKU_ID;
+                // Invalidate SKU status cache
+                try {
+                  await env.PISHOCK_KV.delete(`cache:sku_status:${executorUserId}`);
+                  await env.PISHOCK_KV.delete(`sku_verify_cache:${executorUserId}`);
+                } catch (error) {
+                  console.error(`[PISHOCK-EXECUTE] Error invalidating cache:`, error);
+                }
+              } else {
+                // Log error but don't fail the command since it already succeeded
+                console.error(`[PISHOCK-EXECUTE] Failed to consume SKU ${SHOCK_PAST_LIMIT_SKU_ID} for user ${executorUserId} after successful command execution. Command succeeded but SKU was not consumed.`, {
+                  entitlementId: latestEntitlement.id,
+                  executorUserId
+                });
+              }
             }
           } else {
             console.warn(`[PISHOCK-EXECUTE] Entitlement ${entitlementIdToConsume} not found or already consumed when attempting to consume after successful command.`, {

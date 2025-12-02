@@ -122,17 +122,17 @@ async function fetchUserEntitlements(token: string, userId: string): Promise<any
   }
 }
 
-async function consumeEntitlement(token: string, entitlementId: string): Promise<boolean> {
+async function consumeEntitlement(token: string, entitlementId: string, applicationId: string): Promise<boolean> {
   try {
     console.log(`[SKU-CONSUME] Attempting to consume entitlement ${entitlementId}`);
-    // Use DELETE method on user endpoint as per Discord API documentation
+    // Use POST method on applications endpoint as per Discord API documentation
+    // POST /applications/{application.id}/entitlements/{entitlement.id}/consume
     // https://discord.com/developers/docs/monetization/implementing-one-time-purchases
-    // https://discord.com/developers/docs/resources/entitlement
-    const url = `https://discord.com/api/v9/users/@me/entitlements/${entitlementId}`;
+    const url = `https://discord.com/api/v9/applications/${applicationId}/entitlements/${entitlementId}/consume`;
     console.log(`[SKU-CONSUME] Consume API URL: ${url}`);
     
     const response = await fetch(url, {
-      method: 'DELETE',
+      method: 'POST',
       headers: { 
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
@@ -141,12 +141,11 @@ async function consumeEntitlement(token: string, entitlementId: string): Promise
     
     console.log(`[SKU-CONSUME] Consume API response status: ${response.status} ${response.statusText}`);
     
-    if (response.ok) {
-      const responseBody = await response.text();
+    // Discord API returns 204 No Content on success
+    if (response.status === 204 || response.ok) {
       console.log(`[SKU-CONSUME] Successfully consumed entitlement ${entitlementId}`, {
         entitlementId,
-        responseStatus: response.status,
-        responseBody: responseBody || '(empty)'
+        responseStatus: response.status
       });
       return true;
     } else {
@@ -311,7 +310,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     });
 
     // Consume the entitlement
-    const consumed = await consumeEntitlement(token, entitlement.id);
+    if (!env.DISCORD_CLIENT_ID) {
+      console.error(`[SKU-CONSUME] Cannot consume entitlement: DISCORD_CLIENT_ID not configured`);
+      return jsonResponse({ 
+        success: false,
+        error: 'Server configuration error: Application ID not configured' 
+      }, 500);
+    }
+    
+    const consumed = await consumeEntitlement(token, entitlement.id, env.DISCORD_CLIENT_ID);
     
     if (!consumed) {
       console.error(`[SKU-CONSUME] Failed to consume entitlement ${entitlement.id}`);
