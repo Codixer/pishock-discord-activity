@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { DiscordSDK, Events, Common } from '@discord/embedded-app-sdk';
-import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText, ShoppingCart, Crown, Sparkles } from 'lucide-react';
+import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText, ShoppingCart, Crown, Sparkles, CheckCircle2 } from 'lucide-react';
 import { PiShockController } from './components/PiShockController';
 import { SafetyWarning } from './components/SafetyWarning';
 import { UserSelector } from './components/UserSelector';
@@ -98,6 +98,8 @@ function MainApp() {
   const [isPipMode, setIsPipMode] = useState(false);
   const [showStore, setShowStore] = useState(false);
   const [useConsumable, setUseConsumable] = useState(false);
+  const [allowShockPastLimit, setAllowShockPastLimit] = useState(false);
+  const [multiTargetMode, setMultiTargetMode] = useState(false);
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
   
@@ -219,8 +221,8 @@ function MainApp() {
     }
   }, [instanceId, auth, participants, userStatusCache]);
 
-  // Load ban lists for current user (who can be banned from shocking them)
-  const loadCurrentUserBanList = useCallback(async () => {
+  // Load ban lists and consent settings for current user
+  const loadCurrentUserSettings = useCallback(async () => {
     if (!isEmbedded) return;
     
     if (!auth?.user?.id) return;
@@ -234,7 +236,16 @@ function MainApp() {
 
       if (response.ok) {
         const result = await response.json();
-        if (result.bannedExecutors) {
+        if (result.settings) {
+          setAllowShockPastLimit(result.settings.allowShockPastLimit || false);
+          setUserPiShockStatus(prevStatus => ({
+            ...prevStatus,
+            [auth.user.id]: {
+              ...prevStatus[auth.user.id],
+              bannedExecutors: result.settings.bannedExecutors || []
+            }
+          }));
+        } else if (result.bannedExecutors) {
           setUserPiShockStatus(prevStatus => ({
             ...prevStatus,
             [auth.user.id]: {
@@ -245,7 +256,7 @@ function MainApp() {
         }
       }
     } catch (error) {
-      // Silently handle ban list errors
+      // Silently handle settings errors
     }
   }, [auth]);
 
@@ -287,9 +298,9 @@ function MainApp() {
   
   useEffect(() => {
     if (auth?.user?.id) {
-      loadCurrentUserBanList();
+      loadCurrentUserSettings();
     }
-  }, [auth?.user?.id, loadCurrentUserBanList]);
+  }, [auth?.user?.id, loadCurrentUserSettings]);
   
   useEffect(() => {
     (window as any).userPiShockStatus = userPiShockStatus;
@@ -784,6 +795,8 @@ function MainApp() {
               useConsumable={useConsumable}
               setUseConsumable={setUseConsumable}
               onOpenStore={() => setShowStore(true)}
+              multiTargetMode={multiTargetMode}
+              setMultiTargetMode={setMultiTargetMode}
             />
           </div>
 
@@ -849,8 +862,41 @@ function MainApp() {
                     Discord Activity • {participants.length} participant{participants.length !== 1 ? 's' : ''}
                   </p>
                 </div>
-                {/* Consumable/Shock Bypass Toggle */}
+                {/* All Toggles - Extended to the right */}
                 <div className="flex items-center space-x-2">
+                  {/* Consent Toggle - Allow Shock Past Limit */}
+                  <label className="relative inline-flex items-center cursor-pointer" title="Allows shocks past limit">
+                    <input
+                      type="checkbox"
+                      checked={allowShockPastLimit}
+                      onChange={async (e) => {
+                        const newValue = e.target.checked;
+                        setAllowShockPastLimit(newValue);
+                        // Save to backend
+                        if (auth?.user?.id && auth?.access_token) {
+                          try {
+                            await fetch(`${getApiBaseUrl()}/users/${auth.user.id}/pishock-settings`, {
+                              method: 'PUT',
+                              headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${auth.access_token}`,
+                              },
+                              body: JSON.stringify({ allowShockPastLimit: newValue }),
+                            });
+                          } catch (error) {
+                            console.error('Failed to save consent setting:', error);
+                          }
+                        }
+                      }}
+                      className="sr-only peer"
+                    />
+                    <div className="flex items-center space-x-1 px-2 py-1 bg-red-600/20 border border-red-500/30 rounded text-xs peer-checked:bg-red-600/40 transition-colors">
+                      <span className="text-red-400 animate-spin" style={{ animation: 'spin 2s linear infinite' }}>🚨</span>
+                      <span className="text-red-300 font-medium">Allows shocks past limit</span>
+                    </div>
+                  </label>
+                  
+                  {/* Use Consumable Toggle */}
                   {monetization.hasShockPastLimit || monetization.consumableCount > 0 ? (
                     <label className="relative inline-flex items-center cursor-pointer" title="Toggle shock bypass">
                       <input
@@ -861,7 +907,7 @@ function MainApp() {
                       />
                       <div className="flex items-center space-x-1 px-2 py-1 bg-purple-600/20 border border-purple-500/30 rounded text-xs peer-checked:bg-purple-600/40 transition-colors">
                         <Sparkles className="h-3 w-3 text-purple-400" />
-                        <span className="text-purple-300 font-medium">Bypass</span>
+                        <span className="text-purple-300 font-medium">Use Consumable</span>
                         {monetization.consumableCount > 0 && (
                           <span className="text-purple-400">({monetization.consumableCount})</span>
                         )}
@@ -877,9 +923,37 @@ function MainApp() {
                       title="Click to purchase in Store"
                     >
                       <Sparkles className="h-3 w-3 text-gray-500" />
-                      <span className="text-gray-500 font-medium">Bypass</span>
+                      <span className="text-gray-500 font-medium">Use Consumable</span>
                     </div>
                   )}
+                  
+                  {/* Multi-Shock Toggle (Controller+) */}
+                  {monetization.hasControllerPlus && participants.length > 1 ? (
+                    <label className="relative inline-flex items-center cursor-pointer" title="Toggle multi-target mode">
+                      <input
+                        type="checkbox"
+                        checked={multiTargetMode}
+                        onChange={(e) => setMultiTargetMode(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="flex items-center space-x-1 px-2 py-1 bg-yellow-600/20 border border-yellow-500/30 rounded text-xs peer-checked:bg-yellow-600/40 transition-colors">
+                        <Users className="h-3 w-3 text-yellow-400" />
+                        <span className="text-yellow-300 font-medium">Multi-Shock</span>
+                      </div>
+                    </label>
+                  ) : participants.length > 1 ? (
+                    <div 
+                      className="flex items-center space-x-1 px-2 py-1 bg-gray-600/20 border border-gray-500/30 rounded text-xs cursor-pointer opacity-50 hover:opacity-75 transition-opacity"
+                      onClick={() => {
+                        setShowStore(true);
+                        addNotification('info', 'Purchase Required', 'You need Controller+ subscription to use multi-shock feature.');
+                      }}
+                      title="Click to purchase Controller+ in Store"
+                    >
+                      <Users className="h-3 w-3 text-gray-500" />
+                      <span className="text-gray-500 font-medium">Multi-Shock</span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -964,6 +1038,8 @@ function MainApp() {
                 useConsumable={useConsumable}
                 setUseConsumable={setUseConsumable}
                 onOpenStore={() => setShowStore(true)}
+                multiTargetMode={multiTargetMode}
+                setMultiTargetMode={setMultiTargetMode}
               />
             </div>
 

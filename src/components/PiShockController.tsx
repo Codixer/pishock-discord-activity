@@ -19,6 +19,8 @@ interface PiShockControllerProps {
   useConsumable: boolean;
   setUseConsumable: (value: boolean) => void;
   onOpenStore: () => void;
+  multiTargetMode: boolean;
+  setMultiTargetMode: (value: boolean) => void;
 }
 
 // Helper function to get the correct API base URL
@@ -49,7 +51,9 @@ export function PiShockController({
   participants = [],
   useConsumable,
   setUseConsumable,
-  onOpenStore
+  onOpenStore,
+  multiTargetMode,
+  setMultiTargetMode
 }: PiShockControllerProps) {
   const [intensity, setIntensity] = useState(1);
   const [duration, setDuration] = useState(1);
@@ -57,7 +61,6 @@ export function PiShockController({
   const [showSettings, setShowSettings] = useState(false);
   const [currentUserPiShockConnected, setCurrentUserPiShockConnected] = useState(false);
   const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
-  const [multiTargetMode, setMultiTargetMode] = useState(false);
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
   
   const monetization = useMonetization(discordSdk, isEmbedded, auth);
@@ -433,38 +436,6 @@ export function PiShockController({
               <h3 className={`font-semibold ${isPipMode ? 'text-sm' : 'text-lg sm:text-xl'}`}>
                 Control Panel
               </h3>
-              {/* Multi-Shock Toggle */}
-              {monetization.hasControllerPlus && participants.length > 1 ? (
-                <label className="relative inline-flex items-center cursor-pointer" title="Toggle multi-target mode">
-                  <input
-                    type="checkbox"
-                    checked={multiTargetMode}
-                    onChange={(e) => {
-                      setMultiTargetMode(e.target.checked);
-                      if (!e.target.checked) {
-                        setSelectedTargets([]);
-                      }
-                    }}
-                    className="sr-only peer"
-                  />
-                  <div className="flex items-center space-x-1 px-2 py-1 bg-yellow-600/20 border border-yellow-500/30 rounded text-xs peer-checked:bg-yellow-600/40 transition-colors">
-                    <Users className="h-3 w-3 text-yellow-400" />
-                    <span className="text-yellow-300 font-medium">Multi-Shock</span>
-                  </div>
-                </label>
-              ) : participants.length > 1 ? (
-                <div 
-                  className="flex items-center space-x-1 px-2 py-1 bg-gray-600/20 border border-gray-500/30 rounded text-xs cursor-pointer opacity-50 hover:opacity-75 transition-opacity"
-                  onClick={() => {
-                    onOpenStore();
-                    addNotification('info', 'Purchase Required', 'You need Controller+ subscription to use multi-shock feature.');
-                  }}
-                  title="Click to purchase Controller+ in Store"
-                >
-                  <Users className="h-3 w-3 text-gray-500" />
-                  <span className="text-gray-500 font-medium">Multi-Shock</span>
-                </div>
-              ) : null}
             </div>
             {!isPipMode && (
               <button

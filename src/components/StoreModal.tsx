@@ -33,8 +33,17 @@ export function StoreModal({
       const success = await monetization.purchaseSku(skuId);
       if (success) {
         // Purchase initiated - Discord SDK will handle the flow
-        setTimeout(() => {
+        // Refresh entitlements and backend status after purchase
+        setTimeout(async () => {
           setPurchasing(null);
+          // Force refresh entitlements from Discord SDK
+          if (monetization.refreshEntitlements) {
+            await monetization.refreshEntitlements(true);
+          }
+          // Refresh backend status to ensure it's up to date
+          if (monetization.refreshBackendStatus) {
+            await monetization.refreshBackendStatus();
+          }
         }, 2000);
       } else {
         setPurchasing(null);

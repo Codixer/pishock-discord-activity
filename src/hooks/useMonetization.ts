@@ -334,8 +334,9 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
         lastRequestTime = 0; // Reset request throttle
         // Wait a bit for Discord to process the purchase, then refresh
         setTimeout(async () => {
-          await fetchEntitlements();
+          await fetchEntitlements(true); // Force refresh
           await fetchSkus();
+          await fetchBackendSkuStatus(); // Refresh backend status
         }, 2000);
         return true;
       }
@@ -549,6 +550,7 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     ...state,
     refreshEntitlements,
     refreshSkus: fetchSkus,
+    refreshBackendStatus: fetchBackendSkuStatus,
     purchaseSku: startPurchase,
     consumeEntitlement,
     markEntitlementConsumed,

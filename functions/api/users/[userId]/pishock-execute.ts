@@ -483,19 +483,16 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
       
       if (needsBypass) {
-        // Verify 2-sided consent
-        const executorUserDataStr = await env.PISHOCK_KV.get(`user:${executorUserId}:data`);
-        const executorUserData = executorUserDataStr ? JSON.parse(executorUserDataStr) : null;
+        // Verify recipient consent only
         const targetUserDataStr = await env.PISHOCK_KV.get(`user:${targetUserId}:data`);
         const targetUserData = targetUserDataStr ? JSON.parse(targetUserDataStr) : null;
         
-        const executorConsent = executorUserData?.useShockPastLimit || false;
         const targetConsent = targetUserData?.allowShockPastLimit || false;
         
-        if (!executorConsent || !targetConsent) {
+        if (!targetConsent) {
           return jsonResponse({ 
             success: false, 
-            error: `Limit bypass requires consent from both users. Executor consent: ${executorConsent}, Target consent: ${targetConsent}` 
+            error: `Limit bypass requires consent from the target user. The recipient must enable "Allows shocks past limit" in their settings.` 
           }, 403);
         }
         
