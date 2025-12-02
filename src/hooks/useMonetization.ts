@@ -314,6 +314,35 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     }
   }, [discordSdk, isEmbedded, fetchEntitlements, fetchSkus]);
 
+  // Also fetch from backend for server-side verification
+  const fetchBackendSkuStatus = useCallback(async () => {
+    if (!auth?.user?.id || !auth?.access_token) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/users/${auth.user.id}/sku-verify`, {
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (mountedRef.current) {
+          setState(prev => ({
+            ...prev,
+            hasShockPastLimit: data.hasShockPastLimit || prev.hasShockPastLimit,
+            hasControllerPlus: data.hasControllerPlus || prev.hasControllerPlus,
+            subscriptionExpiresAt: data.subscriptionExpiresAt || prev.subscriptionExpiresAt
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch backend SKU status:', error);
+    }
+  }, [auth]);
+
   const consumeEntitlement = useCallback(async (entitlementId: string): Promise<boolean> => {
     if (!auth?.user?.id || !auth?.access_token) {
       console.error('[Monetization] Cannot consume entitlement: missing auth');
@@ -360,35 +389,6 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
       return false;
     }
   }, [auth, fetchEntitlements, fetchBackendSkuStatus]);
-
-  // Also fetch from backend for server-side verification
-  const fetchBackendSkuStatus = useCallback(async () => {
-    if (!auth?.user?.id || !auth?.access_token) {
-      return;
-    }
-
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${auth.user.id}/sku-verify`, {
-        headers: {
-          'Authorization': `Bearer ${auth.access_token}`,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (mountedRef.current) {
-          setState(prev => ({
-            ...prev,
-            hasShockPastLimit: data.hasShockPastLimit || prev.hasShockPastLimit,
-            hasControllerPlus: data.hasControllerPlus || prev.hasControllerPlus,
-            subscriptionExpiresAt: data.subscriptionExpiresAt || prev.subscriptionExpiresAt
-          }));
-        }
-      }
-    } catch (error) {
-      console.error('Failed to fetch backend SKU status:', error);
-    }
-  }, [auth]);
 
   // Initial load - only fetch SKUs once, entitlements are cached globally
   useEffect(() => {
