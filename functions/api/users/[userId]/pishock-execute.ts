@@ -29,59 +29,38 @@ const SHOCK_PAST_LIMIT_SKU_ID = "1418562984946569267";
 
 async function fetchUserEntitlements(token: string, env: Env): Promise<any[] | null> {
   try {
-    // Try the application ID endpoint first
-    if (env.DISCORD_CLIENT_ID) {
-      try {
-        const response = await fetch(`https://discord.com/api/v9/users/@me/applications/${env.DISCORD_CLIENT_ID}/entitlements?exclude_consumed=true`, {
-          headers: { 
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          // Discord API returns an array directly or wrapped in an object
-          const entitlements = Array.isArray(data) ? data : (data.entitlements || []);
-          if (Array.isArray(entitlements)) {
-            return entitlements;
-          }
-        } else {
-          console.warn(`Application ID endpoint failed: ${response.status} ${response.statusText}`);
-        }
-      } catch (error) {
-        console.warn('Application ID endpoint error:', error);
-      }
-    }
+    console.log(`[PISHOCK-EXECUTE] Fetching entitlements for user`);
+    // Use the user endpoint to match the consume endpoint
+    // https://discord.com/developers/docs/monetization/implementing-one-time-purchases
+    const response = await fetch('https://discord.com/api/v9/users/@me/entitlements', {
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+    });
     
-    // Fallback to the @me endpoint
-    try {
-      const response = await fetch('https://discord.com/api/v9/applications/@me/entitlements', {
-        headers: { 
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+    console.log(`[PISHOCK-EXECUTE] Entitlements API response: ${response.status} ${response.statusText}`);
+    
+    if (response.ok) {
+      const data = await response.json();
+      // Discord API returns an array directly
+      const entitlements = Array.isArray(data) ? data : [];
+      console.log(`[PISHOCK-EXECUTE] Fetched ${entitlements.length} entitlements`);
+      return entitlements;
+    } else {
+      const errorText = await response.text().catch(() => 'Unknown error');
+      console.error(`[PISHOCK-EXECUTE] Failed to fetch entitlements: ${response.status} ${response.statusText}`, {
+        status: response.status,
+        statusText: response.statusText,
+        errorBody: errorText
       });
-      
-      if (response.ok) {
-        const data = await response.json();
-        // Discord API returns an array directly or wrapped in an object
-        const entitlements = Array.isArray(data) ? data : (data.entitlements || []);
-        if (Array.isArray(entitlements)) {
-          return entitlements;
-        }
-      } else {
-        console.error(`Failed to fetch entitlements: ${response.status} ${response.statusText}`);
-        const errorText = await response.text().catch(() => 'Unknown error');
-        console.error(`Error response: ${errorText}`);
-      }
-    } catch (error) {
-      console.error('Error fetching entitlements from @me endpoint:', error);
+      return null;
     }
-    
-    return null;
   } catch (error) {
-    console.error('Error fetching entitlements:', error);
+    console.error(`[PISHOCK-EXECUTE] Exception while fetching entitlements:`, {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
     return null;
   }
 }
@@ -592,9 +571,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       // Command successful - now consume SKU if limit was bypassed
       if (bypassedLimit && entitlementIdToConsume) {
+        console.log(`[PISHOCK-EXECUTE] Attempting to consume entitlement ${entitlementIdToConsume} after successful command`);
         // Re-fetch entitlements to get the latest state before consuming
         const latestEntitlements = await fetchUserEntitlements(token, env);
         if (latestEntitlements && Array.isArray(latestEntitlements)) {
+          console.log(`[PISHOCK-EXECUTE] Found ${latestEntitlements.length} entitlements, searching for ${entitlementIdToConsume}`);
           const latestEntitlement = latestEntitlements.find((ent: any) => 
             ent.id === entitlementIdToConsume && 
             ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && 
@@ -602,23 +583,46 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           );
           
           if (latestEntitlement) {
+            console.log(`[PISHOCK-EXECUTE] Found unconsumed entitlement:`, {
+              id: latestEntitlement.id,
+              sku_id: latestEntitlement.sku_id,
+              consumed: latestEntitlement.consumed,
+              type: latestEntitlement.type
+            });
             const consumed = await consumeEntitlement(token, latestEntitlement.id);
             if (consumed) {
+              console.log(`[PISHOCK-EXECUTE] Successfully consumed entitlement ${latestEntitlement.id}`);
               skuConsumed = SHOCK_PAST_LIMIT_SKU_ID;
               // Invalidate SKU status cache
               try {
                 await env.PISHOCK_KV.delete(`cache:sku_status:${executorUserId}`);
                 await env.PISHOCK_KV.delete(`sku_verify_cache:${executorUserId}`);
               } catch (error) {
-                // Silently handle cache invalidation errors
+                console.error(`[PISHOCK-EXECUTE] Error invalidating cache:`, error);
               }
             } else {
               // Log error but don't fail the command since it already succeeded
-              console.error(`Failed to consume SKU ${SHOCK_PAST_LIMIT_SKU_ID} for user ${executorUserId} after successful command execution. Command succeeded but SKU was not consumed.`);
+              console.error(`[PISHOCK-EXECUTE] Failed to consume SKU ${SHOCK_PAST_LIMIT_SKU_ID} for user ${executorUserId} after successful command execution. Command succeeded but SKU was not consumed.`, {
+                entitlementId: latestEntitlement.id,
+                executorUserId
+              });
             }
           } else {
-            console.warn(`Entitlement ${entitlementIdToConsume} not found or already consumed when attempting to consume after successful command.`);
+            console.warn(`[PISHOCK-EXECUTE] Entitlement ${entitlementIdToConsume} not found or already consumed when attempting to consume after successful command.`, {
+              entitlementId: entitlementIdToConsume,
+              availableEntitlements: latestEntitlements.map((ent: any) => ({
+                id: ent.id,
+                sku_id: ent.sku_id,
+                consumed: ent.consumed,
+                type: ent.type
+              }))
+            });
           }
+        } else {
+          console.error(`[PISHOCK-EXECUTE] Failed to fetch entitlements for consumption:`, {
+            latestEntitlements,
+            isArray: Array.isArray(latestEntitlements)
+          });
         }
       }
 
