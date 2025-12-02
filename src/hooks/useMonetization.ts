@@ -34,29 +34,12 @@ interface MonetizationState {
   error: string | null;
 }
 
-// Global cache to prevent multiple simultaneous requests
-let globalEntitlementsCache: {
-  data: MonetizationState | null;
-  timestamp: number;
-  pendingRequest: Promise<void> | null;
-} = {
-  data: null,
-  timestamp: 0,
-  pendingRequest: null
-};
-
-// Expose cache to window for external invalidation
-if (typeof window !== 'undefined') {
-  (window as any).globalEntitlementsCache = globalEntitlementsCache;
-}
-
-const CACHE_DURATION = 60000; // 1 minute cache
-const MIN_REQUEST_INTERVAL = 10000; // Minimum 10 seconds between requests
-let lastRequestTime = 0;
-
 // Rate limit tracking
 let rateLimitUntil = 0;
 const RATE_LIMIT_BACKOFF = 60000; // 1 minute backoff on rate limit
+
+// Track pending requests to prevent duplicate simultaneous requests
+let pendingEntitlementsRequest: Promise<void> | null = null;
 
 function getApiBaseUrl(): string {
   const urlParams = new URLSearchParams(window.location.search);
@@ -117,61 +100,31 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     }
   }, [discordSdk, isEmbedded]);
 
-  const fetchEntitlements = useCallback(async (forceRefresh = false) => {
+  const fetchEntitlements = useCallback(async () => {
     if (!discordSdk || !isEmbedded) {
       setState(prev => ({ ...prev, loading: false }));
       return;
     }
 
-    // If force refresh, clear cache
-    if (forceRefresh) {
-      console.log('[Monetization] Force refreshing entitlements - clearing cache');
-      globalEntitlementsCache.data = null;
-      globalEntitlementsCache.timestamp = 0;
-      lastRequestTime = 0;
-    }
-
-    // Check rate limit (but allow force refresh to bypass)
-    if (!forceRefresh && Date.now() < rateLimitUntil) {
-      console.warn('Rate limited, using cached entitlements');
-      if (globalEntitlementsCache.data) {
-        setState(prev => ({ ...prev, ...globalEntitlementsCache.data, loading: false }));
+    // Check rate limit
+    if (Date.now() < rateLimitUntil) {
+      console.warn('Rate limited, skipping entitlements fetch');
+      if (mountedRef.current) {
+        setState(prev => ({ ...prev, error: 'Rate limited, please try again later', loading: false }));
       }
       return;
     }
 
-    // Check if there's a pending request (but allow force refresh to bypass)
-    if (!forceRefresh && globalEntitlementsCache.pendingRequest) {
-      await globalEntitlementsCache.pendingRequest;
-      if (globalEntitlementsCache.data) {
-        setState(prev => ({ ...prev, ...globalEntitlementsCache.data, loading: false }));
-      }
+    // Check if there's a pending request - wait for it instead of making duplicate requests
+    if (pendingEntitlementsRequest) {
+      await pendingEntitlementsRequest;
       return;
     }
-
-    // Check cache (but allow force refresh to bypass)
-    const now = Date.now();
-    if (!forceRefresh && globalEntitlementsCache.data && (now - globalEntitlementsCache.timestamp) < CACHE_DURATION) {
-      setState(prev => ({ ...prev, ...globalEntitlementsCache.data, loading: false }));
-      return;
-    }
-
-    // Throttle requests (but allow force refresh to bypass)
-    const timeSinceLastRequest = now - lastRequestTime;
-    if (!forceRefresh && timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
-      // Use cached data if available
-      if (globalEntitlementsCache.data) {
-        setState(prev => ({ ...prev, ...globalEntitlementsCache.data, loading: false }));
-      }
-      return;
-    }
-
-    lastRequestTime = now;
 
     // Create pending request promise
     const requestPromise = (async () => {
       try {
-        console.log('[Monetization] Fetching entitlements from Discord SDK (forceRefresh:', forceRefresh, ')');
+        console.log('[Monetization] Fetching entitlements from Discord SDK');
         const entitlements = await discordSdk.commands.getEntitlements();
         const entitlementsList: Entitlement[] = Array.isArray(entitlements?.entitlements) 
           ? entitlements.entitlements.map((ent: any) => ({
@@ -261,18 +214,6 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
 
         console.log('[Monetization] Setting new state:', newState);
 
-        // Update global cache
-        globalEntitlementsCache = {
-          data: newState,
-          timestamp: now,
-          pendingRequest: null
-        };
-        
-        // Update window reference
-        if (typeof window !== 'undefined') {
-          (window as any).globalEntitlementsCache = globalEntitlementsCache;
-        }
-
         if (mountedRef.current) {
           setState(prev => {
             const updated = {
@@ -298,32 +239,26 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
           console.warn('Rate limited on entitlements fetch, backing off for 1 minute');
         }
         
-        // Use cached data if available
         if (mountedRef.current) {
-          if (globalEntitlementsCache.data) {
-            setState(prev => ({ ...prev, ...globalEntitlementsCache.data, loading: false, error: 'Using cached data due to rate limit' }));
-          } else {
-            setState(prev => ({ ...prev, error: 'Failed to load entitlements', loading: false }));
-          }
+          setState(prev => ({ ...prev, error: 'Failed to load entitlements', loading: false }));
         }
-        
-        globalEntitlementsCache.pendingRequest = null;
+      } finally {
+        pendingEntitlementsRequest = null;
       }
     })();
 
-    globalEntitlementsCache.pendingRequest = requestPromise;
+    pendingEntitlementsRequest = requestPromise;
     await requestPromise;
   }, [discordSdk, isEmbedded]);
 
   // Also fetch from backend for server-side verification
-  const fetchBackendSkuStatus = useCallback(async (forceRefresh = false) => {
+  const fetchBackendSkuStatus = useCallback(async () => {
     if (!auth?.user?.id || !auth?.access_token) {
       return;
     }
 
     try {
-      // Add cache-busting parameter if force refresh is requested
-      const url = `${getApiBaseUrl()}/users/${auth.user.id}/sku-verify${forceRefresh ? `?t=${Date.now()}` : ''}`;
+      const url = `${getApiBaseUrl()}/users/${auth.user.id}/sku-verify`;
       const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
@@ -355,11 +290,11 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
             }
             
             // If backend says we have consumables but frontend doesn't, refresh entitlements from Discord
-            if (data.hasShockPastLimit && !prev.hasShockPastLimit && forceRefresh) {
+            if (data.hasShockPastLimit && !prev.hasShockPastLimit) {
               console.log('[Monetization] Backend indicates new consumables available, refreshing from Discord');
               // Trigger a refresh of entitlements from Discord API
               setTimeout(() => {
-                fetchEntitlements(true);
+                fetchEntitlements();
               }, 500);
             }
             
@@ -385,22 +320,17 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
       // Purchase may complete immediately or be initiated
       // In either case, refresh entitlements after a delay
       if (result) {
-        // Invalidate cache and refresh entitlements after purchase
-        globalEntitlementsCache.data = null;
-        globalEntitlementsCache.timestamp = 0;
-        lastRequestTime = 0; // Reset request throttle
-        
         // Multiple refresh attempts with increasing delays to ensure we get fresh data
         // Discord API may take a few seconds to process the purchase
         const refreshAfterPurchase = async (attempt: number) => {
           console.log(`[Monetization] Refreshing after purchase (attempt ${attempt})`);
           
-          // Force refresh from Discord API
-          await fetchEntitlements(true);
+          // Refresh from Discord API
+          await fetchEntitlements();
           await fetchSkus();
           
-          // Refresh backend status with cache-busting
-          await fetchBackendSkuStatus(true);
+          // Refresh backend status
+          await fetchBackendSkuStatus();
           
           // If this is not the last attempt, schedule another refresh
           if (attempt < 3) {
@@ -409,7 +339,7 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
           }
         };
         
-        // Start first refresh after 3 seconds (increased from 2s)
+        // Start first refresh after 3 seconds
         setTimeout(() => refreshAfterPurchase(1), 3000);
         
         return true;
@@ -455,10 +385,7 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
       const result = await response.json();
       console.log('[Monetization] Entitlement consumed successfully:', result);
       
-      // Invalidate cache and refresh entitlements after consumption
-      globalEntitlementsCache.data = null;
-      globalEntitlementsCache.timestamp = 0;
-      lastRequestTime = 0; // Reset request throttle
+      // Refresh entitlements after consumption
       await fetchEntitlements();
       await fetchBackendSkuStatus();
       
@@ -469,22 +396,12 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     }
   }, [auth, fetchEntitlements, fetchBackendSkuStatus]);
 
-  // Initial load - only fetch SKUs once, entitlements are cached globally
+  // Initial load - fetch SKUs and entitlements
   useEffect(() => {
     if (isEmbedded && discordSdk && auth?.access_token) {
       console.log('[Monetization] Initializing monetization hook');
-      // Fetch SKUs only once (they don't change often)
-      const now = Date.now();
-      if (!globalEntitlementsCache.data || (now - globalEntitlementsCache.timestamp) > CACHE_DURATION) {
-        console.log('[Monetization] Fetching SKUs and entitlements (cache miss)');
-        fetchSkus();
-        fetchEntitlements();
-      } else {
-        // Use cached data
-        console.log('[Monetization] Using cached entitlements data');
-        setState(prev => ({ ...prev, ...globalEntitlementsCache.data, loading: false }));
-        fetchSkus(); // SKUs can be fetched separately
-      }
+      fetchSkus();
+      fetchEntitlements();
     } else {
       if (!isEmbedded) console.log('[Monetization] Not embedded, skipping fetch');
       if (!discordSdk) console.log('[Monetization] No Discord SDK, skipping fetch');
@@ -505,9 +422,9 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     if (!isEmbedded || !discordSdk) return;
 
     const interval = setInterval(() => {
-      // Only refresh if cache is stale and not rate limited
+      // Only refresh if not rate limited
       const now = Date.now();
-      if (now >= rateLimitUntil && (!globalEntitlementsCache.data || (now - globalEntitlementsCache.timestamp) > CACHE_DURATION * 10)) {
+      if (now >= rateLimitUntil) {
         fetchEntitlements();
       }
       fetchBackendSkuStatus();
@@ -538,9 +455,9 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     });
   }, [state.hasShockPastLimit, state.hasControllerPlus, consumableCount, state.entitlements.length, state.loading, state.error, state.entitlements]);
 
-  // Wrapper to allow calling with or without force parameter
-  const refreshEntitlements = useCallback((force = false) => {
-    return fetchEntitlements(force);
+  // Wrapper for refresh (kept for API compatibility)
+  const refreshEntitlements = useCallback(() => {
+    return fetchEntitlements();
   }, [fetchEntitlements]);
 
   // Function to immediately mark an entitlement as consumed in local state

@@ -667,13 +667,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
               if (consumed) {
                 console.log(`[PISHOCK-EXECUTE] Successfully consumed entitlement ${latestEntitlement.id}`);
                 skuConsumed = SHOCK_PAST_LIMIT_SKU_ID;
-                // Invalidate SKU status cache
-                try {
-                  await env.PISHOCK_KV.delete(`cache:sku_status:${executorUserId}`);
-                  await env.PISHOCK_KV.delete(`sku_verify_cache:${executorUserId}`);
-                } catch (error) {
-                  console.error(`[PISHOCK-EXECUTE] Error invalidating cache:`, error);
-                }
               } else {
                 // Log error but don't fail the command since it already succeeded
                 console.error(`[PISHOCK-EXECUTE] Failed to consume SKU ${SHOCK_PAST_LIMIT_SKU_ID} for user ${executorUserId} after successful command execution. Command succeeded but SKU was not consumed.`, {

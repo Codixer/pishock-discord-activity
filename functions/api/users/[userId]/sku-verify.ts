@@ -73,38 +73,6 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
   }
 }
 
-async function getCachedSkuStatus(kv: KVNamespace, userId: string) {
-  try {
-    const cacheKey = `cache:sku_status:${userId}`;
-    const cached = await kv.get(cacheKey);
-    if (cached) {
-      const cachedData = JSON.parse(cached);
-      const cacheAge = Date.now() - new Date(cachedData.timestamp).getTime();
-      if (cacheAge < 300000) { // 5 minute cache
-        return cachedData.status;
-      }
-    }
-  } catch (error) {
-    // Silently handle cache errors
-  }
-  return null;
-}
-
-async function setCachedSkuStatus(kv: KVNamespace, userId: string, status: any) {
-  try {
-    const cacheKey = `cache:sku_status:${userId}`;
-    const cacheData = {
-      status,
-      timestamp: new Date().toISOString()
-    };
-    
-    await kv.put(cacheKey, JSON.stringify(cacheData), {
-      expirationTtl: 300 // 5 minutes
-    });
-  } catch (error) {
-    // Silently handle cache errors
-  }
-}
 
 async function fetchUserEntitlements(token: string, userId: string, applicationId: string): Promise<any> {
   try {
@@ -168,23 +136,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   }
 
   try {
-    // Check for cache-busting parameters
-    const url = new URL(request.url);
-    const forceRefresh = url.searchParams.get('force') === 'true' || 
-                         url.searchParams.get('nocache') === 'true' ||
-                         url.searchParams.has('t'); // timestamp parameter also bypasses cache
-    
-    // Check cache first (unless force refresh is requested)
-    if (!forceRefresh) {
-      const cachedStatus = await getCachedSkuStatus(env.PISHOCK_KV, userId);
-      if (cachedStatus) {
-        return jsonResponse(cachedStatus, 200, {
-          'Cache-Control': 'public, max-age=300, stale-while-revalidate=60',
-          'X-Cache-Status': 'HIT'
-        });
-      }
-    }
-
     // Fetch entitlements from Discord
     if (!env.DISCORD_CLIENT_ID) {
       return jsonResponse({ 
@@ -243,11 +194,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       controllerPlusEnabled: hasControllerPlus
     };
     
-    await setCachedSkuStatus(env.PISHOCK_KV, userId, result);
-    
-    return jsonResponse(result, 200, {
-      'Cache-Control': 'public, max-age=300, stale-while-revalidate=60',
-    });
+    return jsonResponse(result, 200);
   } catch (error) {
     return jsonResponse({ 
       error: 'Internal server error',

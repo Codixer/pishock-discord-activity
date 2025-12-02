@@ -343,20 +343,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }, 500);
     }
 
-    // Invalidate SKU status cache
-    try {
-      const cacheKey = `cache:sku_status:${userId}`;
-      console.log(`[SKU-CONSUME] Invalidating cache: ${cacheKey}`);
-      await env.PISHOCK_KV.delete(cacheKey);
-      console.log(`[SKU-CONSUME] Cache invalidated successfully`);
-    } catch (error) {
-      console.error(`[SKU-CONSUME] Error invalidating cache:`, {
-        error: error instanceof Error ? error.message : String(error),
-        userId
-      });
-      // Silently handle cache invalidation errors
-    }
-
     console.log(`[SKU-CONSUME] Successfully consumed SKU for user ${userId}`, {
       userId,
       entitlementId: entitlement.id,

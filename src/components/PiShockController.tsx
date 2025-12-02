@@ -318,22 +318,15 @@ export function PiShockController({
             const refreshEntitlements = async (attempt = 1) => {
               console.log(`[PiShockController] Refreshing entitlements after SKU consumption (attempt ${attempt})`);
               
-              // Force cache invalidation by clearing the global cache
-              if ((window as any).globalEntitlementsCache) {
-                (window as any).globalEntitlementsCache.data = null;
-                (window as any).globalEntitlementsCache.timestamp = 0;
-              }
-              
-              // Force refresh to bypass cache
+              // Refresh entitlements from Discord
               if (monetization.refreshEntitlements) {
-                await monetization.refreshEntitlements(true);
+                await monetization.refreshEntitlements();
               }
               
               // Also refresh backend status to ensure consistency
               if (auth?.user?.id) {
                 try {
-                  // Invalidate backend cache by adding a cache-busting parameter
-                  const statusResponse = await fetch(`${getApiBaseUrl()}/users/${auth.user.id}/sku-verify?t=${Date.now()}`, {
+                  const statusResponse = await fetch(`${getApiBaseUrl()}/users/${auth.user.id}/sku-verify`, {
                     headers: {
                       'Authorization': `Bearer ${auth.access_token}`,
                     },
@@ -345,7 +338,7 @@ export function PiShockController({
                     // Force another refresh after backend status is fetched
                     if (monetization.refreshEntitlements) {
                       setTimeout(() => {
-                        monetization.refreshEntitlements(true);
+                        monetization.refreshEntitlements();
                       }, 500);
                     }
                   }
