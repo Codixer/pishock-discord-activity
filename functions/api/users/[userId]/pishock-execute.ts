@@ -88,16 +88,36 @@ async function fetchUserEntitlements(token: string, env: Env): Promise<any[] | n
 
 async function consumeEntitlement(token: string, entitlementId: string): Promise<boolean> {
   try {
-    const response = await fetch(`https://discord.com/api/v9/applications/@me/entitlements/${entitlementId}/consume`, {
-      method: 'POST',
+    // Use DELETE method on user endpoint as per Discord API documentation
+    // https://discord.com/developers/docs/monetization/implementing-one-time-purchases
+    // https://discord.com/developers/docs/resources/entitlement
+    const url = `https://discord.com/api/v9/users/@me/entitlements/${entitlementId}`;
+    console.log(`[PISHOCK-EXECUTE] Consuming entitlement ${entitlementId} via ${url}`);
+    
+    const response = await fetch(url, {
+      method: 'DELETE',
       headers: { 
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
       },
     });
     
+    console.log(`[PISHOCK-EXECUTE] Consume API response: ${response.status} ${response.statusText}`);
+    
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error(`[PISHOCK-EXECUTE] Failed to consume entitlement ${entitlementId}:`, {
+        status: response.status,
+        statusText: response.statusText,
+        errorBody: errorBody || '(empty)'
+      });
+    }
+    
     return response.ok;
   } catch (error) {
+    console.error(`[PISHOCK-EXECUTE] Exception while consuming entitlement ${entitlementId}:`, {
+      error: error instanceof Error ? error.message : String(error)
+    });
     return false;
   }
 }

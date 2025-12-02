@@ -297,16 +297,24 @@ export function PiShockController({
           let message = `${actionName} sent to ${selectedUser.displayName || selectedUser.username} - Intensity: ${intensity}%, Duration: ${duration}s`;
           if (result.consumeSku) {
             message += ' (Limit bypassed - consumable used)';
-            // Refresh entitlements after consumption
+            // Refresh entitlements after consumption (backend already consumed it)
             setTimeout(async () => {
+              console.log('[PiShockController] Refreshing entitlements after SKU consumption');
               await monetization.refreshEntitlements();
-              // Also try to consume via SDK if available (though backend already handled it)
-              if (result.consumeSku?.entitlementId) {
+              // Also refresh backend status to ensure consistency
+              if (auth?.user?.id) {
                 try {
-                  await monetization.consumeEntitlement(result.consumeSku.entitlementId);
+                  const statusResponse = await fetch(`${getApiBaseUrl()}/users/${auth.user.id}/sku-verify`, {
+                    headers: {
+                      'Authorization': `Bearer ${auth.access_token}`,
+                    },
+                  });
+                  if (statusResponse.ok) {
+                    const statusData = await statusResponse.json();
+                    console.log('[PiShockController] Backend SKU status refreshed:', statusData);
+                  }
                 } catch (e) {
-                  // SDK consumption may not be available, that's okay
-                  console.log('SDK consumption not available, backend already handled it');
+                  console.error('[PiShockController] Failed to refresh backend SKU status:', e);
                 }
               }
             }, 1000);

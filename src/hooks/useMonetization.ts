@@ -314,28 +314,52 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     }
   }, [discordSdk, isEmbedded, fetchEntitlements, fetchSkus]);
 
-  const consumeEntitlement = useCallback(async (_entitlementId: string): Promise<boolean> => {
-    if (!discordSdk || !isEmbedded) {
+  const consumeEntitlement = useCallback(async (entitlementId: string): Promise<boolean> => {
+    if (!auth?.user?.id || !auth?.access_token) {
+      console.error('[Monetization] Cannot consume entitlement: missing auth');
       return false;
     }
 
     try {
-      // Note: Discord SDK may not have consumeEntitlement directly
-      // The frontend should handle consumption via the SDK if available
-      // For now, we'll just refresh entitlements to reflect the consumed state
-      // The actual consumption happens on the backend and is reflected in the entitlements list
+      console.log(`[Monetization] Consuming entitlement ${entitlementId} via backend API`);
+      
+      // Call the backend API to consume the entitlement
+      const response = await fetch(`${getApiBaseUrl()}/users/${auth.user.id}/sku-consume`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          skuId: SHOCK_PAST_LIMIT_SKU_ID
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('[Monetization] Failed to consume entitlement:', {
+          status: response.status,
+          error: errorData
+        });
+        return false;
+      }
+
+      const result = await response.json();
+      console.log('[Monetization] Entitlement consumed successfully:', result);
       
       // Invalidate cache and refresh entitlements after consumption
       globalEntitlementsCache.data = null;
       globalEntitlementsCache.timestamp = 0;
       lastRequestTime = 0; // Reset request throttle
       await fetchEntitlements();
+      await fetchBackendSkuStatus();
+      
       return true;
     } catch (error) {
-      console.error('Failed to refresh entitlements after consumption:', error);
+      console.error('[Monetization] Exception while consuming entitlement:', error);
       return false;
     }
-  }, [discordSdk, isEmbedded, fetchEntitlements]);
+  }, [auth, fetchEntitlements, fetchBackendSkuStatus]);
 
   // Also fetch from backend for server-side verification
   const fetchBackendSkuStatus = useCallback(async () => {
