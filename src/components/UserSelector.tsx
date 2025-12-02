@@ -149,6 +149,7 @@ export function UserSelector({
                             userPiShockStatus[currentUser.id]?.hasDevice ? (
                               <div className="flex items-center space-x-1 text-xs text-green-400">
                                 <span>⚡</span>
+                                {userPiShockStatus[currentUser.id]?.allowShockPastLimit && <span>🚨</span>}
                                 <Zap className="h-3 w-3" />
                                 <span className="hidden sm:inline">PiShock Device</span>
                                 <span className="sm:hidden">Device</span>
@@ -156,6 +157,7 @@ export function UserSelector({
                             ) : (
                               <div className="flex items-center space-x-1 text-xs text-blue-400">
                                 <span>👤</span>
+                                {userPiShockStatus[currentUser.id]?.allowShockPastLimit && <span>🚨</span>}
                                 <Smartphone className="h-3 w-3" />
                                 <span className="hidden sm:inline">PiShock Account</span>
                                 <span className="sm:hidden">Account</span>
@@ -164,6 +166,7 @@ export function UserSelector({
                           ) : userPiShockStatus[currentUser.id]?.hasCredentials ? (
                             <div className="flex items-center space-x-1 text-xs text-yellow-400">
                               <span>⚠️</span>
+                              {userPiShockStatus[currentUser.id]?.allowShockPastLimit && <span>🚨</span>}
                               <Zap className="h-3 w-3" />
                               <span className="hidden sm:inline">Connection Issue</span>
                               <span className="sm:hidden">Issue</span>
@@ -251,6 +254,7 @@ export function UserSelector({
                                   hasDevice ? (
                                     <div className="flex items-center space-x-1 text-xs text-green-400">
                                       <span>⚡</span>
+                                      {userStatus?.allowShockPastLimit && <span>🚨</span>}
                                       <Zap className="h-3 w-3" />
                                       <span className="hidden sm:inline">PiShock Device</span>
                                       <span className="sm:hidden">Device</span>
@@ -261,6 +265,7 @@ export function UserSelector({
                                   ) : (
                                     <div className="flex items-center space-x-1 text-xs text-blue-400">
                                       <span>👤</span>
+                                      {userStatus?.allowShockPastLimit && <span>🚨</span>}
                                       <Smartphone className="h-3 w-3" />
                                       <span className="hidden sm:inline">PiShock Account</span>
                                       <span className="sm:hidden">Account</span>
@@ -269,6 +274,7 @@ export function UserSelector({
                                 ) : hasCredentials ? (
                                   <div className="flex items-center space-x-1 text-xs text-yellow-400">
                                     <span>⚠️</span>
+                                    {userStatus?.allowShockPastLimit && <span>🚨</span>}
                                     <Zap className="h-3 w-3" />
                                     <span className="hidden sm:inline">Connection Issue</span>
                                     <span className="sm:hidden">Issue</span>

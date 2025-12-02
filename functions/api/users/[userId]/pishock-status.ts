@@ -183,7 +183,8 @@ async function setCachedUserStatus(kv: KVNamespace, userId: string, newStatus: a
       const hasChanges = existingData.status?.isConnected !== newStatus.isConnected ||
                         existingData.status?.hasCredentials !== newStatus.hasCredentials ||
                         existingData.status?.maxIntensity !== newStatus.maxIntensity ||
-                        existingData.status?.maxDuration !== newStatus.maxDuration;
+                        existingData.status?.maxDuration !== newStatus.maxDuration ||
+                        existingData.status?.allowShockPastLimit !== newStatus.allowShockPastLimit;
       
       if (!hasChanges) {
         return; // No changes, don't update cache
@@ -393,7 +394,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       isRelay: false,
       maxIntensity,
       maxDuration,
-      hasControllerPlus
+      hasControllerPlus,
+      allowShockPastLimit: userData?.allowShockPastLimit || false
     };
     
     // Store Controller+ status in user data if checking own status

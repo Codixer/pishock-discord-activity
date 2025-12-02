@@ -168,6 +168,7 @@ function MainApp() {
                 maxDuration: status.maxDuration || 15,
                 bannedExecutors: [],
                 hasControllerPlus: status.hasControllerPlus || false,
+                allowShockPastLimit: status.allowShockPastLimit || false,
                 lastChecked: Date.now()
               }
             };
@@ -211,7 +212,8 @@ function MainApp() {
           prevStatus[userId].hasDevice !== statusMap[userId].hasDevice ||
           prevStatus[userId].hasCredentials !== statusMap[userId].hasCredentials ||
           prevStatus[userId].maxIntensity !== statusMap[userId].maxIntensity ||
-          prevStatus[userId].maxDuration !== statusMap[userId].maxDuration
+          prevStatus[userId].maxDuration !== statusMap[userId].maxDuration ||
+          prevStatus[userId].allowShockPastLimit !== statusMap[userId].allowShockPastLimit
         );
         
         return statusMap;
@@ -891,7 +893,6 @@ function MainApp() {
                       className="sr-only peer"
                     />
                     <div className="flex items-center space-x-1 px-2 py-1 bg-red-600/20 border border-red-500/30 rounded text-xs peer-checked:bg-red-600/40 transition-colors">
-                      <span className="text-red-400 animate-spin" style={{ animation: 'spin 2s linear infinite' }}>🚨</span>
                       <span className="text-red-300 font-medium">Allows shocks past limit</span>
                     </div>
                   </label>
@@ -902,7 +903,15 @@ function MainApp() {
                       <input
                         type="checkbox"
                         checked={useConsumable}
-                        onChange={(e) => setUseConsumable(e.target.checked)}
+                        onChange={(e) => {
+                          if (e.target.checked && monetization.consumableCount === 0) {
+                            // User is trying to enable but has no consumables
+                            setShowStore(true);
+                            addNotification('warning', 'No Consumables', 'You need to purchase "Shock Past User Limit" consumables to use this feature.');
+                            return; // Don't enable the toggle
+                          }
+                          setUseConsumable(e.target.checked);
+                        }}
                         className="sr-only peer"
                       />
                       <div className="flex items-center space-x-1 px-2 py-1 bg-purple-600/20 border border-purple-500/30 rounded text-xs peer-checked:bg-purple-600/40 transition-colors">
