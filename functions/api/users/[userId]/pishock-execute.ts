@@ -465,9 +465,22 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       // Check if limit bypass is requested and if limits are actually exceeded
       const limitsExceeded = intensity > targetMaxIntensity || duration > targetMaxDuration;
       const needsBypass = bypassLimits && limitsExceeded;
+      // Also check if consumable is requested (even if limits aren't exceeded)
+      const shouldConsumeSku = bypassLimits;
       let bypassedLimit = false;
       let skuConsumed: string | undefined;
       let entitlementIdToConsume: string | undefined;
+      
+      console.log(`[PISHOCK-EXECUTE] Bypass check:`, {
+        bypassLimits,
+        limitsExceeded,
+        needsBypass,
+        shouldConsumeSku,
+        intensity,
+        targetMaxIntensity,
+        duration,
+        targetMaxDuration
+      });
       
       if (needsBypass) {
         // Verify 2-sided consent
@@ -527,6 +540,38 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         // Store entitlement ID for consumption after successful execution
         entitlementIdToConsume = availableEntitlement.id;
         bypassedLimit = true;
+      } else if (shouldConsumeSku && !needsBypass) {
+        // User requested consumable but limits aren't exceeded - still consume if they have one
+        console.log(`[PISHOCK-EXECUTE] User requested consumable but limits not exceeded, checking for available entitlement`);
+        
+        // Still verify 2-sided consent even if limits aren't exceeded
+        const executorUserDataStr = await env.PISHOCK_KV.get(`user:${executorUserId}:data`);
+        const executorUserData = executorUserDataStr ? JSON.parse(executorUserDataStr) : null;
+        const targetUserDataStr = await env.PISHOCK_KV.get(`user:${targetUserId}:data`);
+        const targetUserData = targetUserDataStr ? JSON.parse(targetUserDataStr) : null;
+        
+        const executorConsent = executorUserData?.useShockPastLimit || false;
+        const targetConsent = targetUserData?.allowShockPastLimit || false;
+        
+        if (!executorConsent || !targetConsent) {
+          console.log(`[PISHOCK-EXECUTE] Consent check failed for consumable use: executor=${executorConsent}, target=${targetConsent}`);
+          // Don't fail the command, just don't consume
+        } else {
+          const entitlements = await fetchUserEntitlements(token, env, executorUserId);
+          if (entitlements && Array.isArray(entitlements)) {
+            const availableEntitlement = entitlements.find((ent: any) => 
+              ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && 
+              !(ent.consumed ?? false)
+            );
+            
+            if (availableEntitlement) {
+              console.log(`[PISHOCK-EXECUTE] Found available entitlement for consumption: ${availableEntitlement.id}`);
+              entitlementIdToConsume = availableEntitlement.id;
+            } else {
+              console.log(`[PISHOCK-EXECUTE] No available entitlement found for consumption`);
+            }
+          }
+        }
       } else if (limitsExceeded && !bypassLimits) {
         // Limits are exceeded but bypass was not requested
         if (intensity > targetMaxIntensity) {
@@ -595,8 +640,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         throw new Error(errorMessage);
       }
 
-      // Command successful - now consume SKU if limit was bypassed
-      if (bypassedLimit && entitlementIdToConsume) {
+      // Command successful - now consume SKU if consumable was requested
+      // Consume even if limits weren't exceeded, as long as the user requested it
+      if (shouldConsumeSku && entitlementIdToConsume) {
+        console.log(`[PISHOCK-EXECUTE] Consumable was requested, consuming entitlement ${entitlementIdToConsume}`);
         console.log(`[PISHOCK-EXECUTE] Attempting to consume entitlement ${entitlementIdToConsume} after successful command`);
         // Re-fetch entitlements to get the latest state before consuming
         const latestEntitlements = await fetchUserEntitlements(token, env, executorUserId);
@@ -687,7 +734,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         success: true, 
         logEntryId: logEntry.id,
         message: `${operationName} command executed successfully`,
-        consumeSku: bypassedLimit && entitlementIdToConsume ? { entitlementId: entitlementIdToConsume, skuId: SHOCK_PAST_LIMIT_SKU_ID } : undefined,
+        consumeSku: entitlementIdToConsume ? { entitlementId: entitlementIdToConsume, skuId: SHOCK_PAST_LIMIT_SKU_ID } : undefined,
       });
 
     } catch (error) {
