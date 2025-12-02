@@ -216,16 +216,50 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
 
         if (mountedRef.current) {
           setState(prev => {
+            // Preserve locally consumed entitlements that Discord hasn't updated yet
+            // If an entitlement was marked as consumed locally but Discord still shows it as unconsumed,
+            // keep it as consumed (since we know the backend already consumed it)
+            const preservedConsumedIds = new Set(
+              prev.entitlements
+                .filter(ent => 
+                  ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && 
+                  ent.consumed === true &&
+                  // Find if this entitlement still exists in the new list and is unconsumed
+                  entitlementsList.some(newEnt => 
+                    newEnt.id === ent.id && !(newEnt.consumed ?? false)
+                  )
+                )
+                .map(ent => ent.id)
+            );
+            
+            // Merge entitlements: use new data from Discord, but preserve consumed status for locally consumed ones
+            const mergedEntitlements = entitlementsList.map((ent: Entitlement) => {
+              if (preservedConsumedIds.has(ent.id)) {
+                // This entitlement was consumed locally but Discord hasn't updated yet
+                console.log(`[Monetization] Preserving consumed status for entitlement ${ent.id} (Discord not updated yet)`);
+                return { ...ent, consumed: true };
+              }
+              return ent;
+            });
+            
+            // Recalculate consumable count with merged entitlements
+            const mergedConsumableCount = mergedEntitlements.filter((ent: Entitlement) => 
+              ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && !(ent.consumed ?? false)
+            ).length;
+            
             const updated = {
               ...prev,
-              ...newState,
+              entitlements: mergedEntitlements,
+              hasShockPastLimit: mergedConsumableCount > 0,
+              hasControllerPlus: newState.hasControllerPlus,
+              subscriptionExpiresAt: newState.subscriptionExpiresAt,
               loading: false
             };
-            console.log('[Monetization] State updated in component:', {
+            
+            console.log('[Monetization] State updated in component (with preserved consumed):', {
               ...updated,
-              consumableCount: updated.entitlements.filter((e: Entitlement) => 
-                e.sku_id === SHOCK_PAST_LIMIT_SKU_ID && !(e.consumed ?? false)
-              ).length
+              consumableCount: mergedConsumableCount,
+              preservedConsumedCount: preservedConsumedIds.size
             });
             return updated;
           });

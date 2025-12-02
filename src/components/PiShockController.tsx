@@ -314,7 +314,7 @@ export function PiShockController({
             }
             
             // Refresh entitlements after consumption (backend already consumed it)
-            // Use multiple attempts with delays to ensure Discord API has updated
+            // Use multiple attempts with increasing delays to ensure Discord API has updated
             const refreshEntitlements = async (attempt = 1) => {
               console.log(`[PiShockController] Refreshing entitlements after SKU consumption (attempt ${attempt})`);
               
@@ -335,11 +335,9 @@ export function PiShockController({
                     const statusData = await statusResponse.json();
                     console.log('[PiShockController] Backend SKU status refreshed:', statusData);
                     
-                    // Force another refresh after backend status is fetched
-                    if (monetization.refreshEntitlements) {
-                      setTimeout(() => {
-                        monetization.refreshEntitlements();
-                      }, 500);
+                    // Update monetization state with backend data if available
+                    if (monetization.refreshBackendStatus) {
+                      await monetization.refreshBackendStatus();
                     }
                   }
                 } catch (e) {
@@ -347,14 +345,18 @@ export function PiShockController({
                 }
               }
               
-              // Retry once more after a delay if this is the first attempt
-              if (attempt === 1) {
-                setTimeout(() => refreshEntitlements(2), 2000);
+              // Continue retrying with increasing delays (up to 5 attempts)
+              if (attempt < 5) {
+                const delays = [2000, 3000, 5000, 8000]; // 2s, 3s, 5s, 8s delays
+                const delay = delays[attempt - 1] || 10000;
+                setTimeout(() => refreshEntitlements(attempt + 1), delay);
+              } else {
+                console.log('[PiShockController] Finished all refresh attempts');
               }
             };
             
-            // Start refresh after a short delay to allow Discord API to process
-            setTimeout(() => refreshEntitlements(1), 1500);
+            // Start refresh immediately, then continue with retries
+            refreshEntitlements(1);
           }
           addNotification('success', 'Command Sent', message);
           

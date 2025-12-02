@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { DiscordSDK, Events, Common } from '@discord/embedded-app-sdk';
-import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText, ShoppingCart, Crown, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText, ShoppingCart, Crown, Sparkles, CheckCircle2, X } from 'lucide-react';
 import { PiShockController } from './components/PiShockController';
 import { SafetyWarning } from './components/SafetyWarning';
 import { UserSelector } from './components/UserSelector';
@@ -98,6 +98,8 @@ function MainApp() {
   const [isPipMode, setIsPipMode] = useState(false);
   const [showStore, setShowStore] = useState(false);
   const [useConsumable, setUseConsumable] = useState(false);
+  const [showConsentConfirmation, setShowConsentConfirmation] = useState(false);
+  const [pendingConsentValue, setPendingConsentValue] = useState(false);
   const [allowShockPastLimit, setAllowShockPastLimit] = useState(false);
   const [multiTargetMode, setMultiTargetMode] = useState(false);
   const { notifications, addNotification, dismissNotification } = useNotifications();
@@ -873,6 +875,15 @@ function MainApp() {
                       checked={allowShockPastLimit}
                       onChange={async (e) => {
                         const newValue = e.target.checked;
+                        
+                        // If enabling, show confirmation modal first
+                        if (newValue && !allowShockPastLimit) {
+                          setPendingConsentValue(true);
+                          setShowConsentConfirmation(true);
+                          return; // Don't update state yet
+                        }
+                        
+                        // If disabling, proceed directly
                         setAllowShockPastLimit(newValue);
                         // Save to backend
                         if (auth?.user?.id && auth?.access_token) {
@@ -1093,6 +1104,80 @@ function MainApp() {
         discordSdk={discordSdk}
         isEmbedded={isEmbedded}
       />
+      
+      {/* Consent Confirmation Modal */}
+      {showConsentConfirmation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-gray-900 border border-red-500/30 rounded-xl shadow-2xl max-w-lg w-full mx-4">
+            <div className="sticky top-0 bg-gray-900 border-b border-red-500/30 px-6 py-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-red-300 flex items-center space-x-2">
+                <AlertTriangle className="h-5 w-5 text-red-400" />
+                <span>Warning: Allow Shocks Past Limit</span>
+              </h2>
+              <button
+                onClick={() => {
+                  setShowConsentConfirmation(false);
+                  setPendingConsentValue(false);
+                }}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4">
+                <p className="text-sm text-red-200 leading-relaxed">
+                  Thank you for enabling this feature. Please be advised that you do so entirely at your own risk. Neither PiShock nor the PiShock Controller shall be held liable for any misuse, improper operation, or unintended consequences arising from the use of this functionality. By enabling this feature, you acknowledge and accept that it permits other users (for a fee of 2.99$) to administer shocks that may exceed your preset safety thresholds.
+                </p>
+                <p className="text-sm text-red-200 leading-relaxed mt-3">
+                  This feature was developed independently, on a voluntary basis, and for recreational purposes with the assistance of AI. The developer has exercised reasonable effort to ensure that the implementation is functional and secure; however, no guarantees or warranties—express or implied—are made regarding its reliability, performance, or safety. Use of this feature constitutes acceptance of these terms.
+                </p>
+              </div>
+              
+              <div className="flex items-center space-x-3 pt-2">
+                <button
+                  onClick={async () => {
+                    setShowConsentConfirmation(false);
+                    setAllowShockPastLimit(true);
+                    setPendingConsentValue(false);
+                    
+                    // Save to backend
+                    if (auth?.user?.id && auth?.access_token) {
+                      try {
+                        await fetch(`${getApiBaseUrl()}/users/${auth.user.id}/pishock-settings`, {
+                          method: 'PUT',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${auth.access_token}`,
+                          },
+                          body: JSON.stringify({ allowShockPastLimit: true }),
+                        });
+                      } catch (error) {
+                        console.error('Failed to save consent setting:', error);
+                        addNotification('error', 'Error', 'Failed to save setting. Please try again.');
+                        setAllowShockPastLimit(false);
+                      }
+                    }
+                  }}
+                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
+                >
+                  I Understand, Enable
+                </button>
+                <button
+                  onClick={() => {
+                    setShowConsentConfirmation(false);
+                    setPendingConsentValue(false);
+                  }}
+                  className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-medium rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       
       <div className="fixed bottom-4 right-4 z-40 flex items-center space-x-2 bg-black/40 backdrop-blur-sm border border-white/10 rounded-lg px-3 py-2 text-xs">
         <div className="flex items-center space-x-4">
