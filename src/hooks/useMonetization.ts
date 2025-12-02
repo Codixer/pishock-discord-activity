@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { DiscordSDK } from '@discord/embedded-app-sdk';
 
 // SKU IDs
@@ -472,19 +472,16 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     return () => clearInterval(interval);
   }, [isEmbedded, discordSdk, fetchEntitlements, fetchBackendSkuStatus]);
 
-  // Calculate consumable count - memoized to ensure it updates when entitlements change
-  const consumableCount = useMemo(() => {
-    return (state.entitlements || []).filter(
-      (ent: Entitlement) => ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && !(ent.consumed ?? false)
-    ).length;
-  }, [state.entitlements]);
 
   // Log state changes for debugging
   useEffect(() => {
+    const count = (state.entitlements || []).filter(
+      (ent: Entitlement) => ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && !(ent.consumed ?? false)
+    ).length;
     console.log('[Monetization] Hook state changed:', {
       hasShockPastLimit: state.hasShockPastLimit,
       hasControllerPlus: state.hasControllerPlus,
-      consumableCount,
+      consumableCount: count,
       entitlementsCount: state.entitlements.length,
       loading: state.loading,
       error: state.error,
@@ -495,7 +492,7 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
         consumed: e.consumed
       }))
     });
-  }, [state.hasShockPastLimit, state.hasControllerPlus, consumableCount, state.entitlements.length, state.loading, state.error, state.entitlements]);
+  }, [state.hasShockPastLimit, state.hasControllerPlus, state.entitlements.length, state.loading, state.error, state.entitlements]);
 
   // Wrapper for refresh (kept for API compatibility)
   const refreshEntitlements = useCallback(() => {
@@ -533,6 +530,22 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     });
   }, []);
 
+  // Calculate consumable count directly from state - recalculated on every render
+  const currentConsumableCount = (state.entitlements || []).filter(
+    (ent: Entitlement) => ent.sku_id === SHOCK_PAST_LIMIT_SKU_ID && !(ent.consumed ?? false)
+  ).length;
+  
+  // Log when consumable count changes
+  useEffect(() => {
+    console.log('[Monetization] Consumable count updated:', {
+      count: currentConsumableCount,
+      entitlements: state.entitlements.length,
+      unconsumed: state.entitlements.filter((e: Entitlement) => 
+        e.sku_id === SHOCK_PAST_LIMIT_SKU_ID && !(e.consumed ?? false)
+      ).map((e: Entitlement) => ({ id: e.id, consumed: e.consumed }))
+    });
+  }, [currentConsumableCount, state.entitlements]);
+  
   return {
     ...state,
     refreshEntitlements,
@@ -543,7 +556,7 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
     markEntitlementConsumed,
     shockPastLimitSku: state.skus.find(s => s.id === SHOCK_PAST_LIMIT_SKU_ID),
     controllerPlusSku: state.skus.find(s => s.id === CONTROLLER_PLUS_SKU_ID),
-    consumableCount,
+    consumableCount: currentConsumableCount,
   };
 }
 

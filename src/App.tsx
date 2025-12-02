@@ -115,6 +115,11 @@ function MainApp() {
   const { instanceData, updateInstanceData } = useInstanceData(instanceId);
   const { participants, updateParticipants } = useParticipants(discordSdk, isEmbedded);
   const monetization = useMonetization(discordSdk, isEmbedded, auth);
+  
+  // Debug: Log when consumable count changes
+  useEffect(() => {
+    console.log('[App] Consumable count changed:', monetization.consumableCount);
+  }, [monetization.consumableCount]);
 
   // Handle layout mode updates
   const handleLayoutModeUpdate = useCallback((update: { layout_mode: number }) => {
