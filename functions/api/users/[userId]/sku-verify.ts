@@ -106,10 +106,13 @@ async function setCachedSkuStatus(kv: KVNamespace, userId: string, status: any) 
   }
 }
 
-async function fetchUserEntitlements(token: string, userId: string): Promise<any> {
+async function fetchUserEntitlements(token: string, userId: string, applicationId: string): Promise<any> {
   try {
     // Fetch entitlements from Discord API
-    const response = await fetch('https://discord.com/api/v9/applications/@me/entitlements', {
+    // GET /applications/{application.id}/entitlements?user_id={userId}
+    // https://discord.com/developers/docs/monetization/entitlements
+    const url = `https://discord.com/api/v9/applications/${applicationId}/entitlements?user_id=${userId}`;
+    const response = await fetch(url, {
       headers: { 
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
@@ -120,7 +123,9 @@ async function fetchUserEntitlements(token: string, userId: string): Promise<any
       return null;
     }
     
-    const entitlements = await response.json();
+    const data = await response.json();
+    // Discord API returns an array directly
+    const entitlements = Array.isArray(data) ? data : [];
     return entitlements;
   } catch (error) {
     return null;
@@ -173,7 +178,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     // Fetch entitlements from Discord
-    const entitlements = await fetchUserEntitlements(token, userId);
+    if (!env.DISCORD_CLIENT_ID) {
+      return jsonResponse({ 
+        error: 'Server configuration error: Application ID not configured' 
+      }, 500);
+    }
+    
+    const entitlements = await fetchUserEntitlements(token, userId, env.DISCORD_CLIENT_ID);
     
     let hasShockPastLimit = false;
     let hasControllerPlus = false;

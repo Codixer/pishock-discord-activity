@@ -72,12 +72,16 @@ async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any
   }
 }
 
-async function fetchUserEntitlements(token: string, userId: string): Promise<any> {
+async function fetchUserEntitlements(token: string, userId: string, applicationId: string): Promise<any> {
   try {
     console.log(`[SKU-CONSUME] Fetching entitlements for user ${userId}`);
-    // Use the user endpoint as per Discord API documentation
-    // https://discord.com/developers/docs/monetization/implementing-one-time-purchases
-    const response = await fetch('https://discord.com/api/v9/users/@me/entitlements', {
+    // Use the applications endpoint with application ID
+    // GET /applications/{application.id}/entitlements?user_id={userId}
+    // https://discord.com/developers/docs/monetization/entitlements
+    const url = `https://discord.com/api/v9/applications/${applicationId}/entitlements?user_id=${userId}`;
+    console.log(`[SKU-CONSUME] Fetching from: ${url}`);
+    
+    const response = await fetch(url, {
       headers: { 
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
@@ -92,16 +96,19 @@ async function fetchUserEntitlements(token: string, userId: string): Promise<any
         status: response.status,
         statusText: response.statusText,
         errorBody: errorText,
-        userId
+        userId,
+        url
       });
       return null;
     }
     
-    const entitlements = await response.json();
-    console.log(`[SKU-CONSUME] Fetched ${Array.isArray(entitlements) ? entitlements.length : 'non-array'} entitlements for user ${userId}`, {
-      entitlementsCount: Array.isArray(entitlements) ? entitlements.length : 0,
-      isArray: Array.isArray(entitlements),
-      entitlements: Array.isArray(entitlements) ? entitlements.map((ent: any) => ({
+    const data = await response.json();
+    // Discord API returns an array directly
+    const entitlements = Array.isArray(data) ? data : [];
+    console.log(`[SKU-CONSUME] Fetched ${entitlements.length} entitlements for user ${userId}`, {
+      entitlementsCount: entitlements.length,
+      isArray: Array.isArray(data),
+      entitlements: entitlements.map((ent: any) => ({
         id: ent.id,
         sku_id: ent.sku_id,
         type: ent.type,
@@ -110,7 +117,7 @@ async function fetchUserEntitlements(token: string, userId: string): Promise<any
         gift_code_flags: ent.gift_code_flags,
         ends_at: ent.ends_at,
         starts_at: ent.starts_at
-      })) : entitlements
+      }))
     });
     return entitlements;
   } catch (error) {
@@ -246,7 +253,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     // Fetch user entitlements to find the entitlement to consume
-    const entitlements = await fetchUserEntitlements(token, userId);
+    if (!env.DISCORD_CLIENT_ID) {
+      console.error(`[SKU-CONSUME] Cannot fetch entitlements: DISCORD_CLIENT_ID not configured`);
+      return jsonResponse({ 
+        success: false,
+        error: 'Server configuration error: Application ID not configured' 
+      }, 500);
+    }
+    
+    const entitlements = await fetchUserEntitlements(token, userId, env.DISCORD_CLIENT_ID);
     
     if (!entitlements || !Array.isArray(entitlements)) {
       console.error(`[SKU-CONSUME] Failed to fetch entitlements or invalid response`, {
