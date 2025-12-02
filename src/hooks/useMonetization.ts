@@ -352,29 +352,34 @@ export function useMonetization(discordSdk: DiscordSDK | null, isEmbedded: boole
       });
       
       // Purchase may complete immediately or be initiated
-      // In either case, refresh entitlements after a delay
+      // In either case, refresh entitlements aggressively to ensure UI updates
       if (result) {
+        console.log('[Monetization] Purchase completed, starting aggressive refresh');
+        
         // Multiple refresh attempts with increasing delays to ensure we get fresh data
         // Discord API may take a few seconds to process the purchase
         const refreshAfterPurchase = async (attempt: number) => {
           console.log(`[Monetization] Refreshing after purchase (attempt ${attempt})`);
           
-          // Refresh from Discord API
+          // Refresh from Discord API first
           await fetchEntitlements();
           await fetchSkus();
           
-          // Refresh backend status
+          // Refresh backend status to get authoritative data
           await fetchBackendSkuStatus();
           
-          // If this is not the last attempt, schedule another refresh
-          if (attempt < 3) {
-            const delays = [3000, 5000, 8000]; // 3s, 5s, 8s delays
-            setTimeout(() => refreshAfterPurchase(attempt + 1), delays[attempt - 1]);
+          // Continue retrying with increasing delays (up to 5 attempts)
+          if (attempt < 5) {
+            const delays = [2000, 3000, 5000, 8000]; // 2s, 3s, 5s, 8s delays
+            const delay = delays[attempt - 1] || 10000;
+            setTimeout(() => refreshAfterPurchase(attempt + 1), delay);
+          } else {
+            console.log('[Monetization] Finished all purchase refresh attempts');
           }
         };
         
-        // Start first refresh after 3 seconds
-        setTimeout(() => refreshAfterPurchase(1), 3000);
+        // Start refresh immediately, then continue with retries
+        refreshAfterPurchase(1);
         
         return true;
       }

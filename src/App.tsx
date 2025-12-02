@@ -908,43 +908,55 @@ function MainApp() {
                     </div>
                   </label>
                   
-                  {/* Use Consumable Toggle */}
-                  {monetization.hasShockPastLimit || monetization.consumableCount > 0 ? (
-                    <label className={`relative inline-flex items-center ${monetization.consumableCount === 0 ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`} title={monetization.consumableCount === 0 ? 'No consumables available' : 'Toggle shock bypass'}>
-                      <input
-                        type="checkbox"
-                        checked={useConsumable && monetization.consumableCount > 0}
-                        disabled={monetization.consumableCount === 0}
-                        onChange={(e) => {
-                          if (e.target.checked && monetization.consumableCount === 0) {
-                            // User is trying to enable but has no consumables
-                            setShowStore(true);
-                            addNotification('warning', 'No Consumables', 'You need to purchase "Shock Past User Limit" consumables to use this feature.');
-                            return; // Don't enable the toggle
-                          }
-                          setUseConsumable(e.target.checked);
-                        }}
-                        className="sr-only peer"
-                      />
-                      <div className={`flex items-center space-x-1 px-2 py-1 bg-purple-600/20 border border-purple-500/30 rounded text-xs transition-colors ${monetization.consumableCount === 0 ? 'opacity-50' : 'peer-checked:bg-purple-600/40'}`}>
-                        <Sparkles className="h-3 w-3 text-purple-400" />
-                        <span className="text-purple-300 font-medium">Use Consumable</span>
-                        <span className="text-purple-400">({monetization.consumableCount})</span>
-                      </div>
-                    </label>
-                  ) : (
-                    <div 
-                      className="flex items-center space-x-1 px-2 py-1 bg-gray-600/20 border border-gray-500/30 rounded text-xs cursor-pointer opacity-50 hover:opacity-75 transition-opacity"
-                      onClick={() => {
+                  {/* Use Consumable Toggle - Always visible, updates reactively */}
+                  <label 
+                    className={`relative inline-flex items-center ${
+                      monetization.consumableCount > 0 
+                        ? 'cursor-pointer' 
+                        : 'cursor-not-allowed opacity-50'
+                    }`} 
+                    title={
+                      monetization.consumableCount > 0 
+                        ? 'Toggle shock bypass' 
+                        : 'No consumables available - Click to purchase'
+                    }
+                    onClick={(e) => {
+                      if (monetization.consumableCount === 0) {
+                        e.preventDefault();
                         setShowStore(true);
                         addNotification('info', 'Purchase Required', 'You need to purchase "Shock Past User Limit" consumables to use this feature.');
+                      }
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={useConsumable && monetization.consumableCount > 0}
+                      disabled={monetization.consumableCount === 0}
+                      onChange={(e) => {
+                        if (e.target.checked && monetization.consumableCount === 0) {
+                          // User is trying to enable but has no consumables
+                          setShowStore(true);
+                          addNotification('warning', 'No Consumables', 'You need to purchase "Shock Past User Limit" consumables to use this feature.');
+                          return; // Don't enable the toggle
+                        }
+                        setUseConsumable(e.target.checked);
                       }}
-                      title="Click to purchase in Store"
-                    >
-                      <Sparkles className="h-3 w-3 text-gray-500" />
-                      <span className="text-gray-500 font-medium">Use Consumable</span>
+                      className="sr-only peer"
+                    />
+                    <div className={`flex items-center space-x-1 px-2 py-1 bg-purple-600/20 border border-purple-500/30 rounded text-xs transition-all ${
+                      monetization.consumableCount === 0 
+                        ? 'opacity-50' 
+                        : 'peer-checked:bg-purple-600/40 hover:bg-purple-600/30'
+                    }`}>
+                      <Sparkles className="h-3 w-3 text-purple-400" />
+                      <span className="text-purple-300 font-medium">Use Consumable</span>
+                      <span className={`text-purple-400 font-semibold min-w-[2ch] text-right ${
+                        monetization.consumableCount === 0 ? 'opacity-50' : ''
+                      }`}>
+                        ({monetization.consumableCount})
+                      </span>
                     </div>
-                  )}
+                  </label>
                   
                   {/* Multi-Shock Toggle (Controller+) */}
                   {monetization.hasControllerPlus && participants.length > 1 ? (
