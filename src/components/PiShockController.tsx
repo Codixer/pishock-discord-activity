@@ -91,8 +91,9 @@ export function PiShockController({
   
   // Get the maximum allowed limits (either normal limits or 100/15 if consumable is enabled)
   const getMaxAllowedLimits = () => {
-    if (useConsumable && monetization.hasShockPastLimit && consumableCount > 0) {
-      // When consumable is enabled, allow up to 100% intensity and 15s duration
+    if (useConsumable) {
+      // When consumable toggle is enabled, allow up to 100% intensity and 15s duration
+      // (we already checked they have consumables when they enabled the toggle)
       return { maxIntensity: 100, maxDuration: 15 };
     }
     return effectiveLimits;
@@ -564,9 +565,11 @@ export function PiShockController({
                   max={maxAllowedLimits.maxIntensity}
                   value={intensity}
                   onChange={(e) => setIntensity(parseInt(e.target.value))}
-                  className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider ${
-                    effectiveLimits.maxIntensity < 100 ? 'limited-slider' : ''
-                  } ${useConsumable && intensity > effectiveLimits.maxIntensity ? 'slider-danger' : ''} slider-large`}
+                  className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider slider-large ${
+                    useConsumable 
+                      ? (intensity > effectiveLimits.maxIntensity ? 'slider-danger' : 'slider-safe')
+                      : (effectiveLimits.maxIntensity < 100 ? 'limited-slider' : '')
+                  }`}
                 />
                 {!isPipMode && (
                   <div className="flex justify-between text-sm mt-2">
@@ -625,9 +628,11 @@ export function PiShockController({
                   max={maxAllowedLimits.maxDuration}
                   value={duration}
                   onChange={(e) => setDuration(parseInt(e.target.value))}
-                  className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider ${
-                    effectiveLimits.maxDuration < 15 ? 'limited-slider' : ''
-                  } ${useConsumable && duration > effectiveLimits.maxDuration ? 'slider-danger' : ''} slider-large`}
+                  className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider slider-large ${
+                    useConsumable 
+                      ? (duration > effectiveLimits.maxDuration ? 'slider-danger' : 'slider-safe')
+                      : (effectiveLimits.maxDuration < 15 ? 'limited-slider' : '')
+                  }`}
                 />
                 {!isPipMode && (
                   <div className="flex justify-between text-sm mt-2">
