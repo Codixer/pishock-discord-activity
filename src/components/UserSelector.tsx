@@ -99,72 +99,120 @@ export function UserSelector({
             </div>
           ) : (
             <>
-              {currentUser && (
-                <div className="mb-4">
-                  <h3 className="text-xs sm:text-sm font-medium text-gray-400 mb-2 flex items-center space-x-1">
-                    <Crown className="h-3 w-3" />
-                    <span>You</span>
-                  </h3>
-                  <div className="p-2 sm:p-3 rounded-lg border bg-blue-900/20 border-blue-500/30">
-                    <div className="flex items-center space-x-3">
-                      <img
-                        src={getAvatarUrl(currentUser)}
-                        alt="Your avatar"
-                        className="w-6 h-6 sm:w-8 sm:h-8 rounded-full flex-shrink-0"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement;
-                          target.src = `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(currentUser.id)}.png`;
-                        }}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-blue-300 text-xs sm:text-sm truncate">
-                          {getDisplayName(currentUser)}
-                        </p>
-                        <div className="flex flex-col space-y-1 mt-1">
-                          <div className="flex items-center space-x-1">
-                          {userPiShockStatus[currentUser.id]?.isConnected ? (
-                            userPiShockStatus[currentUser.id]?.hasDevice ? (
-                              <div className="flex items-center space-x-1 text-xs text-green-400">
-                                <span>⚡</span>
+              {currentUser && (() => {
+                const currentUserStatus = userPiShockStatus[currentUser.id];
+                const isConnected = currentUserStatus?.isConnected;
+                const hasDevice = currentUserStatus?.hasDevice;
+                const hasCredentials = currentUserStatus?.hasCredentials;
+                const isDisabled = !isConnected;
+                
+                return (
+                  <div className="mb-4">
+                    <h3 className="text-xs sm:text-sm font-medium text-gray-400 mb-2 flex items-center space-x-1">
+                      <Crown className="h-3 w-3" />
+                      <span>You</span>
+                    </h3>
+                    <button
+                      onClick={() => !isDisabled && onUserSelect(currentUser)}
+                      disabled={isDisabled}
+                      className={`w-full p-2 sm:p-3 rounded-lg border transition-all text-left ${
+                        isDisabled
+                          ? 'bg-gray-800/30 border-gray-600/30 opacity-60 cursor-not-allowed'
+                          : isCurrentUserSelected
+                          ? 'bg-purple-600/20 border-purple-500/50 ring-2 ring-purple-500/20'
+                          : 'bg-blue-900/20 border-blue-500/30 hover:bg-blue-800/30 hover:border-blue-400/40'
+                      }`}
+                      title={isDisabled ? 'You need to configure your PiShock device before you can target yourself' : ''}
+                    >
+                      <div className="flex items-center space-x-2 sm:space-x-3">
+                        <img
+                          src={getAvatarUrl(currentUser)}
+                          alt="Your avatar"
+                          className="w-6 h-6 sm:w-8 sm:h-8 rounded-full flex-shrink-0"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.src = `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(currentUser.id)}.png`;
+                          }}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className={`font-medium text-xs sm:text-sm truncate ${
+                            isCurrentUserSelected ? 'text-purple-300' : 'text-blue-300'
+                          }`}>
+                            {getDisplayName(currentUser)}
+                          </p>
+                          <div className="flex flex-col space-y-1 mt-1">
+                            <div className="flex items-center space-x-1">
+                            {isConnected ? (
+                              hasDevice ? (
+                                <div className="flex items-center space-x-1 text-xs text-green-400">
+                                  <span>⚡</span>
+                                  <Zap className="h-3 w-3" />
+                                  <span className="hidden sm:inline">PiShock Device</span>
+                                  <span className="sm:hidden">Device</span>
+                                  {(currentUserStatus?.maxIntensity < 100 || currentUserStatus?.maxDuration < 15) && (
+                                    <Lock className="h-2 w-2 text-yellow-400" title="Has device limits" />
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="flex items-center space-x-1 text-xs text-blue-400">
+                                  <span>👤</span>
+                                  <Smartphone className="h-3 w-3" />
+                                  <span className="hidden sm:inline">PiShock Account</span>
+                                  <span className="sm:hidden">Account</span>
+                                </div>
+                              )
+                            ) : hasCredentials ? (
+                              <div className="flex items-center space-x-1 text-xs text-yellow-400">
+                                <span>⚠️</span>
                                 <Zap className="h-3 w-3" />
-                                <span className="hidden sm:inline">PiShock Device</span>
-                                <span className="sm:hidden">Device</span>
+                                <span className="hidden sm:inline">Connection Issue</span>
+                                <span className="sm:hidden">Issue</span>
                               </div>
                             ) : (
-                              <div className="flex items-center space-x-1 text-xs text-blue-400">
-                                <span>👤</span>
-                                <Smartphone className="h-3 w-3" />
-                                <span className="hidden sm:inline">PiShock Account</span>
-                                <span className="sm:hidden">Account</span>
+                              <div className="flex items-center space-x-1 text-xs text-gray-400">
+                                <span>❌</span>
+                                <ZapOff className="h-3 w-3" />
+                                <span className="hidden sm:inline">No PiShock</span>
+                                <span className="sm:hidden">None</span>
                               </div>
-                            )
-                          ) : userPiShockStatus[currentUser.id]?.hasCredentials ? (
-                            <div className="flex items-center space-x-1 text-xs text-yellow-400">
-                              <span>⚠️</span>
-                              <Zap className="h-3 w-3" />
-                              <span className="hidden sm:inline">Connection Issue</span>
-                              <span className="sm:hidden">Issue</span>
+                            )}
                             </div>
-                          ) : (
-                            <div className="flex items-center space-x-1 text-xs text-gray-400">
-                              <span>❌</span>
-                              <ZapOff className="h-3 w-3" />
-                              <span className="hidden sm:inline">No PiShock</span>
-                              <span className="sm:hidden">None</span>
-                            </div>
-                          )}
+                            {!isConnected && !hasCredentials && (
+                              <div className="text-xs text-red-300 mt-1">
+                                <span className="hidden sm:inline">Configure PiShock credentials to target yourself</span>
+                                <span className="sm:hidden">Setup needed</span>
+                              </div>
+                            )}
+                            {currentUserStatus?.maxIntensity < 100 || currentUserStatus?.maxDuration < 15 ? (
+                              <div className="text-xs text-yellow-400">
+                                Limits: {currentUserStatus.maxIntensity}%/{currentUserStatus.maxDuration}s
+                              </div>
+                            ) : null}
+                            {currentUserStatus?.piShockUserId && (
+                              <div className="text-xs text-gray-400">
+                                ID: {currentUserStatus.piShockUserId}
+                              </div>
+                            )}
+                            {!currentUserStatus && (
+                              <div className="text-xs text-gray-400">
+                                Status loading...
+                              </div>
+                            )}
                           </div>
-                          {userPiShockStatus[currentUser.id]?.piShockUserId && (
-                            <div className="text-xs text-gray-400">
-                              ID: {userPiShockStatus[currentUser.id].piShockUserId}
-                            </div>
-                          )}
                         </div>
+                        {isCurrentUserSelected && !isDisabled && (
+                          <div className="w-2 h-2 bg-purple-400 rounded-full flex-shrink-0"></div>
+                        )}
+                        {isDisabled && (
+                          <div className="flex items-center space-x-1 text-red-400">
+                            <ZapOff className="h-3 w-3" />
+                          </div>
+                        )}
                       </div>
-                    </div>
+                    </button>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {otherParticipants.length > 0 && (
                 <div>
