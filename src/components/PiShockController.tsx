@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { Zap, Settings, Play, Square, AlertTriangle, Lock, Wifi, WifiOff } from 'lucide-react';
 import { DiscordSDK, Common } from '@discord/embedded-app-sdk';
 import { PiShockSettingsModal } from './PiShockSettingsModal';
-import { ControllerPlusStore } from './ControllerPlusStore';
 
 interface PiShockControllerProps {
   selectedUser: any;
@@ -16,6 +15,15 @@ interface PiShockControllerProps {
   isEmbedded: boolean;
   layoutMode?: number;
   participants?: any[];
+  multishockMode: boolean;
+  onMultishockModeChange: (enabled: boolean) => void;
+  hasControllerPlus: boolean;
+  hasOverlimitConsumable: boolean;
+  entitlementsLoading: boolean;
+  onOpenShop: () => void;
+  onRefreshEntitlements: () => void;
+  multishockSelections: Record<string, string[]>;
+  onUpdateMultishockSelection: (targetUserId: string, shockerIds: string[]) => void;
 }
 
 // Helper function to get the correct API base URL
@@ -43,7 +51,16 @@ export function PiShockController({
   discordSdk,
   isEmbedded,
   layoutMode = Common.LayoutModeTypeObject.FOCUSED,
-  participants = []
+  participants = [],
+  multishockMode,
+  onMultishockModeChange,
+  hasControllerPlus,
+  hasOverlimitConsumable,
+  entitlementsLoading,
+  onOpenShop,
+  onRefreshEntitlements,
+  multishockSelections,
+  onUpdateMultishockSelection,
 }: PiShockControllerProps) {
   const [intensity, setIntensity] = useState(1);
   const [duration, setDuration] = useState(1);
@@ -51,11 +68,6 @@ export function PiShockController({
   const [showSettings, setShowSettings] = useState(false);
   const [currentUserPiShockConnected, setCurrentUserPiShockConnected] = useState(false);
   const [discordConnected, setDiscordConnected] = useState(!!auth);
-  const [entitlementsLoading, setEntitlementsLoading] = useState(false);
-  const [hasControllerPlus, setHasControllerPlus] = useState(false);
-  const [hasOverlimitConsumable, setHasOverlimitConsumable] = useState(false);
-  const [multishockMode, setMultishockMode] = useState(false);
-  const [multishockTargets, setMultishockTargets] = useState<string[]>([]);
   const [isMultishocking, setIsMultishocking] = useState(false);
   const effectivePiShockConnected = currentUserPiShockConnected || isConnected;
 
@@ -66,32 +78,6 @@ export function PiShockController({
   useEffect(() => {
     setDiscordConnected(!!auth);
   }, [auth]);
-
-  const refreshEntitlements = async () => {
-    if (!auth?.access_token) return;
-    setEntitlementsLoading(true);
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/monetization/entitlements`, {
-        headers: {
-          Authorization: `Bearer ${auth.access_token}`,
-        },
-      });
-      if (response.ok) {
-        const result = await response.json();
-        setHasControllerPlus(Boolean(result.hasControllerPlus));
-        setHasOverlimitConsumable(Boolean(result.hasOverlimitConsumable));
-      }
-    } catch (error) {
-      // Silently ignore entitlement fetch errors
-    } finally {
-      setEntitlementsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    refreshEntitlements();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth?.access_token]);
 
   // Get the effective limits based on selected user
   const getEffectiveLimits = () => {
@@ -235,38 +221,33 @@ export function PiShockController({
     }
   };
 
-  const handlePurchaseControllerPlus = async () => {
-    if (!discordSdk || !isEmbedded) {
-      window.open('https://discord.com/channels/@me', '_blank');
-      return;
+  const getSelectableShockersForUser = (targetUserId: string): Array<{ id: string; name: string }> => {
+    const status = (window as any).userPiShockStatus?.[targetUserId];
+    const allowedIds = Array.isArray(status?.allowedShockerIds)
+      ? status.allowedShockerIds.map((id: string) => String(id))
+      : [];
+
+    const selectedName = status?.selectedShockerName || status?.selectedShockerId;
+    if (allowedIds.length === 0 && status?.selectedShockerId) {
+      return [{ id: String(status.selectedShockerId), name: selectedName || `Shocker ${status.selectedShockerId}` }];
     }
 
-    try {
-      const commands = discordSdk.commands as any;
-      if (typeof commands.startPurchase === 'function') {
-        await commands.startPurchase({ sku_id: '1387037988558606457' });
-      } else if (typeof commands.openExternalLink === 'function') {
-        await commands.openExternalLink({ url: 'https://discord.com/channels/@me' });
-      }
-      await refreshEntitlements();
-    } catch (error) {
-      addNotification('warning', 'Purchase Flow', 'Unable to open purchase flow from this client.');
-    }
+    return allowedIds.map((id: string) => ({
+      id,
+      name: id === String(status?.selectedShockerId) && selectedName
+        ? selectedName
+        : `Shocker ${id}`,
+    }));
   };
 
-  const getEligibleMultishockTargets = () => {
-    return participants
-      .filter((participant) => participant.id !== currentUser?.id)
-      .filter((participant) => (window as any).userPiShockStatus?.[participant.id]?.isConnected);
-  };
+  const toggleSelectedShockerForCurrentTarget = (shockerId: string) => {
+    if (!selectedUser?.id) return;
 
-  const toggleMultishockTarget = (userId: string) => {
-    setMultishockTargets((previous) => {
-      if (previous.includes(userId)) {
-        return previous.filter((id) => id !== userId);
-      }
-      return [...previous, userId];
-    });
+    const currentSelection = multishockSelections[selectedUser.id] || [];
+    const nextSelection = currentSelection.includes(shockerId)
+      ? currentSelection.filter((id) => id !== shockerId)
+      : [...currentSelection, shockerId];
+    onUpdateMultishockSelection(selectedUser.id, nextSelection);
   };
 
   const runMultishock = async (operation: number) => {
@@ -274,21 +255,17 @@ export function PiShockController({
       addNotification('warning', 'Controller+ Required', 'Multishock is only available with Controller+.');
       return;
     }
-    if (multishockTargets.length === 0) {
-      addNotification('warning', 'No Targets', 'Select at least one target for multishock.');
+    const targetsPayload = Object.entries(multishockSelections)
+      .filter(([, shockerIds]) => Array.isArray(shockerIds) && shockerIds.length > 0)
+      .map(([userId, shockerIds]) => ({ userId, shockerIds }));
+
+    if (targetsPayload.length === 0) {
+      addNotification('warning', 'No Targets', 'Select users and at least one shocker per user for multishock.');
       return;
     }
 
     setIsMultishocking(true);
     try {
-      const targetsPayload = multishockTargets.map((targetUserId) => {
-        const status = (window as any).userPiShockStatus?.[targetUserId];
-        return {
-          userId: targetUserId,
-          shockerIds: Array.isArray(status?.allowedShockerIds) ? status.allowedShockerIds : [],
-        };
-      });
-
       const response = await fetch(`${getApiBaseUrl()}/instances/${instanceId}/pishock-multishock`, {
         method: 'POST',
         headers: {
@@ -386,16 +363,43 @@ export function PiShockController({
           </div>
         ) : (
           <div className="flex-1 flex flex-col space-y-6 min-h-0">
-            {!isPipMode && (
-              <ControllerPlusStore
-                loading={entitlementsLoading}
-                hasControllerPlus={hasControllerPlus}
-                hasOverlimitConsumable={hasOverlimitConsumable}
-                onPurchase={handlePurchaseControllerPlus}
-                onRefresh={refreshEntitlements}
-              />
+            {!isPipMode && multishockMode && (
+              <div className="p-3 bg-indigo-900/20 border border-indigo-500/30 rounded-lg">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm text-indigo-100 font-medium">Multishock mode enabled</p>
+                    <p className="text-xs text-indigo-200 mt-1">
+                      Over-limit bypass is disabled for multishock commands.
+                    </p>
+                    <p className="text-xs text-indigo-200 mt-1">
+                      Controller+: {entitlementsLoading ? 'Checking...' : hasControllerPlus ? 'Active' : 'Inactive'} •
+                      Consumable: {entitlementsLoading ? 'Checking...' : hasOverlimitConsumable ? 'Available' : 'Not available'}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => onMultishockModeChange(false)}
+                      className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs"
+                    >
+                      Disable
+                    </button>
+                    <button
+                      onClick={onRefreshEntitlements}
+                      className="px-2 py-1 bg-indigo-700 hover:bg-indigo-800 rounded text-xs"
+                    >
+                      Refresh
+                    </button>
+                    <button
+                      onClick={onOpenShop}
+                      className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 rounded text-xs"
+                    >
+                      Shop
+                    </button>
+                  </div>
+                </div>
+              </div>
             )}
-            {!isPipMode && (
+            {!isPipMode && selectedUser && (
               <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg">
                 <p className="text-sm text-blue-200">
                   Target device: <span className="font-semibold">
@@ -411,34 +415,31 @@ export function PiShockController({
                 )}
               </div>
             )}
-            {!isPipMode && (
-              <div className="p-3 bg-indigo-900/20 border border-indigo-500/30 rounded-lg">
-                <label className="flex items-center gap-2 text-sm text-indigo-200">
-                  <input
-                    type="checkbox"
-                    checked={multishockMode}
-                    onChange={(e) => setMultishockMode(e.target.checked)}
-                    disabled={!hasControllerPlus}
-                  />
-                  Enable multishock mode (Controller+)
-                </label>
-                <p className="text-xs text-indigo-100 mt-1">
-                  Over-limit bypass is disabled for multishock commands.
+            {!isPipMode && multishockMode && selectedUser && (
+              <div className="p-3 bg-purple-900/20 border border-purple-500/30 rounded-lg">
+                <p className="text-sm text-purple-200 font-medium">
+                  Multishock selection for {getDisplayName(selectedUser)}
                 </p>
-                {multishockMode && (
-                  <div className="mt-2 grid grid-cols-1 gap-1 max-h-28 overflow-y-auto">
-                    {getEligibleMultishockTargets().map((participant) => (
-                      <label key={participant.id} className="flex items-center gap-2 text-xs text-indigo-100">
-                        <input
-                          type="checkbox"
-                          checked={multishockTargets.includes(participant.id)}
-                          onChange={() => toggleMultishockTarget(participant.id)}
-                        />
-                        <span>{getDisplayName(participant)}</span>
-                      </label>
-                    ))}
-                  </div>
-                )}
+                <p className="text-xs text-purple-300 mt-1">
+                  Select which of this user&apos;s allowed shockers should be included in multishock.
+                </p>
+                <div className="mt-2 grid grid-cols-1 gap-1 max-h-32 overflow-y-auto">
+                  {getSelectableShockersForUser(selectedUser.id).map((shocker) => (
+                    <label key={shocker.id} className="flex items-center gap-2 text-xs text-purple-100">
+                      <input
+                        type="checkbox"
+                        checked={(multishockSelections[selectedUser.id] || []).includes(shocker.id)}
+                        onChange={() => toggleSelectedShockerForCurrentTarget(shocker.id)}
+                      />
+                      <span>{shocker.name}</span>
+                    </label>
+                  ))}
+                  {getSelectableShockersForUser(selectedUser.id).length === 0 && (
+                    <p className="text-xs text-purple-300">
+                      This user has no allowed shockers configured for multishock.
+                    </p>
+                  )}
+                </div>
               </div>
             )}
             <div className="flex-1 flex flex-col space-y-4 min-h-0">

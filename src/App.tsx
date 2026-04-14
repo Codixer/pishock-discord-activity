@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { DiscordSDK, Events, Common } from '@discord/embedded-app-sdk';
-import { Zap, Shield, Users, Settings, AlertTriangle, Power, FileText } from 'lucide-react';
+import { Zap, Shield, AlertTriangle, FileText, Crown } from 'lucide-react';
 import { PiShockController } from './components/PiShockController';
 import { SafetyWarning } from './components/SafetyWarning';
 import { UserSelector } from './components/UserSelector';
@@ -10,6 +10,7 @@ import { NotificationSystem } from './components/NotificationSystem';
 import { ActivityLog } from './components/ActivityLog';
 import { PrivacyPolicy } from './components/PrivacyPolicy';
 import { TermsOfService } from './components/TermsOfService';
+import { ControllerPlusShopModal } from './components/ControllerPlusShopModal';
 import { useNotifications } from './hooks/useNotifications';
 import { useInstanceData } from './hooks/useInstanceData';
 import { useParticipants } from './hooks/useParticipants';
@@ -83,6 +84,8 @@ function getApiBaseUrl(): string {
 }
 
 function MainApp() {
+  const CONTROLLER_PLUS_SKU_ID = '1387037988558606457';
+  const OVERLIMIT_SKU_ID = '1418562984946569267';
   const [auth, setAuth] = useState<any>(null);
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [piShockConnected, setPiShockConnected] = useState(false);
@@ -94,6 +97,12 @@ function MainApp() {
   const [isInstanceValid, setIsInstanceValid] = useState(true);
   const [layoutMode, setLayoutMode] = useState<number>(Common.LayoutModeTypeObject.FOCUSED);
   const [isPipMode, setIsPipMode] = useState(false);
+  const [entitlementsLoading, setEntitlementsLoading] = useState(false);
+  const [hasControllerPlus, setHasControllerPlus] = useState(false);
+  const [hasOverlimitConsumable, setHasOverlimitConsumable] = useState(false);
+  const [showControllerPlusShop, setShowControllerPlusShop] = useState(false);
+  const [multishockMode, setMultishockMode] = useState(false);
+  const [multishockSelectionsByExecutor, setMultishockSelectionsByExecutor] = useState<Record<string, Record<string, string[]>>>({});
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
   
@@ -112,6 +121,103 @@ function MainApp() {
     setLayoutMode(update.layout_mode);
     setIsPipMode(update.layout_mode === Common.LayoutModeTypeObject.PIP);
   }, []);
+
+  const persistInstanceDataPatch = useCallback(async (patch: Record<string, any>) => {
+    if (!instanceId || !auth?.access_token) return;
+
+    try {
+      await fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({
+          ...patch,
+          lastUpdated: new Date().toISOString(),
+        }),
+      });
+      updateInstanceData(patch);
+    } catch (error) {
+      addNotification('warning', 'Save Failed', 'Could not persist instance data');
+    }
+  }, [instanceId, auth?.access_token, updateInstanceData, addNotification]);
+
+  const refreshEntitlements = useCallback(async () => {
+    if (!auth?.access_token) return;
+
+    setEntitlementsLoading(true);
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/monetization/entitlements`, {
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error('Failed to load entitlements');
+      }
+      const data = await response.json();
+      setHasControllerPlus(Boolean(data.hasControllerPlus));
+      setHasOverlimitConsumable(Boolean(data.hasOverlimitConsumable));
+    } catch (error) {
+      addNotification('warning', 'Entitlements', 'Unable to refresh premium status');
+    } finally {
+      setEntitlementsLoading(false);
+    }
+  }, [auth?.access_token, addNotification]);
+
+  const purchaseSku = useCallback(async (skuId: string) => {
+    if (!isEmbedded || !discordSdk) {
+      window.open('https://discord.com/channels/@me', '_blank');
+      return;
+    }
+
+    try {
+      const commands = discordSdk.commands as any;
+      if (typeof commands.startPurchase === 'function') {
+        await commands.startPurchase({ sku_id: skuId });
+      } else if (typeof commands.openExternalLink === 'function') {
+        await commands.openExternalLink({ url: 'https://discord.com/channels/@me' });
+      }
+      await refreshEntitlements();
+    } catch (error) {
+      addNotification('warning', 'Purchase', 'Unable to open Discord purchase flow');
+    }
+  }, [refreshEntitlements, addNotification]);
+
+  const purchaseControllerPlus = useCallback(async () => {
+    await purchaseSku(CONTROLLER_PLUS_SKU_ID);
+  }, [purchaseSku]);
+
+  const purchaseOverlimitConsumable = useCallback(async () => {
+    await purchaseSku(OVERLIMIT_SKU_ID);
+  }, [purchaseSku]);
+
+  const handleMultishockToggle = useCallback((enabled: boolean) => {
+    if (enabled && !hasControllerPlus) {
+      setShowControllerPlusShop(true);
+      return;
+    }
+    setMultishockMode(enabled);
+  }, [hasControllerPlus]);
+
+  const updateMultishockSelection = useCallback(async (targetUserId: string, shockerIds: string[]) => {
+    if (!auth?.user?.id) return;
+    const executorId = auth.user.id;
+
+    setMultishockSelectionsByExecutor((previous) => {
+      const executorSelections = previous[executorId] || {};
+      const nextTargetSelection = shockerIds.length > 0
+        ? { ...executorSelections, [targetUserId]: shockerIds }
+        : Object.fromEntries(Object.entries(executorSelections).filter(([id]) => id !== targetUserId));
+      const next = {
+        ...previous,
+        [executorId]: nextTargetSelection,
+      };
+      persistInstanceDataPatch({ multishockSelectionsByExecutor: next });
+      return next;
+    });
+  }, [auth?.user?.id, persistInstanceDataPatch]);
 
   // Graceful shutdown handler
   const handleGracefulShutdown = useCallback(() => {
@@ -290,6 +396,12 @@ function MainApp() {
       loadCurrentUserBanList();
     }
   }, [auth?.user?.id, loadCurrentUserBanList]);
+
+  useEffect(() => {
+    if (auth?.access_token) {
+      refreshEntitlements();
+    }
+  }, [auth?.access_token, refreshEntitlements]);
   
   useEffect(() => {
     (window as any).userPiShockStatus = userPiShockStatus;
@@ -486,6 +598,11 @@ function MainApp() {
         })
         .then(data => {
           updateInstanceData(data);
+          setMultishockSelectionsByExecutor(
+            data?.multishockSelectionsByExecutor && typeof data.multishockSelectionsByExecutor === 'object'
+              ? data.multishockSelectionsByExecutor
+              : {}
+          );
           if (data.selectedUserId) {
             const selectedParticipant = participants.find(p => p.id === data.selectedUserId);
             if (selectedParticipant) {
@@ -559,24 +676,10 @@ function MainApp() {
   }, [instanceId, auth, addNotification]);
 
   useEffect(() => {
-    if (instanceId && auth && selectedUser) {
-      fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${auth.access_token}`,
-        },
-        body: JSON.stringify({
-          selectedUserId: selectedUser.id,
-          lastUpdated: new Date().toISOString(),
-        }),
-      }).catch(() => {
-        if (isEmbedded) {
-          addNotification('warning', 'Save Failed', 'Could not save instance data');
-        }
-      });
+    if (selectedUser) {
+      persistInstanceDataPatch({ selectedUserId: selectedUser.id });
     }
-  }, [instanceId, auth, selectedUser, addNotification]);
+  }, [selectedUser, persistInstanceDataPatch]);
 
   // Show Discord-only message for direct visits
   if (isDirectVisit) {
@@ -704,6 +807,10 @@ function MainApp() {
     );
   }
 
+  const currentUserMultishockSelections = auth?.user?.id
+    ? (multishockSelectionsByExecutor[auth.user.id] || {})
+    : {};
+
   // Render minimal PIP interface
   if (isPipMode) {
     return (
@@ -711,6 +818,16 @@ function MainApp() {
         <NotificationSystem 
           notifications={notifications} 
           onDismiss={dismissNotification} 
+        />
+        <ControllerPlusShopModal
+          isOpen={showControllerPlusShop}
+          onClose={() => setShowControllerPlusShop(false)}
+          loading={entitlementsLoading}
+          hasControllerPlus={hasControllerPlus}
+          hasOverlimitConsumable={hasOverlimitConsumable}
+          onRefresh={refreshEntitlements}
+          onPurchaseControllerPlus={purchaseControllerPlus}
+          onPurchaseConsumable={purchaseOverlimitConsumable}
         />
         
         <div className="w-full h-full max-w-sm mx-auto p-4 flex flex-col">
@@ -736,6 +853,15 @@ function MainApp() {
               discordSdk={discordSdk}
               isEmbedded={isEmbedded}
               layoutMode={layoutMode}
+              multishockMode={multishockMode}
+              onMultishockModeChange={handleMultishockToggle}
+              hasControllerPlus={hasControllerPlus}
+              hasOverlimitConsumable={hasOverlimitConsumable}
+              entitlementsLoading={entitlementsLoading}
+              onOpenShop={() => setShowControllerPlusShop(true)}
+              onRefreshEntitlements={refreshEntitlements}
+              multishockSelections={currentUserMultishockSelections}
+              onUpdateMultishockSelection={updateMultishockSelection}
             />
           </div>
 
@@ -782,6 +908,16 @@ function MainApp() {
         notifications={notifications} 
         onDismiss={dismissNotification} 
       />
+      <ControllerPlusShopModal
+        isOpen={showControllerPlusShop}
+        onClose={() => setShowControllerPlusShop(false)}
+        loading={entitlementsLoading}
+        hasControllerPlus={hasControllerPlus}
+        hasOverlimitConsumable={hasOverlimitConsumable}
+        onRefresh={refreshEntitlements}
+        onPurchaseControllerPlus={purchaseControllerPlus}
+        onPurchaseConsumable={purchaseOverlimitConsumable}
+      />
       
       <div className="bg-black/20 backdrop-blur-sm border-b border-white/10 flex-shrink-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
@@ -807,6 +943,31 @@ function MainApp() {
                   Instance: {instanceId.slice(-8)}
                 </div>
               )}
+              <button
+                onClick={() => setShowControllerPlusShop(true)}
+                className="px-2 py-1 rounded-md bg-indigo-700 hover:bg-indigo-600 text-xs transition-colors flex items-center space-x-1"
+                title="Open Controller+ shop"
+              >
+                <Crown className="h-3 w-3" />
+                <span className="hidden sm:inline">Shop</span>
+              </button>
+              <button
+                onClick={() => handleMultishockToggle(!multishockMode)}
+                className={`px-2 py-1 rounded-md text-xs transition-colors border ${
+                  hasControllerPlus
+                    ? multishockMode
+                      ? 'bg-indigo-600 hover:bg-indigo-500 border-indigo-400 text-white'
+                      : 'bg-gray-700 hover:bg-gray-600 border-gray-500 text-gray-200'
+                    : 'bg-gray-800/70 border-gray-600 text-gray-400'
+                }`}
+                title={
+                  hasControllerPlus
+                    ? 'Toggle multishock mode'
+                    : 'Controller+ required. Click to open shop.'
+                }
+              >
+                Multishock: {multishockMode ? 'On' : 'Off'}
+              </button>
               <button
                 onClick={() => navigate('/terms')}
                 className="px-2 py-1 rounded-md bg-gray-700 hover:bg-gray-600 text-xs transition-colors flex items-center space-x-1"
@@ -866,6 +1027,15 @@ function MainApp() {
                 isEmbedded={isEmbedded}
                 layoutMode={layoutMode}
                 participants={participants}
+                multishockMode={multishockMode}
+                onMultishockModeChange={handleMultishockToggle}
+                hasControllerPlus={hasControllerPlus}
+                hasOverlimitConsumable={hasOverlimitConsumable}
+                entitlementsLoading={entitlementsLoading}
+                onOpenShop={() => setShowControllerPlusShop(true)}
+                onRefreshEntitlements={refreshEntitlements}
+                multishockSelections={currentUserMultishockSelections}
+                onUpdateMultishockSelection={updateMultishockSelection}
               />
             </div>
 
