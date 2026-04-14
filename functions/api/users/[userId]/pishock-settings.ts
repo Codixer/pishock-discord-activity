@@ -234,11 +234,16 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         const creds = await decrypt(userData.credentials);
         
         let availableShockers: any[] = [];
+        let resolvedPiShockUserId = creds.piShockUserId;
         if (creds.apiKey && creds.username) {
+          const validation = await validatePiShockCredentials(creds.apiKey, creds.username);
+          if (validation.valid && validation.userId) {
+            resolvedPiShockUserId = validation.userId;
+          }
           const shockersResult = await listPiShockShockers({
             apiKey: creds.apiKey,
             username: creds.username,
-            piShockUserId: creds.piShockUserId,
+            piShockUserId: resolvedPiShockUserId,
           });
           if (shockersResult.ok && Array.isArray(shockersResult.data)) {
             availableShockers = mapShockersToOptions(shockersResult.data);
@@ -269,10 +274,21 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           maxIntensity: creds.maxIntensity || 100,
           maxDuration: creds.maxDuration || 15,
           lastUpdated: userData.lastUpdated,
-          piShockUserId: creds.piShockUserId,
+          piShockUserId: resolvedPiShockUserId,
           bannedExecutors: userData.bannedExecutors || [],
           commandsPaused: Boolean(userData.commandsPaused),
         };
+
+        if (resolvedPiShockUserId && resolvedPiShockUserId !== creds.piShockUserId) {
+          const updatedCreds = {
+            ...creds,
+            piShockUserId: resolvedPiShockUserId,
+          };
+          userData.credentials = await encrypt(updatedCreds);
+          userData.piShockUserId = resolvedPiShockUserId;
+          userData.lastUpdated = new Date().toISOString();
+          await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
+        }
         
         return jsonResponse({ 
           hasSettings: true,
