@@ -158,6 +158,8 @@ function MainApp() {
                 piShockUserId: status.piShockUserId,
                 selectedShockerId: status.selectedShockerId || null,
                 selectedShockerName: status.selectedShockerName || null,
+                allowedShockerIds: Array.isArray(status.allowedShockerIds) ? status.allowedShockerIds : [],
+                allowOverLimitWithConsumable: Boolean(status.allowOverLimitWithConsumable),
                 usingLegacySharecodeFallback: Boolean(status.usingLegacySharecodeFallback),
                 isRelay: status.isRelay || false, // Track if using relay account
                 maxIntensity: status.maxIntensity || 100,
@@ -183,6 +185,8 @@ function MainApp() {
             hasCredentials: false,
             deviceCount: 0,
             piShockUserId: null,
+            allowedShockerIds: [],
+            allowOverLimitWithConsumable: false,
             isRelay: false,
             maxIntensity: 100,
             maxDuration: 15,

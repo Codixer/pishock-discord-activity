@@ -7,6 +7,8 @@ export interface InstanceData {
     username?: string;
     selectedShockerId?: string;
     selectedShockerName?: string;
+    allowedShockerIds?: string[];
+    allowOverLimitWithConsumable?: boolean;
     // Deprecated legacy field kept for compatibility reads only.
     sharecode?: string;
   };

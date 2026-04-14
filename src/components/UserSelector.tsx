@@ -316,6 +316,11 @@ export function UserSelector({
                                     ID: {userStatus.piShockUserId}
                                   </div>
                                 )}
+                                {Array.isArray(userStatus?.allowedShockerIds) && userStatus.allowedShockerIds.length > 0 && (
+                                  <div className="text-xs text-indigo-300">
+                                    Multishock allowed devices: {userStatus.allowedShockerIds.length}
+                                  </div>
+                                )}
                                 {!userStatus && (
                                   <div className="text-xs text-gray-400">
                                     Status loading...

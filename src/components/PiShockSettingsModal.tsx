@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Settings, X, Save, Loader, ExternalLink, Wifi, AlertTriangle, Shield, User, Lock } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Settings, X, Save, Loader, ExternalLink, Wifi } from 'lucide-react';
 import { DiscordSDK } from '@discord/embedded-app-sdk';
 
 interface PiShockSettingsModalProps {
@@ -39,6 +39,8 @@ export function PiShockSettingsModal({
   const [username, setUsername] = useState('');
   const [sharecode, setSharecode] = useState('');
   const [selectedShockerId, setSelectedShockerId] = useState('');
+  const [allowedShockerIds, setAllowedShockerIds] = useState<string[]>([]);
+  const [allowOverLimitWithConsumable, setAllowOverLimitWithConsumable] = useState(false);
   const [availableShockers, setAvailableShockers] = useState<Array<{ id: string; name: string }>>([]);
   const [usingLegacySharecodeFallback, setUsingLegacySharecodeFallback] = useState(false);
   const [disableLegacySharecode, setDisableLegacySharecode] = useState(false);
@@ -151,6 +153,8 @@ export function PiShockSettingsModal({
           setSharecode(settings.sharecode || '');
           setSelectedShockerId(settings.selectedShockerId || '');
           setAvailableShockers(Array.isArray(settings.availableShockers) ? settings.availableShockers : []);
+          setAllowedShockerIds(Array.isArray(settings.allowedShockerIds) ? settings.allowedShockerIds : []);
+          setAllowOverLimitWithConsumable(Boolean(settings.allowOverLimitWithConsumable));
           setUsingLegacySharecodeFallback(Boolean(settings.usingLegacySharecodeFallback));
           setDisableLegacySharecode(false);
           setDeprecationMessages(Array.isArray(result.deprecations) ? result.deprecations : []);
@@ -235,6 +239,8 @@ export function PiShockSettingsModal({
           apiKey: apiKey || undefined,
           username,
           selectedShockerId,
+          allowedShockerIds,
+          allowOverLimitWithConsumable,
           // Deprecated legacy field retained for read-only compatibility only.
           sharecode: disableLegacySharecode ? undefined : (sharecode.trim() || undefined),
           disableLegacySharecode,
@@ -258,6 +264,8 @@ export function PiShockSettingsModal({
         setApiKey('');
         setUsername('');
         setSelectedShockerId('');
+        setAllowedShockerIds([]);
+        setAllowOverLimitWithConsumable(false);
         setSharecode('');
         setDisableLegacySharecode(false);
         setUsingLegacySharecodeFallback(false);
@@ -331,6 +339,15 @@ export function PiShockSettingsModal({
       } else {
         return [...prev, userId];
       }
+    });
+  };
+
+  const toggleAllowedShockerId = (shockerId: string) => {
+    setAllowedShockerIds((previous) => {
+      if (previous.includes(shockerId)) {
+        return previous.filter((id) => id !== shockerId);
+      }
+      return [...previous, shockerId];
     });
   };
 
@@ -499,6 +516,31 @@ export function PiShockSettingsModal({
               </p>
             </div>
 
+            <div className="p-3 bg-purple-900/20 border border-purple-500/30 rounded-lg">
+              <label className="block text-sm font-medium text-purple-200 mb-2">
+                Allowed Shockers For Controller+ Multishock
+              </label>
+              <p className="text-xs text-purple-200 mb-3">
+                Choose which of your devices can be targeted when a Controller+ user sends multishock.
+              </p>
+              <div className="space-y-2 max-h-36 overflow-y-auto">
+                {availableShockers.length === 0 && (
+                  <p className="text-xs text-purple-300">Save credentials once to load available shockers.</p>
+                )}
+                {availableShockers.map((shocker) => (
+                  <label key={shocker.id} className="flex items-center gap-2 text-sm text-purple-100">
+                    <input
+                      type="checkbox"
+                      checked={allowedShockerIds.includes(shocker.id)}
+                      onChange={() => toggleAllowedShockerId(shocker.id)}
+                      className="rounded border-purple-500/50 bg-transparent"
+                    />
+                    <span>{shocker.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
             {sharecode && (
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -517,6 +559,15 @@ export function PiShockSettingsModal({
           <div className="space-y-4 p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
             <h3 className="text-lg font-medium text-yellow-300">Safety Limits</h3>
             <p className="text-sm text-yellow-200">Set your maximum limits for receiving commands</p>
+            <label className="flex items-center gap-2 text-sm text-yellow-100">
+              <input
+                type="checkbox"
+                checked={allowOverLimitWithConsumable}
+                onChange={(e) => setAllowOverLimitWithConsumable(e.target.checked)}
+                className="rounded border-yellow-500/50 bg-transparent"
+              />
+              Allow shocks past my limits when sender spends an over-limit consumable
+            </label>
             
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">

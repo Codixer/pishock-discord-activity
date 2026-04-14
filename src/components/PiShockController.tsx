@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Zap, Settings, Play, Square, AlertTriangle, Lock, Wifi, WifiOff } from 'lucide-react';
 import { DiscordSDK, Common } from '@discord/embedded-app-sdk';
 import { PiShockSettingsModal } from './PiShockSettingsModal';
+import { ControllerPlusStore } from './ControllerPlusStore';
 
 interface PiShockControllerProps {
   selectedUser: any;
@@ -49,8 +50,14 @@ export function PiShockController({
   const [isShocking, setIsShocking] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [currentUserPiShockConnected, setCurrentUserPiShockConnected] = useState(false);
-  const [selectedUserLimits, setSelectedUserLimits] = useState<{ maxIntensity: number; maxDuration: number }>({ maxIntensity: 100, maxDuration: 15 });
   const [discordConnected, setDiscordConnected] = useState(!!auth);
+  const [entitlementsLoading, setEntitlementsLoading] = useState(false);
+  const [hasControllerPlus, setHasControllerPlus] = useState(false);
+  const [hasOverlimitConsumable, setHasOverlimitConsumable] = useState(false);
+  const [multishockMode, setMultishockMode] = useState(false);
+  const [multishockTargets, setMultishockTargets] = useState<string[]>([]);
+  const [isMultishocking, setIsMultishocking] = useState(false);
+  const effectivePiShockConnected = currentUserPiShockConnected || isConnected;
 
   // Check if we're in PIP mode
   const isPipMode = layoutMode === Common.LayoutModeTypeObject.PIP;
@@ -59,6 +66,32 @@ export function PiShockController({
   useEffect(() => {
     setDiscordConnected(!!auth);
   }, [auth]);
+
+  const refreshEntitlements = async () => {
+    if (!auth?.access_token) return;
+    setEntitlementsLoading(true);
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/monetization/entitlements`, {
+        headers: {
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+      });
+      if (response.ok) {
+        const result = await response.json();
+        setHasControllerPlus(Boolean(result.hasControllerPlus));
+        setHasOverlimitConsumable(Boolean(result.hasOverlimitConsumable));
+      }
+    } catch (error) {
+      // Silently ignore entitlement fetch errors
+    } finally {
+      setEntitlementsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshEntitlements();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth?.access_token]);
 
   // Get the effective limits based on selected user
   const getEffectiveLimits = () => {
@@ -81,8 +114,6 @@ export function PiShockController({
   // Update intensity and duration when selected user or limits change
   useEffect(() => {
     const limits = getEffectiveLimits();
-    setSelectedUserLimits(limits);
-    
     // Clamp current values to new limits
     setIntensity(prevIntensity => {
       if (prevIntensity > limits.maxIntensity) {
@@ -204,6 +235,86 @@ export function PiShockController({
     }
   };
 
+  const handlePurchaseControllerPlus = async () => {
+    if (!discordSdk || !isEmbedded) {
+      window.open('https://discord.com/channels/@me', '_blank');
+      return;
+    }
+
+    try {
+      const commands = discordSdk.commands as any;
+      if (typeof commands.startPurchase === 'function') {
+        await commands.startPurchase({ sku_id: '1387037988558606457' });
+      } else if (typeof commands.openExternalLink === 'function') {
+        await commands.openExternalLink({ url: 'https://discord.com/channels/@me' });
+      }
+      await refreshEntitlements();
+    } catch (error) {
+      addNotification('warning', 'Purchase Flow', 'Unable to open purchase flow from this client.');
+    }
+  };
+
+  const getEligibleMultishockTargets = () => {
+    return participants
+      .filter((participant) => participant.id !== currentUser?.id)
+      .filter((participant) => (window as any).userPiShockStatus?.[participant.id]?.isConnected);
+  };
+
+  const toggleMultishockTarget = (userId: string) => {
+    setMultishockTargets((previous) => {
+      if (previous.includes(userId)) {
+        return previous.filter((id) => id !== userId);
+      }
+      return [...previous, userId];
+    });
+  };
+
+  const runMultishock = async (operation: number) => {
+    if (!hasControllerPlus) {
+      addNotification('warning', 'Controller+ Required', 'Multishock is only available with Controller+.');
+      return;
+    }
+    if (multishockTargets.length === 0) {
+      addNotification('warning', 'No Targets', 'Select at least one target for multishock.');
+      return;
+    }
+
+    setIsMultishocking(true);
+    try {
+      const targetsPayload = multishockTargets.map((targetUserId) => {
+        const status = (window as any).userPiShockStatus?.[targetUserId];
+        return {
+          userId: targetUserId,
+          shockerIds: Array.isArray(status?.allowedShockerIds) ? status.allowedShockerIds : [],
+        };
+      });
+
+      const response = await fetch(`${getApiBaseUrl()}/instances/${instanceId}/pishock-multishock`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({
+          executorUserId: currentUser.id,
+          targets: targetsPayload,
+          intensity,
+          duration,
+          operation,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Multishock failed');
+      }
+      addNotification('success', 'Multishock Sent', `Executed multishock across ${result.targetCount} targets.`);
+    } catch (error) {
+      addNotification('error', 'Multishock Failed', error instanceof Error ? error.message : 'Multishock failed');
+    } finally {
+      setIsMultishocking(false);
+    }
+  };
+
   const handleSettingsSaved = () => {
     checkCurrentUserCredentials();
     if (window.refreshAllUserStatuses) {
@@ -249,9 +360,9 @@ export function PiShockController({
                 </div>
                 
                 <div className="flex items-center space-x-2">
-                  <div className={`w-2 h-2 rounded-full ${currentUserPiShockConnected ? 'bg-green-400' : 'bg-red-400'}`} />
+                  <div className={`w-2 h-2 rounded-full ${effectivePiShockConnected ? 'bg-green-400' : 'bg-red-400'}`} />
                   <span className={`text-sm text-gray-300 ${isPipMode ? 'hidden' : ''}`}>PiShock</span>
-                  <Zap className={`h-4 w-4 ${currentUserPiShockConnected ? 'text-green-400' : 'text-red-400'}`} />
+                  <Zap className={`h-4 w-4 ${effectivePiShockConnected ? 'text-green-400' : 'text-red-400'}`} />
                 </div>
               </div>
 
@@ -267,7 +378,7 @@ export function PiShockController({
             </div>
           </div>
 
-        {!selectedUser ? (
+        {!selectedUser && !multishockMode ? (
           <div className="text-center py-12 text-gray-400 flex-1 flex flex-col justify-center">
             <AlertTriangle className="h-16 w-16 mx-auto mb-4 opacity-50" />
             <p className="text-lg mb-2">Please select a participant to continue</p>
@@ -275,6 +386,15 @@ export function PiShockController({
           </div>
         ) : (
           <div className="flex-1 flex flex-col space-y-6 min-h-0">
+            {!isPipMode && (
+              <ControllerPlusStore
+                loading={entitlementsLoading}
+                hasControllerPlus={hasControllerPlus}
+                hasOverlimitConsumable={hasOverlimitConsumable}
+                onPurchase={handlePurchaseControllerPlus}
+                onRefresh={refreshEntitlements}
+              />
+            )}
             {!isPipMode && (
               <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg">
                 <p className="text-sm text-blue-200">
@@ -288,6 +408,36 @@ export function PiShockController({
                   <p className="text-xs text-yellow-300 mt-1">
                     Legacy share code fallback is active for this user.
                   </p>
+                )}
+              </div>
+            )}
+            {!isPipMode && (
+              <div className="p-3 bg-indigo-900/20 border border-indigo-500/30 rounded-lg">
+                <label className="flex items-center gap-2 text-sm text-indigo-200">
+                  <input
+                    type="checkbox"
+                    checked={multishockMode}
+                    onChange={(e) => setMultishockMode(e.target.checked)}
+                    disabled={!hasControllerPlus}
+                  />
+                  Enable multishock mode (Controller+)
+                </label>
+                <p className="text-xs text-indigo-100 mt-1">
+                  Over-limit bypass is disabled for multishock commands.
+                </p>
+                {multishockMode && (
+                  <div className="mt-2 grid grid-cols-1 gap-1 max-h-28 overflow-y-auto">
+                    {getEligibleMultishockTargets().map((participant) => (
+                      <label key={participant.id} className="flex items-center gap-2 text-xs text-indigo-100">
+                        <input
+                          type="checkbox"
+                          checked={multishockTargets.includes(participant.id)}
+                          onChange={() => toggleMultishockTarget(participant.id)}
+                        />
+                        <span>{getDisplayName(participant)}</span>
+                      </label>
+                    ))}
+                  </div>
                 )}
               </div>
             )}
@@ -360,8 +510,8 @@ export function PiShockController({
 
               <div className={`grid gap-3 flex-shrink-0 ${isPipMode ? 'grid-cols-3 gap-2' : 'grid-cols-1 sm:grid-cols-3 sm:gap-3'}`}>
                 <button
-                  onClick={() => handleShock(0)}
-                  disabled={isShocking}
+                  onClick={() => (multishockMode ? runMultishock(0) : handleShock(0))}
+                  disabled={isShocking || isMultishocking}
                   className={`bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
                     isPipMode 
                       ? 'py-2 px-2 text-xs flex-col space-y-1' 
@@ -373,8 +523,8 @@ export function PiShockController({
                 </button>
 
                 <button
-                  onClick={() => handleShock(1)}
-                  disabled={isShocking}
+                  onClick={() => (multishockMode ? runMultishock(1) : handleShock(1))}
+                  disabled={isShocking || isMultishocking}
                   className={`bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
                     isPipMode 
                       ? 'py-2 px-2 text-xs flex-col space-y-1' 
@@ -386,8 +536,8 @@ export function PiShockController({
                 </button>
 
                 <button
-                  onClick={() => handleShock(2)}
-                  disabled={isShocking}
+                  onClick={() => (multishockMode ? runMultishock(2) : handleShock(2))}
+                  disabled={isShocking || isMultishocking}
                   className={`bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
                     isPipMode 
                       ? 'py-2 px-2 text-xs flex-col space-y-1' 
@@ -416,11 +566,11 @@ export function PiShockController({
                   </div>
                 </div>
               )}
-              {isShocking && (
+              {(isShocking || isMultishocking) && (
                 <div className={`text-center flex-shrink-0 ${isPipMode ? 'mt-1' : 'mt-2'}`}>
                   <div className={`inline-flex items-center space-x-3 text-yellow-400 ${isPipMode ? 'text-xs' : 'text-base'}`}>
                     <div className={`animate-spin rounded-full border-b-2 border-yellow-400 ${isPipMode ? 'h-4 w-4' : 'h-6 w-6'}`}></div>
-                    <span>Executing command...</span>
+                    <span>{isMultishocking ? 'Executing multishock...' : 'Executing command...'}</span>
                   </div>
                 </div>
               )}

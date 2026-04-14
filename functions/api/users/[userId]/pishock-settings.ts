@@ -176,13 +176,16 @@ function hasSettingsChanged(existing: any, newData: any): boolean {
   if (!existing) return true;
   
   const existingCreds = existing.credentials ? JSON.parse(atob(existing.credentials)) : {};
+  const newCreds = newData.credentials ? JSON.parse(atob(newData.credentials)) : {};
   
   return existing.maxIntensity !== newData.maxIntensity ||
          existing.maxDuration !== newData.maxDuration ||
          JSON.stringify(existing.bannedExecutors || []) !== JSON.stringify(newData.bannedExecutors || []) ||
-         existingCreds.username !== newData.username ||
-         existingCreds.sharecode !== newData.sharecode ||
-         existingCreds.selectedShockerId !== newData.selectedShockerId;
+         existingCreds.username !== newCreds.username ||
+         existingCreds.sharecode !== newCreds.sharecode ||
+         existingCreds.selectedShockerId !== newCreds.selectedShockerId ||
+         JSON.stringify(existingCreds.allowedShockerIds || []) !== JSON.stringify(newCreds.allowedShockerIds || []) ||
+         Boolean(existingCreds.allowOverLimitWithConsumable) !== Boolean(newCreds.allowOverLimitWithConsumable);
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {
@@ -243,12 +246,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         }
 
         const usingLegacySharecodeFallback = Boolean(creds.sharecode && !creds.selectedShockerId);
+        const resolvedSelectedShockerId = creds.selectedShockerId || creds.shockerId || '';
+        const persistedAllowed = Array.isArray(creds.allowedShockerIds) ? creds.allowedShockerIds.map((id: any) => String(id)) : [];
+        const allowedShockerIds = resolvedSelectedShockerId && !persistedAllowed.includes(resolvedSelectedShockerId)
+          ? [...persistedAllowed, resolvedSelectedShockerId]
+          : persistedAllowed;
         const settings = {
           username: creds.username || '',
           sharecode: creds.sharecode || '',
-          selectedShockerId: creds.selectedShockerId || creds.shockerId || '',
+          selectedShockerId: resolvedSelectedShockerId,
           selectedShockerName: creds.selectedShockerName || '',
           availableShockers,
+          allowedShockerIds,
+          allowOverLimitWithConsumable: Boolean(creds.allowOverLimitWithConsumable),
           usingLegacySharecodeFallback,
           hasOwnDevice: true,
           maxIntensity: creds.maxIntensity || 100,
@@ -280,6 +290,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         username, 
         sharecode, 
         selectedShockerId,
+        allowedShockerIds = [],
+        allowOverLimitWithConsumable = false,
         disableLegacySharecode = false,
         hasOwnDevice, 
         maxIntensity = 100, 
@@ -425,6 +437,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         finalSelectedShockerId = shareCodeShockerId || '';
       }
 
+      const normalizedAllowedShockerIds = (Array.isArray(allowedShockerIds) ? allowedShockerIds : [])
+        .map((id) => String(id))
+        .filter((id) => availableShockers.some((shocker) => shocker.id === id));
+      if (finalSelectedShockerId && !normalizedAllowedShockerIds.includes(finalSelectedShockerId)) {
+        normalizedAllowedShockerIds.push(finalSelectedShockerId);
+      }
+
       const finalSharecode = disableLegacySharecode ? '' : (sharecode || '');
       const actuallyHasDevice = deviceCheck.hasDevices && Boolean(finalSelectedShockerId || finalSharecode);
       
@@ -434,6 +453,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         sharecode: finalSharecode,
         selectedShockerId: finalSelectedShockerId || null,
         selectedShockerName: selectedShockerName || null,
+        allowedShockerIds: normalizedAllowedShockerIds,
+        allowOverLimitWithConsumable: Boolean(allowOverLimitWithConsumable),
         hasOwnDevice: actuallyHasDevice,
         piShockUserId,
         shockerId: finalSelectedShockerId || shareCodeShockerId,
@@ -449,6 +470,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         credentials: encrypted,
         lastTested: new Date().toISOString(),
         configuredBy: user.id,
+        maxIntensity,
+        maxDuration,
         hasOwnDevice: actuallyHasDevice,
         piShockUserId,
         shockerId: finalSelectedShockerId || shareCodeShockerId,
@@ -481,6 +504,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         selectedShockerId: finalSelectedShockerId || null,
         shockerId: finalSelectedShockerId || shareCodeShockerId,
         selectedShockerName: selectedShockerName || null,
+        allowedShockerIds: normalizedAllowedShockerIds,
+        allowOverLimitWithConsumable: Boolean(allowOverLimitWithConsumable),
         deprecations: usingLegacySharecodeFallback ? [
           'Share code save path is deprecated. Please re-save with selected shocker.'
         ] : disableLegacySharecode ? [

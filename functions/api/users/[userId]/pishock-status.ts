@@ -244,6 +244,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     let selectedShockerId: string | null = null;
     let selectedShockerName: string | null = null;
     let usingLegacySharecodeFallback = false;
+    let allowedShockerIds: string[] = [];
+    let allowOverLimitWithConsumable = false;
     
     if (encrypted) {
       try {
@@ -254,6 +256,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         selectedShockerId = creds.selectedShockerId || creds.shockerId || null;
         selectedShockerName = creds.selectedShockerName || null;
         usingLegacySharecodeFallback = Boolean(creds.sharecode && !creds.selectedShockerId);
+        allowedShockerIds = Array.isArray(creds.allowedShockerIds) ? creds.allowedShockerIds.map((id: any) => String(id)) : [];
+        allowOverLimitWithConsumable = Boolean(creds.allowOverLimitWithConsumable);
         
         const credentialValidation = await validatePiShockCredentials(creds.apiKey, creds.username);
         isConnected = credentialValidation.valid;
@@ -290,6 +294,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       piShockUserId,
       selectedShockerId,
       selectedShockerName,
+      allowedShockerIds,
+      allowOverLimitWithConsumable,
       usingLegacySharecodeFallback,
       lastTested,
       isRelay: false,

@@ -1,10 +1,16 @@
 import { v4 as uuidv4 } from 'uuid';
 import { operatePiShockShocker, resolvePiShockShockerId } from '../../_shared/pishock-client';
+import { consumeOverlimitEntitlement, getControllerPlusState } from '../../_shared/discord-entitlements';
 
 interface Env {
   PISHOCK_KV: KVNamespace;
   DISCORD_CLIENT_ID?: string;
   DISCORD_CLIENT_SECRET?: string;
+  DISCORD_BOT_TOKEN?: string;
+}
+
+interface PagesFunction<Env = unknown> {
+  (context: { request: Request; env: Env; params: Record<string, string>; waitUntil: (promise: Promise<any>) => void; passThroughOnException: () => void; }): Promise<Response> | Response;
 }
 
 interface ActivityLogEntry {
@@ -276,6 +282,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         error: 'Invalid parameters' 
       }, 400);
     }
+    if (user.id !== executorUserId) {
+      return jsonResponse({
+        success: false,
+        error: 'Executor mismatch for authenticated user.',
+      }, 403);
+    }
 
     try {
       const targetUserDataStr = await env.PISHOCK_KV.get(`user:${targetUserId}:data`);
@@ -347,19 +359,27 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       
       const targetMaxIntensity = creds.maxIntensity || 100;
       const targetMaxDuration = creds.maxDuration || 15;
+      const overLimitAttempt = intensity > targetMaxIntensity || duration > targetMaxDuration;
+      let consumedEntitlementId: string | undefined;
       
-      if (intensity > targetMaxIntensity) {
-        return jsonResponse({ 
-          success: false, 
-          error: `Intensity ${intensity}% exceeds target user's maximum of ${targetMaxIntensity}%` 
-        });
-      }
-      
-      if (duration > targetMaxDuration) {
-        return jsonResponse({ 
-          success: false, 
-          error: `Duration ${duration}s exceeds target user's maximum of ${targetMaxDuration}s` 
-        });
+      if (overLimitAttempt) {
+        if (!creds.allowOverLimitWithConsumable) {
+          return jsonResponse({
+            success: false,
+            error: `Command exceeds target limits (${targetMaxIntensity}% / ${targetMaxDuration}s) and over-limit consent is disabled.`,
+          });
+        }
+
+        const entitlementState = await getControllerPlusState(env, executorUserId);
+        if (!entitlementState.overlimitEntitlementId) {
+          return jsonResponse({
+            success: false,
+            error: 'Over-limit command requires an available consumable entitlement.',
+          }, 403);
+        }
+
+        await consumeOverlimitEntitlement(env, entitlementState.overlimitEntitlementId);
+        consumedEntitlementId = entitlementState.overlimitEntitlementId;
       }
       
       const operationNames = ['shock', 'vibrate', 'beep'];
@@ -429,6 +449,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         logEntryId: logEntry.id,
         message: `${operationName} command executed successfully`,
         selectedShockerId: shockerResult.data,
+        overLimitUsed: overLimitAttempt,
+        consumedOverlimitEntitlementId: consumedEntitlementId || null,
         usingLegacySharecodeFallback,
         deprecations: usingLegacySharecodeFallback ? [
           'Legacy share code fallback was used. Ask the user to re-save settings with selected shocker.'

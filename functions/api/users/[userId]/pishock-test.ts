@@ -185,6 +185,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       let usingLegacySharecodeFallback = false;
       let selectedShockerId: string | null = creds.selectedShockerId || creds.shockerId || null;
       let selectedShockerName: string | null = creds.selectedShockerName || null;
+      const allowedShockerIds: string[] = Array.isArray(creds.allowedShockerIds) ? creds.allowedShockerIds.map((id: any) => String(id)) : [];
+      const allowOverLimitWithConsumable = Boolean(creds.allowOverLimitWithConsumable);
       
       if (credentialValidation.valid && credentialValidation.userId) {
         const deviceCheck = await checkUserDevices(credentialValidation.userId, creds.apiKey, creds.username);
@@ -230,6 +232,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
               error: testResult.error || 'PiShock test operation failed',
               selectedShockerId: shockerIdToTest,
               usingLegacySharecodeFallback,
+              allowedShockerIds,
+              allowOverLimitWithConsumable,
             });
           }
 
@@ -247,6 +251,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         piShockUserId: credentialValidation.userId,
         selectedShockerId,
         selectedShockerName,
+        allowedShockerIds,
+        allowOverLimitWithConsumable,
         usingLegacySharecodeFallback,
         lastTested: userData.lastTested,
         debug: {
