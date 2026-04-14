@@ -100,6 +100,7 @@ function MainApp() {
   const [entitlementsLoading, setEntitlementsLoading] = useState(false);
   const [hasControllerPlus, setHasControllerPlus] = useState(false);
   const [hasOverlimitConsumable, setHasOverlimitConsumable] = useState(false);
+  const [overlimitConsumableCount, setOverlimitConsumableCount] = useState(0);
   const [showControllerPlusShop, setShowControllerPlusShop] = useState(false);
   const [multishockMode, setMultishockMode] = useState(false);
   const [multishockSelectionsByExecutor, setMultishockSelectionsByExecutor] = useState<Record<string, Record<string, string[]>>>({});
@@ -159,6 +160,14 @@ function MainApp() {
       const data = await response.json();
       setHasControllerPlus(Boolean(data.hasControllerPlus));
       setHasOverlimitConsumable(Boolean(data.hasOverlimitConsumable));
+      const count = Array.isArray(data.entitlements)
+        ? data.entitlements.filter((entitlement: any) =>
+            entitlement?.sku_id === OVERLIMIT_SKU_ID &&
+            entitlement?.deleted !== true &&
+            entitlement?.consumed !== true
+          ).length
+        : 0;
+      setOverlimitConsumableCount(count);
     } catch (error) {
       addNotification('warning', 'Entitlements', 'Unable to refresh premium status');
     } finally {
@@ -266,11 +275,19 @@ function MainApp() {
                 selectedShockerName: status.selectedShockerName || null,
                 allowedShockerIds: Array.isArray(status.allowedShockerIds) ? status.allowedShockerIds : [],
                 allowOverLimitWithConsumable: Boolean(status.allowOverLimitWithConsumable),
+                commandsPaused: Boolean(status.commandsPaused),
                 usingLegacySharecodeFallback: Boolean(status.usingLegacySharecodeFallback),
                 isRelay: status.isRelay || false, // Track if using relay account
                 maxIntensity: status.maxIntensity || 100,
                 maxDuration: status.maxDuration || 15,
-                bannedExecutors: []
+                maxIntensityOverriddenByApi: Boolean(status.maxIntensityOverriddenByApi),
+                maxDurationOverriddenByApi: Boolean(status.maxDurationOverriddenByApi),
+                canShock: status.canShock !== false,
+                canVibrate: status.canVibrate !== false,
+                canBeep: status.canBeep !== false,
+                canPause: Boolean(status.canPause),
+                bannedExecutors: [],
+                lastChecked: Date.now(),
               }
             };
             
@@ -293,10 +310,18 @@ function MainApp() {
             piShockUserId: null,
             allowedShockerIds: [],
             allowOverLimitWithConsumable: false,
+            commandsPaused: false,
             isRelay: false,
             maxIntensity: 100,
             maxDuration: 15,
-            bannedExecutors: []
+            maxIntensityOverriddenByApi: false,
+            maxDurationOverriddenByApi: false,
+            canShock: true,
+            canVibrate: true,
+            canBeep: true,
+            canPause: false,
+            bannedExecutors: [],
+            lastChecked: Date.now(),
           }
         };
       });
@@ -382,9 +407,10 @@ function MainApp() {
     }
 
     addNotification('info', 'Refreshing...', 'Checking PiShock status for all participants');
+    userStatusCache.clearCache();
     await checkAllUserPiShockStatus();
     addNotification('success', 'Status Refreshed', 'All participant statuses have been updated');
-  }, [instanceId, auth, participants, checkAllUserPiShockStatus, addNotification]);
+  }, [instanceId, auth, participants, checkAllUserPiShockStatus, addNotification, userStatusCache]);
 
   // Make the refresh function available globally
   useEffect(() => {
@@ -825,6 +851,7 @@ function MainApp() {
           loading={entitlementsLoading}
           hasControllerPlus={hasControllerPlus}
           hasOverlimitConsumable={hasOverlimitConsumable}
+          overlimitConsumableCount={overlimitConsumableCount}
           onRefresh={refreshEntitlements}
           onPurchaseControllerPlus={purchaseControllerPlus}
           onPurchaseConsumable={purchaseOverlimitConsumable}
@@ -857,6 +884,7 @@ function MainApp() {
               onMultishockModeChange={handleMultishockToggle}
               hasControllerPlus={hasControllerPlus}
               hasOverlimitConsumable={hasOverlimitConsumable}
+              overlimitConsumableCount={overlimitConsumableCount}
               entitlementsLoading={entitlementsLoading}
               onOpenShop={() => setShowControllerPlusShop(true)}
               onRefreshEntitlements={refreshEntitlements}
@@ -914,6 +942,7 @@ function MainApp() {
         loading={entitlementsLoading}
         hasControllerPlus={hasControllerPlus}
         hasOverlimitConsumable={hasOverlimitConsumable}
+        overlimitConsumableCount={overlimitConsumableCount}
         onRefresh={refreshEntitlements}
         onPurchaseControllerPlus={purchaseControllerPlus}
         onPurchaseConsumable={purchaseOverlimitConsumable}
@@ -949,24 +978,29 @@ function MainApp() {
                 title="Open Controller+ shop"
               >
                 <Crown className="h-3 w-3" />
-                <span className="hidden sm:inline">Shop</span>
+                <span className="hidden sm:inline">Shop ({overlimitConsumableCount})</span>
               </button>
               <button
                 onClick={() => handleMultishockToggle(!multishockMode)}
-                className={`px-2 py-1 rounded-md text-xs transition-colors border ${
+                className={`flex items-center gap-2 px-2 py-1 rounded-md text-xs border transition-colors ${
                   hasControllerPlus
-                    ? multishockMode
-                      ? 'bg-indigo-600 hover:bg-indigo-500 border-indigo-400 text-white'
-                      : 'bg-gray-700 hover:bg-gray-600 border-gray-500 text-gray-200'
+                    ? 'bg-gray-700 hover:bg-gray-600 border-gray-500 text-gray-100'
                     : 'bg-gray-800/70 border-gray-600 text-gray-400'
                 }`}
-                title={
-                  hasControllerPlus
-                    ? 'Toggle multishock mode'
-                    : 'Controller+ required. Click to open shop.'
-                }
+                title={hasControllerPlus ? 'Toggle multishock mode' : 'Controller+ required. Click to open shop.'}
               >
-                Multishock: {multishockMode ? 'On' : 'Off'}
+                <span>Multishock</span>
+                <span
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                    multishockMode && hasControllerPlus ? 'bg-indigo-500' : 'bg-gray-500/60'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      multishockMode && hasControllerPlus ? 'translate-x-4' : 'translate-x-0.5'
+                    }`}
+                  />
+                </span>
               </button>
               <button
                 onClick={() => navigate('/terms')}
@@ -1031,6 +1065,7 @@ function MainApp() {
                 onMultishockModeChange={handleMultishockToggle}
                 hasControllerPlus={hasControllerPlus}
                 hasOverlimitConsumable={hasOverlimitConsumable}
+                overlimitConsumableCount={overlimitConsumableCount}
                 entitlementsLoading={entitlementsLoading}
                 onOpenShop={() => setShowControllerPlusShop(true)}
                 onRefreshEntitlements={refreshEntitlements}

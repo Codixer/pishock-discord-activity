@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { listOwnedPiShockShockerIds, operatePiShockShocker, resolvePiShockShockerId } from '../../_shared/pishock-client';
+import { listPiShockShockers, operatePiShockShocker, resolvePiShockShockerId } from '../../_shared/pishock-client';
 import { consumeOverlimitEntitlement, getControllerPlusState } from '../../_shared/discord-entitlements';
 
 interface Env {
@@ -294,6 +294,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       if (targetUserDataStr) {
         const targetUserData = JSON.parse(targetUserDataStr);
         const bannedExecutors = targetUserData.bannedExecutors || [];
+        if (targetUserData.commandsPaused) {
+          return jsonResponse({
+            success: false,
+            error: 'This user has paused all incoming commands.',
+            paused: true,
+            targetUserId
+          }, 423);
+        }
         
         if (bannedExecutors.includes(executorUserId)) {
           const executorUserData = await env.PISHOCK_KV.get(`discord_user:${executorUserId}`);
@@ -357,31 +365,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     try {
       const creds = await decrypt(encrypted);
       
-      const targetMaxIntensity = creds.maxIntensity || 100;
-      const targetMaxDuration = creds.maxDuration || 15;
-      const overLimitAttempt = intensity > targetMaxIntensity || duration > targetMaxDuration;
-      let consumedEntitlementId: string | undefined;
-      
-      if (overLimitAttempt) {
-        if (!creds.allowOverLimitWithConsumable) {
-          return jsonResponse({
-            success: false,
-            error: `Command exceeds target limits (${targetMaxIntensity}% / ${targetMaxDuration}s) and over-limit consent is disabled.`,
-          });
-        }
-
-        const entitlementState = await getControllerPlusState(env, executorUserId);
-        if (!entitlementState.overlimitEntitlementId) {
-          return jsonResponse({
-            success: false,
-            error: 'Over-limit command requires an available consumable entitlement.',
-          }, 403);
-        }
-
-        await consumeOverlimitEntitlement(env, entitlementState.overlimitEntitlementId);
-        consumedEntitlementId = entitlementState.overlimitEntitlementId;
-      }
-      
       const operationNames = ['shock', 'vibrate', 'beep'];
       const operationName = operationNames[operation];
       
@@ -402,12 +385,91 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         throw new Error(shockerResult.error || 'Unable to resolve PiShock shocker.');
       }
 
-      const ownedShockersResult = await listOwnedPiShockShockerIds(pishockCredentials);
-      if (!ownedShockersResult.ok || !Array.isArray(ownedShockersResult.data)) {
-        throw new Error(ownedShockersResult.error || 'Unable to verify owned shockers.');
+      const shockersResult = await listPiShockShockers(pishockCredentials);
+      if (!shockersResult.ok || !Array.isArray(shockersResult.data)) {
+        throw new Error(shockersResult.error || 'Unable to verify owned shockers.');
       }
-      if (!ownedShockersResult.data.includes(shockerResult.data)) {
+      const ownedShockerIds = shockersResult.data
+        .filter((shocker: any) => shocker?.ShockerId !== undefined && shocker?.ShockerId !== null)
+        .map((shocker: any) => String(shocker.ShockerId));
+      if (!ownedShockerIds.includes(shockerResult.data)) {
         throw new Error('Selected shocker is not owned by this PiShock account.');
+      }
+      const selectedShocker = shockersResult.data.find(
+        (shocker: any) => String(shocker?.ShockerId) === shockerResult.data
+      );
+      if (!selectedShocker) {
+        throw new Error('Selected shocker context is unavailable.');
+      }
+
+      if (operation === 0 && !selectedShocker.CanShock) {
+        return jsonResponse({
+          success: false,
+          error: 'Target PiShock does not allow shock commands.',
+          capabilityBlocked: true,
+          operation: 'shock',
+        }, 400);
+      }
+      if (operation === 1 && !selectedShocker.CanVibrate) {
+        return jsonResponse({
+          success: false,
+          error: 'Target PiShock does not allow vibrate commands.',
+          capabilityBlocked: true,
+          operation: 'vibrate',
+        }, 400);
+      }
+      if (operation === 2 && !selectedShocker.CanBeep) {
+        return jsonResponse({
+          success: false,
+          error: 'Target PiShock does not allow beep commands.',
+          capabilityBlocked: true,
+          operation: 'beep',
+        }, 400);
+      }
+
+      const configuredMaxIntensity = Number(creds.maxIntensity) || 100;
+      const configuredMaxDuration = Number(creds.maxDuration) || 15;
+      let effectiveMaxIntensity = configuredMaxIntensity;
+      let effectiveMaxDuration = configuredMaxDuration;
+      let maxIntensityOverriddenByApi = false;
+      let maxDurationOverriddenByApi = false;
+
+      const apiMaxIntensity = Number(selectedShocker.MaxIntensity);
+      if (Number.isFinite(apiMaxIntensity) && apiMaxIntensity > 0) {
+        const bounded = Math.min(effectiveMaxIntensity, Math.floor(apiMaxIntensity));
+        maxIntensityOverriddenByApi = bounded < effectiveMaxIntensity;
+        effectiveMaxIntensity = bounded;
+      }
+      const apiMaxDurationMs = Number(selectedShocker.MaxDuration);
+      if (Number.isFinite(apiMaxDurationMs) && apiMaxDurationMs > 0) {
+        const apiMaxDurationSeconds = Math.max(1, Math.floor(apiMaxDurationMs / 1000));
+        const bounded = Math.min(effectiveMaxDuration, apiMaxDurationSeconds);
+        maxDurationOverriddenByApi = bounded < effectiveMaxDuration;
+        effectiveMaxDuration = bounded;
+      }
+
+      const overLimitAttempt = intensity > effectiveMaxIntensity || duration > effectiveMaxDuration;
+      let consumedEntitlementId: string | undefined;
+      if (overLimitAttempt) {
+        if (!creds.allowOverLimitWithConsumable) {
+          return jsonResponse({
+            success: false,
+            error: `Command exceeds target limits (${effectiveMaxIntensity}% / ${effectiveMaxDuration}s) and over-limit consent is disabled.`,
+            maxIntensityOverriddenByApi,
+            maxDurationOverriddenByApi,
+          });
+        }
+
+        const entitlementState = await getControllerPlusState(env, executorUserId);
+        if (!entitlementState.overlimitEntitlementId) {
+          return jsonResponse({
+            success: false,
+            error: 'Over-limit command requires an available consumable entitlement.',
+          }, 403);
+        }
+
+        await consumeOverlimitEntitlement(env, entitlementState.overlimitEntitlementId);
+        consumedEntitlementId = entitlementState.overlimitEntitlementId;
       }
 
       const operateResult = await operatePiShockShocker(pishockCredentials, shockerResult.data, {
@@ -459,6 +521,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         selectedShockerId: shockerResult.data,
         overLimitUsed: overLimitAttempt,
         consumedOverlimitEntitlementId: consumedEntitlementId || null,
+        effectiveMaxIntensity,
+        effectiveMaxDuration,
+        maxIntensityOverriddenByApi,
+        maxDurationOverriddenByApi,
         usingLegacySharecodeFallback,
         deprecations: usingLegacySharecodeFallback ? [
           'Legacy share code fallback was used. Ask the user to re-save settings with selected shocker.'

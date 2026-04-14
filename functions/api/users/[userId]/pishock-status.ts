@@ -143,7 +143,11 @@ async function setCachedUserStatus(kv: KVNamespace, userId: string, newStatus: a
       const hasChanges = existingData.status?.isConnected !== newStatus.isConnected ||
                         existingData.status?.hasCredentials !== newStatus.hasCredentials ||
                         existingData.status?.maxIntensity !== newStatus.maxIntensity ||
-                        existingData.status?.maxDuration !== newStatus.maxDuration;
+                        existingData.status?.maxDuration !== newStatus.maxDuration ||
+                        existingData.status?.commandsPaused !== newStatus.commandsPaused ||
+                        existingData.status?.canShock !== newStatus.canShock ||
+                        existingData.status?.canVibrate !== newStatus.canVibrate ||
+                        existingData.status?.canBeep !== newStatus.canBeep;
       
       if (!hasChanges) {
         return; // No changes, don't update cache
@@ -246,6 +250,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     let usingLegacySharecodeFallback = false;
     let allowedShockerIds: string[] = [];
     let allowOverLimitWithConsumable = false;
+    let commandsPaused = Boolean(userData?.commandsPaused);
+    let canShock = true;
+    let canVibrate = true;
+    let canBeep = true;
+    let canPause = false;
+    let maxIntensityOverriddenByApi = false;
+    let maxDurationOverriddenByApi = false;
     
     if (encrypted) {
       try {
@@ -282,6 +293,30 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           allowedShockerIds = allowedShockerIds.filter((id) => ownedShockerIds.has(String(id)));
           if (selectedShockerId && Array.isArray(deviceCheck.devices)) {
             hasDevice = deviceCheck.devices.some((shocker: any) => String(shocker.ShockerId) === String(selectedShockerId));
+            const selectedShocker = deviceCheck.devices.find(
+              (shocker: any) => String(shocker?.ShockerId) === String(selectedShockerId)
+            );
+            if (selectedShocker) {
+              canShock = Boolean(selectedShocker.CanShock);
+              canVibrate = Boolean(selectedShocker.CanVibrate);
+              canBeep = Boolean(selectedShocker.CanBeep);
+              canPause = Boolean(selectedShocker.CanPause);
+
+              const apiMaxIntensity = Number(selectedShocker.MaxIntensity);
+              if (Number.isFinite(apiMaxIntensity) && apiMaxIntensity > 0) {
+                const boundedIntensity = Math.min(maxIntensity, Math.floor(apiMaxIntensity));
+                maxIntensityOverriddenByApi = boundedIntensity < maxIntensity;
+                maxIntensity = boundedIntensity;
+              }
+
+              const apiMaxDurationMs = Number(selectedShocker.MaxDuration);
+              if (Number.isFinite(apiMaxDurationMs) && apiMaxDurationMs > 0) {
+                const apiMaxDurationSeconds = Math.max(1, Math.floor(apiMaxDurationMs / 1000));
+                const boundedDuration = Math.min(maxDuration, apiMaxDurationSeconds);
+                maxDurationOverriddenByApi = boundedDuration < maxDuration;
+                maxDuration = boundedDuration;
+              }
+            }
           }
           
           // Only write to KV if piShockUserId has changed
@@ -308,11 +343,18 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       selectedShockerName,
       allowedShockerIds,
       allowOverLimitWithConsumable,
+      commandsPaused,
+      canShock,
+      canVibrate,
+      canBeep,
+      canPause,
       usingLegacySharecodeFallback,
       lastTested,
       isRelay: false,
       maxIntensity,
       maxDuration,
+      maxIntensityOverriddenByApi,
+      maxDurationOverriddenByApi,
       deprecations: usingLegacySharecodeFallback ? [
         'Legacy share code fallback in use. Re-save settings by selecting a shocker.'
       ] : []

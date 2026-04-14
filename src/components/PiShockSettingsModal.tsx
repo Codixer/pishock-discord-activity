@@ -41,6 +41,7 @@ export function PiShockSettingsModal({
   const [selectedShockerId, setSelectedShockerId] = useState('');
   const [allowedShockerIds, setAllowedShockerIds] = useState<string[]>([]);
   const [allowOverLimitWithConsumable, setAllowOverLimitWithConsumable] = useState(false);
+  const [commandsPaused, setCommandsPaused] = useState(false);
   const [availableShockers, setAvailableShockers] = useState<Array<{ id: string; name: string }>>([]);
   const [usingLegacySharecodeFallback, setUsingLegacySharecodeFallback] = useState(false);
   const [disableLegacySharecode, setDisableLegacySharecode] = useState(false);
@@ -51,6 +52,7 @@ export function PiShockSettingsModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
+  const [togglingPause, setTogglingPause] = useState(false);
   const [hasStoredCredentials, setHasStoredCredentials] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<{
     connected: boolean;
@@ -134,6 +136,7 @@ export function PiShockSettingsModal({
           setUserMaxIntensity(status.maxIntensity);
           setUserMaxDuration(status.maxDuration);
         }
+        setCommandsPaused(Boolean(status.commandsPaused));
       }
     } catch (error) {
       console.error('Failed to check connection status:', error);
@@ -169,6 +172,7 @@ export function PiShockSettingsModal({
           setUserMaxIntensity(settings.maxIntensity || 100);
           setUserMaxDuration(settings.maxDuration || 15);
           setBannedExecutors(settings.bannedExecutors || []);
+          setCommandsPaused(Boolean(settings.commandsPaused));
         }
       }
     } catch (error) {
@@ -249,6 +253,7 @@ export function PiShockSettingsModal({
           selectedShockerId,
           allowedShockerIds,
           allowOverLimitWithConsumable,
+          commandsPaused,
           // Deprecated legacy field retained for read-only compatibility only.
           sharecode: disableLegacySharecode ? undefined : (sharecode.trim() || undefined),
           disableLegacySharecode,
@@ -292,6 +297,36 @@ export function PiShockSettingsModal({
       alert(error instanceof Error ? error.message : 'Failed to save settings');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const toggleCommandPause = async () => {
+    if (!currentUser || !auth || togglingPause) return;
+    const nextValue = !commandsPaused;
+    setTogglingPause(true);
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({
+          commandsPaused: nextValue,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Unable to update pause state');
+      }
+      setCommandsPaused(nextValue);
+      if (window.refreshAllUserStatuses) {
+        window.refreshAllUserStatuses();
+      }
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Unable to update pause state');
+    } finally {
+      setTogglingPause(false);
     }
   };
 
@@ -412,6 +447,36 @@ export function PiShockSettingsModal({
             </div>
           </div>
 
+          <div className={`p-4 border rounded-lg ${commandsPaused ? 'bg-red-900/30 border-red-500/50' : 'bg-emerald-900/20 border-emerald-500/30'}`}>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className={`font-semibold ${commandsPaused ? 'text-red-200' : 'text-emerald-200'}`}>
+                  Emergency Incoming Command Pause
+                </p>
+                <p className={`text-sm mt-1 ${commandsPaused ? 'text-red-300' : 'text-emerald-300'}`}>
+                  {commandsPaused
+                    ? 'All incoming commands to your shockers are currently blocked.'
+                    : 'Incoming commands are currently allowed. Toggle to block all incoming requests instantly.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={toggleCommandPause}
+                disabled={togglingPause}
+                className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors disabled:opacity-50 ${
+                  commandsPaused ? 'bg-red-500' : 'bg-emerald-500'
+                }`}
+                aria-label="Toggle incoming command pause"
+              >
+                <span
+                  className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${
+                    commandsPaused ? 'translate-x-7' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
           {loadingData && (
             <div className="p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg text-sm text-blue-200">
               <div className="flex items-center space-x-2">
@@ -441,15 +506,24 @@ export function PiShockSettingsModal({
                   This app now uses direct shocker selection. Legacy share-code fallback is temporary.
                 </p>
                 {sharecode && (
-                  <label className="flex items-center gap-2 mb-2 text-sm text-yellow-100">
-                    <input
-                      type="checkbox"
-                      checked={disableLegacySharecode}
-                      onChange={(e) => setDisableLegacySharecode(e.target.checked)}
-                      className="rounded border-yellow-500/50 bg-transparent"
-                    />
+                  <button
+                    type="button"
+                    onClick={() => setDisableLegacySharecode((previous) => !previous)}
+                    className="flex items-center gap-2 mb-2 text-sm text-yellow-100"
+                  >
+                    <span
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                        disableLegacySharecode ? 'bg-yellow-500' : 'bg-yellow-900/70'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          disableLegacySharecode ? 'translate-x-4' : 'translate-x-0.5'
+                        }`}
+                      />
+                    </span>
                     Disable legacy share-code fallback on next save
-                  </label>
+                  </button>
                 )}
                 {deprecationMessages.map((message, idx) => (
                   <p key={`deprecation-${idx}`} className="text-xs text-yellow-300">- {message}</p>
@@ -567,15 +641,24 @@ export function PiShockSettingsModal({
           <div className="space-y-4 p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">
             <h3 className="text-lg font-medium text-yellow-300">Safety Limits</h3>
             <p className="text-sm text-yellow-200">Set your maximum limits for receiving commands</p>
-            <label className="flex items-center gap-2 text-sm text-yellow-100">
-              <input
-                type="checkbox"
-                checked={allowOverLimitWithConsumable}
-                onChange={(e) => setAllowOverLimitWithConsumable(e.target.checked)}
-                className="rounded border-yellow-500/50 bg-transparent"
-              />
+            <button
+              type="button"
+              onClick={() => setAllowOverLimitWithConsumable((previous) => !previous)}
+              className="flex items-center gap-2 text-sm text-yellow-100"
+            >
+              <span
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                  allowOverLimitWithConsumable ? 'bg-yellow-500' : 'bg-yellow-900/70'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    allowOverLimitWithConsumable ? 'translate-x-4' : 'translate-x-0.5'
+                  }`}
+                />
+              </span>
               Allow shocks past my limits when sender spends an over-limit consumable
-            </label>
+            </button>
             
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">

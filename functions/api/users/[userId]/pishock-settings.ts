@@ -270,7 +270,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           maxDuration: creds.maxDuration || 15,
           lastUpdated: userData.lastUpdated,
           piShockUserId: creds.piShockUserId,
-          bannedExecutors: userData.bannedExecutors || []
+          bannedExecutors: userData.bannedExecutors || [],
+          commandsPaused: Boolean(userData.commandsPaused),
         };
         
         return jsonResponse({ 
@@ -297,6 +298,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         selectedShockerId,
         allowedShockerIds = [],
         allowOverLimitWithConsumable = false,
+        commandsPaused,
         disableLegacySharecode = false,
         hasOwnDevice, 
         maxIntensity = 100, 
@@ -311,20 +313,36 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const isBanListOnlyUpdate = !apiKey && !username && !sharecode && !selectedShockerId &&
                                  Array.isArray(bannedExecutors) && 
                                  isExistingUser;
+      const isPauseOnlyUpdate = !apiKey && !username && !sharecode && !selectedShockerId &&
+                                typeof commandsPaused === 'boolean' &&
+                                isExistingUser;
       
-      if (isBanListOnlyUpdate) {
+      if (isBanListOnlyUpdate || isPauseOnlyUpdate) {
         const updatedUserData = {
           ...existingUserData,
-          bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : [],
+          bannedExecutors: Array.isArray(bannedExecutors)
+            ? bannedExecutors
+            : Array.isArray(existingUserData?.bannedExecutors)
+              ? existingUserData.bannedExecutors
+              : [],
+          commandsPaused: typeof commandsPaused === 'boolean'
+            ? commandsPaused
+            : Boolean(existingUserData?.commandsPaused),
           lastUpdated: new Date().toISOString()
         };
         
         await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(updatedUserData));
+        await Promise.allSettled([
+          env.PISHOCK_KV.delete(`cache:user_status:${userId}`),
+          env.PISHOCK_KV.delete(`user_status_cache:${userId}`),
+        ]);
         
         return jsonResponse({ 
           success: true,
-          banListUpdated: true,
-          bannedExecutors: updatedUserData.bannedExecutors
+          banListUpdated: isBanListOnlyUpdate,
+          pauseUpdated: isPauseOnlyUpdate,
+          bannedExecutors: updatedUserData.bannedExecutors,
+          commandsPaused: Boolean(updatedUserData.commandsPaused),
         });
       } else {
         if (!isExistingUser && (!apiKey || !username || (!selectedShockerId && !sharecode))) {
@@ -482,7 +500,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         shockerId: finalSelectedShockerId || shareCodeShockerId,
         deviceCount: deviceCheck.devices?.length || 0,
         lastUpdated: new Date().toISOString(),
-        bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : []
+        bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : [],
+        commandsPaused: typeof commandsPaused === 'boolean'
+          ? commandsPaused
+          : Boolean(existingUserData?.commandsPaused),
       };
       
       if (hasSettingsChanged(existingUserData, userData)) {
@@ -511,6 +532,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         selectedShockerName: selectedShockerName || null,
         allowedShockerIds: normalizedAllowedShockerIds,
         allowOverLimitWithConsumable: Boolean(allowOverLimitWithConsumable),
+        commandsPaused: Boolean(userData.commandsPaused),
         deprecations: usingLegacySharecodeFallback ? [
           'Share code save path is deprecated. Please re-save with selected shocker.'
         ] : disableLegacySharecode ? [

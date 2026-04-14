@@ -6,6 +6,7 @@ interface ControllerPlusShopModalProps {
   loading: boolean;
   hasControllerPlus: boolean;
   hasOverlimitConsumable: boolean;
+  overlimitConsumableCount: number;
   onRefresh: () => void;
   onPurchaseControllerPlus: () => void;
   onPurchaseConsumable: () => void;
@@ -17,6 +18,7 @@ export function ControllerPlusShopModal({
   loading,
   hasControllerPlus,
   hasOverlimitConsumable,
+  overlimitConsumableCount,
   onRefresh,
   onPurchaseControllerPlus,
   onPurchaseConsumable,
@@ -66,6 +68,9 @@ export function ControllerPlusShopModal({
             </p>
             <p className="text-xs text-purple-200 mt-2">
               Status: {loading ? 'Checking...' : hasOverlimitConsumable ? 'Available' : 'Not available'}
+            </p>
+            <p className="text-xs text-purple-200 mt-1">
+              Consumables owned: {loading ? '...' : overlimitConsumableCount}
             </p>
             {!loading && (
               <button

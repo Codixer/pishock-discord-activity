@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { listOwnedPiShockShockerIds, operatePiShockShocker } from '../../_shared/pishock-client';
+import { listPiShockShockers, operatePiShockShocker } from '../../_shared/pishock-client';
 import { getControllerPlusState } from '../../_shared/discord-entitlements';
 
 interface Env {
@@ -139,16 +139,10 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
       if ((targetUserData.bannedExecutors || []).includes(executorUserId)) {
         return jsonResponse({ success: false, error: `Target ${target.userId} has blocked this executor.` }, 403);
       }
-      const creds = await decrypt(targetUserData.credentials);
-
-      const maxIntensity = creds.maxIntensity || 100;
-      const maxDuration = creds.maxDuration || 15;
-      if (intensity > maxIntensity || duration > maxDuration) {
-        return jsonResponse({
-          success: false,
-          error: `Multishock cannot bypass limits (target ${target.userId} allows max ${maxIntensity}%/${maxDuration}s).`,
-        }, 400);
+      if (targetUserData.commandsPaused) {
+        return jsonResponse({ success: false, error: `Target ${target.userId} has paused incoming commands.` }, 423);
       }
+      const creds = await decrypt(targetUserData.credentials);
 
       const selectedShockerId = creds.selectedShockerId || creds.shockerId;
       const allowed = Array.isArray(creds.allowedShockerIds) ? creds.allowedShockerIds.map((id: any) => String(id)) : [];
@@ -158,11 +152,20 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
         username: creds.username,
         piShockUserId: creds.piShockUserId,
       };
-      const ownedShockersResult = await listOwnedPiShockShockerIds(targetCredentials);
-      if (!ownedShockersResult.ok || !Array.isArray(ownedShockersResult.data)) {
+      const shockersResult = await listPiShockShockers(targetCredentials);
+      if (!shockersResult.ok || !Array.isArray(shockersResult.data)) {
         return jsonResponse({ success: false, error: `Unable to verify owned shockers for target ${target.userId}.` }, 400);
       }
-      const ownedShockerIds = new Set(ownedShockersResult.data.map((id) => String(id)));
+      const ownedShockerIds = new Set(
+        shockersResult.data
+          .filter((shocker: any) => shocker?.ShockerId !== undefined && shocker?.ShockerId !== null)
+          .map((shocker: any) => String(shocker.ShockerId))
+      );
+      const shockersById = new Map(
+        shockersResult.data
+          .filter((shocker: any) => shocker?.ShockerId !== undefined && shocker?.ShockerId !== null)
+          .map((shocker: any) => [String(shocker.ShockerId), shocker])
+      );
       const requestedShockers = Array.isArray(target.shockerIds) && target.shockerIds.length > 0
         ? target.shockerIds.map((id) => String(id))
         : effectiveAllowed;
@@ -172,6 +175,41 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
 
       if (normalizedShockers.length === 0) {
         return jsonResponse({ success: false, error: `Target ${target.userId} has no allowed shockers for multishock.` }, 400);
+      }
+
+      for (const shockerId of normalizedShockers) {
+        const shocker = shockersById.get(shockerId);
+        if (!shocker) {
+          return jsonResponse({ success: false, error: `Unable to load context for shocker ${shockerId} on target ${target.userId}.` }, 400);
+        }
+        if (operation === 0 && !shocker.CanShock) {
+          return jsonResponse({ success: false, error: `Target ${target.userId} shocker ${shockerId} does not support shock.` }, 400);
+        }
+        if (operation === 1 && !shocker.CanVibrate) {
+          return jsonResponse({ success: false, error: `Target ${target.userId} shocker ${shockerId} does not support vibrate.` }, 400);
+        }
+        if (operation === 2 && !shocker.CanBeep) {
+          return jsonResponse({ success: false, error: `Target ${target.userId} shocker ${shockerId} does not support beep.` }, 400);
+        }
+
+        let effectiveMaxIntensity = Number(creds.maxIntensity) || 100;
+        const apiMaxIntensity = Number(shocker.MaxIntensity);
+        if (Number.isFinite(apiMaxIntensity) && apiMaxIntensity > 0) {
+          effectiveMaxIntensity = Math.min(effectiveMaxIntensity, Math.floor(apiMaxIntensity));
+        }
+
+        let effectiveMaxDuration = Number(creds.maxDuration) || 15;
+        const apiMaxDurationMs = Number(shocker.MaxDuration);
+        if (Number.isFinite(apiMaxDurationMs) && apiMaxDurationMs > 0) {
+          effectiveMaxDuration = Math.min(effectiveMaxDuration, Math.max(1, Math.floor(apiMaxDurationMs / 1000)));
+        }
+
+        if (intensity > effectiveMaxIntensity || duration > effectiveMaxDuration) {
+          return jsonResponse({
+            success: false,
+            error: `Multishock cannot bypass limits (target ${target.userId} shocker ${shockerId} max ${effectiveMaxIntensity}%/${effectiveMaxDuration}s).`,
+          }, 400);
+        }
       }
 
       prepared.push({

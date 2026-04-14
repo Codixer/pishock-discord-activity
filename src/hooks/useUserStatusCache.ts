@@ -9,6 +9,13 @@ interface UserStatus {
   isRelay: boolean;
   maxIntensity: number;
   maxDuration: number;
+  maxIntensityOverriddenByApi?: boolean;
+  maxDurationOverriddenByApi?: boolean;
+  canShock?: boolean;
+  canVibrate?: boolean;
+  canBeep?: boolean;
+  canPause?: boolean;
+  commandsPaused?: boolean;
   bannedExecutors: string[];
   lastChecked: number;
 }
@@ -54,7 +61,11 @@ export function useUserStatusCache() {
       const hasChanges = existing.data.isConnected !== status.isConnected ||
                         existing.data.hasCredentials !== status.hasCredentials ||
                         existing.data.maxIntensity !== status.maxIntensity ||
-                        existing.data.maxDuration !== status.maxDuration;
+                        existing.data.maxDuration !== status.maxDuration ||
+                        existing.data.commandsPaused !== status.commandsPaused ||
+                        existing.data.canShock !== status.canShock ||
+                        existing.data.canVibrate !== status.canVibrate ||
+                        existing.data.canBeep !== status.canBeep;
       
       if (!hasChanges) {
         return false; // No changes, don't update cache

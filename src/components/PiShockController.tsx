@@ -19,6 +19,7 @@ interface PiShockControllerProps {
   onMultishockModeChange: (enabled: boolean) => void;
   hasControllerPlus: boolean;
   hasOverlimitConsumable: boolean;
+  overlimitConsumableCount: number;
   entitlementsLoading: boolean;
   onOpenShop: () => void;
   onRefreshEntitlements: () => void;
@@ -56,6 +57,7 @@ export function PiShockController({
   onMultishockModeChange,
   hasControllerPlus,
   hasOverlimitConsumable,
+  overlimitConsumableCount,
   entitlementsLoading,
   onOpenShop,
   onRefreshEntitlements,
@@ -96,6 +98,16 @@ export function PiShockController({
   };
 
   const effectiveLimits = getEffectiveLimits();
+  const selectedUserStatus = selectedUser ? (window as any).userPiShockStatus?.[selectedUser.id] : null;
+  const selectedUserCommandsPaused = Boolean(selectedUserStatus?.commandsPaused);
+  const selectedUserCapabilities = {
+    canShock: selectedUserStatus?.canShock !== false,
+    canVibrate: selectedUserStatus?.canVibrate !== false,
+    canBeep: selectedUserStatus?.canBeep !== false,
+  };
+  const limitsOverriddenByApi = Boolean(
+    selectedUserStatus?.maxIntensityOverriddenByApi || selectedUserStatus?.maxDurationOverriddenByApi
+  );
 
   // Update intensity and duration when selected user or limits change
   useEffect(() => {
@@ -167,6 +179,22 @@ export function PiShockController({
         'PiShock Setup Required', 
         `${displayName} needs to configure their PiShock device first.\n\nThey should:\n1. Open app settings (gear icon)\n2. Add their PiShock credentials\n3. Test the connection\n\nOnly users with configured devices can receive commands.`
       );
+      return;
+    }
+    if (userStatus?.commandsPaused) {
+      addNotification('warning', 'Commands Paused', `${getDisplayName(selectedUser)} has paused incoming commands.`);
+      return;
+    }
+    if (operation === 0 && userStatus?.canShock === false) {
+      addNotification('warning', 'Shock Disabled', `${getDisplayName(selectedUser)} has disabled shock for this device.`);
+      return;
+    }
+    if (operation === 1 && userStatus?.canVibrate === false) {
+      addNotification('warning', 'Vibrate Disabled', `${getDisplayName(selectedUser)} has disabled vibrate for this device.`);
+      return;
+    }
+    if (operation === 2 && userStatus?.canBeep === false) {
+      addNotification('warning', 'Beep Disabled', `${getDisplayName(selectedUser)} has disabled beep for this device.`);
       return;
     }
 
@@ -375,6 +403,9 @@ export function PiShockController({
                       Controller+: {entitlementsLoading ? 'Checking...' : hasControllerPlus ? 'Active' : 'Inactive'} •
                       Consumable: {entitlementsLoading ? 'Checking...' : hasOverlimitConsumable ? 'Available' : 'Not available'}
                     </p>
+                    <p className="text-xs text-indigo-200 mt-1">
+                      Consumables owned: {entitlementsLoading ? '...' : overlimitConsumableCount}
+                    </p>
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -411,6 +442,25 @@ export function PiShockController({
                 {(window as any).userPiShockStatus?.[selectedUser.id]?.usingLegacySharecodeFallback && (
                   <p className="text-xs text-yellow-300 mt-1">
                     Legacy share code fallback is active for this user.
+                  </p>
+                )}
+                {selectedUserCommandsPaused && (
+                  <p className="text-xs text-red-300 mt-1">
+                    This user has paused all incoming commands.
+                  </p>
+                )}
+                {!selectedUserCapabilities.canShock && (
+                  <p className="text-xs text-orange-300 mt-1">Shock is disabled by the selected PiShock device.</p>
+                )}
+                {!selectedUserCapabilities.canVibrate && (
+                  <p className="text-xs text-orange-300 mt-1">Vibrate is disabled by the selected PiShock device.</p>
+                )}
+                {!selectedUserCapabilities.canBeep && (
+                  <p className="text-xs text-orange-300 mt-1">Beep is disabled by the selected PiShock device.</p>
+                )}
+                {limitsOverriddenByApi && (
+                  <p className="text-xs text-yellow-300 mt-1">
+                    Limits shown here were overridden by the PiShock API for this device.
                   </p>
                 )}
               </div>
@@ -450,7 +500,9 @@ export function PiShockController({
                     {effectiveLimits.maxIntensity < 100 && !isPipMode && (
                       <div className="flex items-center space-x-1 text-sm text-yellow-400">
                         <Lock className="h-3 w-3" />
-                        <span>Max: {effectiveLimits.maxIntensity}%</span>
+                        <span>
+                          Max: {effectiveLimits.maxIntensity}%{selectedUserStatus?.maxIntensityOverriddenByApi ? ' (PiShock API)' : ''}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -483,7 +535,9 @@ export function PiShockController({
                     {effectiveLimits.maxDuration < 15 && !isPipMode && (
                       <div className="flex items-center space-x-1 text-sm text-yellow-400">
                         <Lock className="h-3 w-3" />
-                        <span>Max: {effectiveLimits.maxDuration}s</span>
+                        <span>
+                          Max: {effectiveLimits.maxDuration}s{selectedUserStatus?.maxDurationOverriddenByApi ? ' (PiShock API)' : ''}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -512,7 +566,11 @@ export function PiShockController({
               <div className={`grid gap-3 flex-shrink-0 ${isPipMode ? 'grid-cols-3 gap-2' : 'grid-cols-1 sm:grid-cols-3 sm:gap-3'}`}>
                 <button
                   onClick={() => (multishockMode ? runMultishock(0) : handleShock(0))}
-                  disabled={isShocking || isMultishocking}
+                  disabled={
+                    isShocking ||
+                    isMultishocking ||
+                    (!multishockMode && (selectedUserCommandsPaused || !selectedUserCapabilities.canShock))
+                  }
                   className={`bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
                     isPipMode 
                       ? 'py-2 px-2 text-xs flex-col space-y-1' 
@@ -525,7 +583,11 @@ export function PiShockController({
 
                 <button
                   onClick={() => (multishockMode ? runMultishock(1) : handleShock(1))}
-                  disabled={isShocking || isMultishocking}
+                  disabled={
+                    isShocking ||
+                    isMultishocking ||
+                    (!multishockMode && (selectedUserCommandsPaused || !selectedUserCapabilities.canVibrate))
+                  }
                   className={`bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
                     isPipMode 
                       ? 'py-2 px-2 text-xs flex-col space-y-1' 
@@ -538,7 +600,11 @@ export function PiShockController({
 
                 <button
                   onClick={() => (multishockMode ? runMultishock(2) : handleShock(2))}
-                  disabled={isShocking || isMultishocking}
+                  disabled={
+                    isShocking ||
+                    isMultishocking ||
+                    (!multishockMode && (selectedUserCommandsPaused || !selectedUserCapabilities.canBeep))
+                  }
                   className={`bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
                     isPipMode 
                       ? 'py-2 px-2 text-xs flex-col space-y-1' 
