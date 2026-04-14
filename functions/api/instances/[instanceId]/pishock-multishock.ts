@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { operatePiShockShocker } from '../../_shared/pishock-client';
+import { listOwnedPiShockShockerIds, operatePiShockShocker } from '../../_shared/pishock-client';
 import { getControllerPlusState } from '../../_shared/discord-entitlements';
 
 interface Env {
@@ -153,10 +153,22 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
       const selectedShockerId = creds.selectedShockerId || creds.shockerId;
       const allowed = Array.isArray(creds.allowedShockerIds) ? creds.allowedShockerIds.map((id: any) => String(id)) : [];
       const effectiveAllowed = allowed.length > 0 ? allowed : (selectedShockerId ? [String(selectedShockerId)] : []);
+      const targetCredentials = {
+        apiKey: creds.apiKey,
+        username: creds.username,
+        piShockUserId: creds.piShockUserId,
+      };
+      const ownedShockersResult = await listOwnedPiShockShockerIds(targetCredentials);
+      if (!ownedShockersResult.ok || !Array.isArray(ownedShockersResult.data)) {
+        return jsonResponse({ success: false, error: `Unable to verify owned shockers for target ${target.userId}.` }, 400);
+      }
+      const ownedShockerIds = new Set(ownedShockersResult.data.map((id) => String(id)));
       const requestedShockers = Array.isArray(target.shockerIds) && target.shockerIds.length > 0
         ? target.shockerIds.map((id) => String(id))
         : effectiveAllowed;
-      const normalizedShockers = requestedShockers.filter((id) => effectiveAllowed.includes(id));
+      const normalizedShockers = requestedShockers.filter(
+        (id) => effectiveAllowed.includes(id) && ownedShockerIds.has(id)
+      );
 
       if (normalizedShockers.length === 0) {
         return jsonResponse({ success: false, error: `Target ${target.userId} has no allowed shockers for multishock.` }, 400);
@@ -165,11 +177,7 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
       prepared.push({
         targetUserId: target.userId,
         targetName: await getCachedDisplayName(env.PISHOCK_KV, target.userId),
-        credentials: {
-          apiKey: creds.apiKey,
-          username: creds.username,
-          piShockUserId: creds.piShockUserId,
-        },
+        credentials: targetCredentials,
         shockerIds: normalizedShockers,
       });
     }

@@ -244,13 +244,18 @@ export const onRequest: PagesFunction<Env> = async (context) => {
             availableShockers = mapShockersToOptions(shockersResult.data);
           }
         }
+        const ownedShockerIds = new Set(availableShockers.map((shocker) => String(shocker.id)));
 
         const usingLegacySharecodeFallback = Boolean(creds.sharecode && !creds.selectedShockerId);
-        const resolvedSelectedShockerId = creds.selectedShockerId || creds.shockerId || '';
+        const storedSelectedShockerId = creds.selectedShockerId || creds.shockerId || '';
+        const resolvedSelectedShockerId = ownedShockerIds.has(String(storedSelectedShockerId))
+          ? String(storedSelectedShockerId)
+          : '';
         const persistedAllowed = Array.isArray(creds.allowedShockerIds) ? creds.allowedShockerIds.map((id: any) => String(id)) : [];
-        const allowedShockerIds = resolvedSelectedShockerId && !persistedAllowed.includes(resolvedSelectedShockerId)
-          ? [...persistedAllowed, resolvedSelectedShockerId]
-          : persistedAllowed;
+        const filteredAllowed = persistedAllowed.filter((id) => ownedShockerIds.has(id));
+        const allowedShockerIds = resolvedSelectedShockerId && !filteredAllowed.includes(resolvedSelectedShockerId)
+          ? [...filteredAllowed, resolvedSelectedShockerId]
+          : filteredAllowed;
         const settings = {
           username: creds.username || '',
           sharecode: creds.sharecode || '',

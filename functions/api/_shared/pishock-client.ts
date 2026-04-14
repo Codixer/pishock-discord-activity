@@ -163,6 +163,27 @@ export async function listPiShockShockers(credentials: PiShockCredentials): Prom
   return request<PiShockShocker[]>('/Shockers', credentials, { method: 'GET' });
 }
 
+export async function listOwnedPiShockShockerIds(credentials: PiShockCredentials): Promise<PiShockApiResult<string[]>> {
+  const shockersResult = await listPiShockShockers(credentials);
+  if (!shockersResult.ok || !Array.isArray(shockersResult.data)) {
+    return {
+      ok: false,
+      status: shockersResult.status,
+      error: shockersResult.error || 'Unable to retrieve owned shockers.',
+    };
+  }
+
+  const ids = shockersResult.data
+    .filter((shocker) => shocker.ShockerId !== undefined && shocker.ShockerId !== null)
+    .map((shocker) => String(shocker.ShockerId));
+
+  return {
+    ok: true,
+    status: shockersResult.status,
+    data: ids,
+  };
+}
+
 export function mapShockersToOptions(shockers: PiShockShocker[] = []): PiShockShockerOption[] {
   return shockers
     .filter((shocker) => shocker.ShockerId !== undefined && shocker.ShockerId !== null)

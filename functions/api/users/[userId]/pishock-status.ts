@@ -268,6 +268,18 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           const deviceCheck = await checkUserDevices(credentialValidation.userId, creds.apiKey, creds.username);
           hasDevice = deviceCheck.hasDevices;
           deviceCount = deviceCheck.devices?.length || 0;
+          const ownedShockerIds = new Set(
+            Array.isArray(deviceCheck.devices)
+              ? deviceCheck.devices
+                  .filter((shocker: any) => shocker?.ShockerId !== undefined && shocker?.ShockerId !== null)
+                  .map((shocker: any) => String(shocker.ShockerId))
+              : []
+          );
+          if (selectedShockerId && !ownedShockerIds.has(String(selectedShockerId))) {
+            selectedShockerId = null;
+            selectedShockerName = null;
+          }
+          allowedShockerIds = allowedShockerIds.filter((id) => ownedShockerIds.has(String(id)));
           if (selectedShockerId && Array.isArray(deviceCheck.devices)) {
             hasDevice = deviceCheck.devices.some((shocker: any) => String(shocker.ShockerId) === String(selectedShockerId));
           }

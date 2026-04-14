@@ -88,6 +88,14 @@ export function PiShockSettingsModal({
     }
   }, [bannedExecutors, currentUser, auth, isOpen]);
 
+  useEffect(() => {
+    const ownedShockerIds = new Set(availableShockers.map((shocker) => String(shocker.id)));
+    if (selectedShockerId && !ownedShockerIds.has(String(selectedShockerId))) {
+      setSelectedShockerId('');
+    }
+    setAllowedShockerIds((previous) => previous.filter((id) => ownedShockerIds.has(String(id))));
+  }, [availableShockers, selectedShockerId]);
+
   const checkConnectionStatus = async () => {
     if (!currentUser || !auth) return;
 

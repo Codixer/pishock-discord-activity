@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { operatePiShockShocker, resolvePiShockShockerId } from '../../_shared/pishock-client';
+import { listOwnedPiShockShockerIds, operatePiShockShocker, resolvePiShockShockerId } from '../../_shared/pishock-client';
 import { consumeOverlimitEntitlement, getControllerPlusState } from '../../_shared/discord-entitlements';
 
 interface Env {
@@ -400,6 +400,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       );
       if (!shockerResult.ok || !shockerResult.data) {
         throw new Error(shockerResult.error || 'Unable to resolve PiShock shocker.');
+      }
+
+      const ownedShockersResult = await listOwnedPiShockShockerIds(pishockCredentials);
+      if (!ownedShockersResult.ok || !Array.isArray(ownedShockersResult.data)) {
+        throw new Error(ownedShockersResult.error || 'Unable to verify owned shockers.');
+      }
+      if (!ownedShockersResult.data.includes(shockerResult.data)) {
+        throw new Error('Selected shocker is not owned by this PiShock account.');
       }
 
       const operateResult = await operatePiShockShocker(pishockCredentials, shockerResult.data, {
