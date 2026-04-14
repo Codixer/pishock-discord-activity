@@ -280,6 +280,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         username, 
         sharecode, 
         selectedShockerId,
+        disableLegacySharecode = false,
         hasOwnDevice, 
         maxIntensity = 100, 
         maxDuration = 15,
@@ -424,7 +425,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         finalSelectedShockerId = shareCodeShockerId || '';
       }
 
-      const finalSharecode = sharecode;
+      const finalSharecode = disableLegacySharecode ? '' : (sharecode || '');
       const actuallyHasDevice = deviceCheck.hasDevices && Boolean(finalSelectedShockerId || finalSharecode);
       
       const credentialsToStore = {
@@ -482,6 +483,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         selectedShockerName: selectedShockerName || null,
         deprecations: usingLegacySharecodeFallback ? [
           'Share code save path is deprecated. Please re-save with selected shocker.'
+        ] : disableLegacySharecode ? [
+          'Legacy share code fallback disabled. This account now uses selected shocker only.'
         ] : [],
         debug: {
           credentialValidation: credentialValidation.debugInfo,

@@ -41,6 +41,7 @@ export function PiShockSettingsModal({
   const [selectedShockerId, setSelectedShockerId] = useState('');
   const [availableShockers, setAvailableShockers] = useState<Array<{ id: string; name: string }>>([]);
   const [usingLegacySharecodeFallback, setUsingLegacySharecodeFallback] = useState(false);
+  const [disableLegacySharecode, setDisableLegacySharecode] = useState(false);
   const [deprecationMessages, setDeprecationMessages] = useState<string[]>([]);
   const [userMaxIntensity, setUserMaxIntensity] = useState(100);
   const [userMaxDuration, setUserMaxDuration] = useState(15);
@@ -151,6 +152,7 @@ export function PiShockSettingsModal({
           setSelectedShockerId(settings.selectedShockerId || '');
           setAvailableShockers(Array.isArray(settings.availableShockers) ? settings.availableShockers : []);
           setUsingLegacySharecodeFallback(Boolean(settings.usingLegacySharecodeFallback));
+          setDisableLegacySharecode(false);
           setDeprecationMessages(Array.isArray(result.deprecations) ? result.deprecations : []);
           setUserMaxIntensity(settings.maxIntensity || 100);
           setUserMaxDuration(settings.maxDuration || 15);
@@ -234,7 +236,8 @@ export function PiShockSettingsModal({
           username,
           selectedShockerId,
           // Deprecated legacy field retained for read-only compatibility only.
-          sharecode: sharecode.trim() || undefined,
+          sharecode: disableLegacySharecode ? undefined : (sharecode.trim() || undefined),
+          disableLegacySharecode,
           hasOwnDevice: true,
           maxIntensity: userMaxIntensity,
           maxDuration: userMaxDuration,
@@ -255,6 +258,8 @@ export function PiShockSettingsModal({
         setApiKey('');
         setUsername('');
         setSelectedShockerId('');
+        setSharecode('');
+        setDisableLegacySharecode(false);
         setUsingLegacySharecodeFallback(false);
         setDeprecationMessages(Array.isArray(result.deprecations) ? result.deprecations : []);
         
@@ -410,6 +415,17 @@ export function PiShockSettingsModal({
                 <p className="mb-2">
                   This app now uses direct shocker selection. Legacy share-code fallback is temporary.
                 </p>
+                {sharecode && (
+                  <label className="flex items-center gap-2 mb-2 text-sm text-yellow-100">
+                    <input
+                      type="checkbox"
+                      checked={disableLegacySharecode}
+                      onChange={(e) => setDisableLegacySharecode(e.target.checked)}
+                      className="rounded border-yellow-500/50 bg-transparent"
+                    />
+                    Disable legacy share-code fallback on next save
+                  </label>
+                )}
                 {deprecationMessages.map((message, idx) => (
                   <p key={`deprecation-${idx}`} className="text-xs text-yellow-300">- {message}</p>
                 ))}
