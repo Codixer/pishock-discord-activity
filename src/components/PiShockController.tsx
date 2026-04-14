@@ -275,6 +275,22 @@ export function PiShockController({
           </div>
         ) : (
           <div className="flex-1 flex flex-col space-y-6 min-h-0">
+            {!isPipMode && (
+              <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg">
+                <p className="text-sm text-blue-200">
+                  Target device: <span className="font-semibold">
+                    {(window as any).userPiShockStatus?.[selectedUser.id]?.selectedShockerName ||
+                     (window as any).userPiShockStatus?.[selectedUser.id]?.selectedShockerId ||
+                     'Not selected'}
+                  </span>
+                </p>
+                {(window as any).userPiShockStatus?.[selectedUser.id]?.usingLegacySharecodeFallback && (
+                  <p className="text-xs text-yellow-300 mt-1">
+                    Legacy share code fallback is active for this user.
+                  </p>
+                )}
+              </div>
+            )}
             <div className="flex-1 flex flex-col space-y-4 min-h-0">
               <div>
                 <label className={`block font-medium text-gray-300 mb-3 ${isPipMode ? 'text-xs' : 'text-sm sm:text-base'}`}>

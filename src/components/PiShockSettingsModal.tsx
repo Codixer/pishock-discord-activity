@@ -38,6 +38,10 @@ export function PiShockSettingsModal({
   const [apiKey, setApiKey] = useState('');
   const [username, setUsername] = useState('');
   const [sharecode, setSharecode] = useState('');
+  const [selectedShockerId, setSelectedShockerId] = useState('');
+  const [availableShockers, setAvailableShockers] = useState<Array<{ id: string; name: string }>>([]);
+  const [usingLegacySharecodeFallback, setUsingLegacySharecodeFallback] = useState(false);
+  const [deprecationMessages, setDeprecationMessages] = useState<string[]>([]);
   const [userMaxIntensity, setUserMaxIntensity] = useState(100);
   const [userMaxDuration, setUserMaxDuration] = useState(15);
   const [bannedExecutors, setBannedExecutors] = useState<string[]>([]);
@@ -144,6 +148,10 @@ export function PiShockSettingsModal({
           const settings = result.settings;
           setUsername(settings.username || '');
           setSharecode(settings.sharecode || '');
+          setSelectedShockerId(settings.selectedShockerId || '');
+          setAvailableShockers(Array.isArray(settings.availableShockers) ? settings.availableShockers : []);
+          setUsingLegacySharecodeFallback(Boolean(settings.usingLegacySharecodeFallback));
+          setDeprecationMessages(Array.isArray(result.deprecations) ? result.deprecations : []);
           setUserMaxIntensity(settings.maxIntensity || 100);
           setUserMaxDuration(settings.maxDuration || 15);
           setBannedExecutors(settings.bannedExecutors || []);
@@ -203,13 +211,13 @@ export function PiShockSettingsModal({
     
     const isNewUser = !hasStoredCredentials;
     
-    if (isNewUser && (!apiKey || !username || !sharecode)) {
-      alert('Please fill in all required fields: API Key, Username, and Share Code');
+    if (isNewUser && (!apiKey || !username || !selectedShockerId)) {
+      alert('Please fill in all required fields: API Key, Username, and Selected Shocker');
       return;
     }
     
-    if (!username || !sharecode) {
-      alert('Please fill in Username and Share Code');
+    if (!username || !selectedShockerId) {
+      alert('Please fill in Username and Selected Shocker');
       return;
     }
 
@@ -224,7 +232,9 @@ export function PiShockSettingsModal({
         body: JSON.stringify({
           apiKey: apiKey || undefined,
           username,
-          sharecode: sharecode.trim(),
+          selectedShockerId,
+          // Deprecated legacy field retained for read-only compatibility only.
+          sharecode: sharecode.trim() || undefined,
           hasOwnDevice: true,
           maxIntensity: userMaxIntensity,
           maxDuration: userMaxDuration,
@@ -244,7 +254,9 @@ export function PiShockSettingsModal({
         
         setApiKey('');
         setUsername('');
-        setSharecode('');
+        setSelectedShockerId('');
+        setUsingLegacySharecodeFallback(false);
+        setDeprecationMessages(Array.isArray(result.deprecations) ? result.deprecations : []);
         
         if (window.refreshAllUserStatuses) {
           window.refreshAllUserStatuses();
@@ -386,11 +398,23 @@ export function PiShockSettingsModal({
               </p>
               <p>
                 {hasStoredCredentials 
-                  ? "Configure your PiShock device settings. Fields will auto-populate if you have saved settings."
-                  : "Configure your PiShock device to participate. You'll need your API key, username, and device share code."
+                  ? "Configure your PiShock device settings. Select the shocker you want to share."
+                  : "Configure your PiShock device to participate. You'll need your API key, username, and to select a shocker."
                 }
               </p>
             </div>
+
+            {(usingLegacySharecodeFallback || deprecationMessages.length > 0) && (
+              <div className="p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-lg text-sm text-yellow-200">
+                <p className="font-semibold mb-1">Share code deprecated</p>
+                <p className="mb-2">
+                  This app now uses direct shocker selection. Legacy share-code fallback is temporary.
+                </p>
+                {deprecationMessages.map((message, idx) => (
+                  <p key={`deprecation-${idx}`} className="text-xs text-yellow-300">- {message}</p>
+                ))}
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -439,20 +463,39 @@ export function PiShockSettingsModal({
 
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Share Code <span className="text-red-400">*</span>
+                Selected Shocker <span className="text-red-400">*</span>
               </label>
-              <input
-                type="text"
-                value={sharecode}
-                onChange={(e) => setSharecode(e.target.value)}
+              <select
+                value={selectedShockerId}
+                onChange={(e) => setSelectedShockerId(e.target.value)}
                 disabled={loadingData}
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                placeholder="Device share code (required to receive commands)"
-              />
+              >
+                <option value="">Select a shocker from your account</option>
+                {availableShockers.map((shocker) => (
+                  <option key={shocker.id} value={shocker.id}>
+                    {shocker.name}
+                  </option>
+                ))}
+              </select>
               <p className="text-xs text-gray-400 mt-1">
-                Your PiShock device share code is required to receive commands from other users
+                Select the device you want to share for receiving commands.
               </p>
             </div>
+
+            {sharecode && (
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Legacy Share Code (deprecated, read-only)
+                </label>
+                <input
+                  type="text"
+                  value={sharecode}
+                  disabled={true}
+                  className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-500"
+                />
+              </div>
+            )}
           </div>
 
           <div className="space-y-4 p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-lg">

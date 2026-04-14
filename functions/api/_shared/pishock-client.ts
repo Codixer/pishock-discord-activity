@@ -30,6 +30,16 @@ export interface PiShockShocker {
   MaxIntensity?: number;
 }
 
+export interface PiShockShockerOption {
+  id: string;
+  name: string;
+  canShock: boolean;
+  canVibrate: boolean;
+  canBeep: boolean;
+  maxIntensity: number;
+  maxDurationMs: number;
+}
+
 interface PiShockLink {
   Code?: string;
   ShockerId?: number;
@@ -153,13 +163,28 @@ export async function listPiShockShockers(credentials: PiShockCredentials): Prom
   return request<PiShockShocker[]>('/Shockers', credentials, { method: 'GET' });
 }
 
+export function mapShockersToOptions(shockers: PiShockShocker[] = []): PiShockShockerOption[] {
+  return shockers
+    .filter((shocker) => shocker.ShockerId !== undefined && shocker.ShockerId !== null)
+    .map((shocker) => ({
+      id: String(shocker.ShockerId),
+      name: shocker.Name || `Shocker ${String(shocker.ShockerId)}`,
+      canShock: Boolean(shocker.CanShock),
+      canVibrate: Boolean(shocker.CanVibrate),
+      canBeep: Boolean(shocker.CanBeep),
+      maxIntensity: typeof shocker.MaxIntensity === 'number' ? shocker.MaxIntensity : 100,
+      maxDurationMs: typeof shocker.MaxDuration === 'number' ? shocker.MaxDuration : 15000,
+    }));
+}
+
 export async function listPiShockLinks(credentials: PiShockCredentials): Promise<PiShockApiResult<PiShockLink[]>> {
   return request<PiShockLink[]>('/Links', credentials, { method: 'GET' });
 }
 
 export async function resolvePiShockShockerId(
   credentials: PiShockCredentials,
-  sharecode?: string
+  sharecode?: string,
+  options: { allowDefaultFallback?: boolean } = {}
 ): Promise<PiShockApiResult<string>> {
   if (credentials.shockerId) {
     return {
@@ -212,19 +237,28 @@ export async function resolvePiShockShockerId(
     }
   }
 
-  const defaultShockerId = shockersResult.data[0]?.ShockerId;
-  if (defaultShockerId === undefined || defaultShockerId === null) {
+  // Deprecated fallback path for legacy records that do not have explicit shocker selection.
+  if (options.allowDefaultFallback) {
+    const defaultShockerId = shockersResult.data[0]?.ShockerId;
+    if (defaultShockerId === undefined || defaultShockerId === null) {
+      return {
+        ok: false,
+        status: 404,
+        error: 'Unable to resolve a valid shocker id.',
+      };
+    }
+
     return {
-      ok: false,
-      status: 404,
-      error: 'Unable to resolve a valid shocker id.',
+      ok: true,
+      status: 200,
+      data: String(defaultShockerId),
     };
   }
 
   return {
-    ok: true,
-    status: 200,
-    data: String(defaultShockerId),
+    ok: false,
+    status: 404,
+    error: 'Unable to resolve shocker from legacy share code. Please reconfigure and select a shocker.',
   };
 }
 

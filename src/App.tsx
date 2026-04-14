@@ -156,6 +156,9 @@ function MainApp() {
                 hasCredentials: status.hasCredentials,
                 deviceCount: status.deviceCount || 0,
                 piShockUserId: status.piShockUserId,
+                selectedShockerId: status.selectedShockerId || null,
+                selectedShockerName: status.selectedShockerName || null,
+                usingLegacySharecodeFallback: Boolean(status.usingLegacySharecodeFallback),
                 isRelay: status.isRelay || false, // Track if using relay account
                 maxIntensity: status.maxIntensity || 100,
                 maxDuration: status.maxDuration || 15,

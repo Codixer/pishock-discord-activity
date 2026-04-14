@@ -241,6 +241,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     
     let maxIntensity = 100;
     let maxDuration = 15;
+    let selectedShockerId: string | null = null;
+    let selectedShockerName: string | null = null;
+    let usingLegacySharecodeFallback = false;
     
     if (encrypted) {
       try {
@@ -248,6 +251,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         
         maxIntensity = creds.maxIntensity || 100;
         maxDuration = creds.maxDuration || 15;
+        selectedShockerId = creds.selectedShockerId || creds.shockerId || null;
+        selectedShockerName = creds.selectedShockerName || null;
+        usingLegacySharecodeFallback = Boolean(creds.sharecode && !creds.selectedShockerId);
         
         const credentialValidation = await validatePiShockCredentials(creds.apiKey, creds.username);
         isConnected = credentialValidation.valid;
@@ -258,6 +264,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           const deviceCheck = await checkUserDevices(credentialValidation.userId, creds.apiKey, creds.username);
           hasDevice = deviceCheck.hasDevices;
           deviceCount = deviceCheck.devices?.length || 0;
+          if (selectedShockerId && Array.isArray(deviceCheck.devices)) {
+            hasDevice = deviceCheck.devices.some((shocker: any) => String(shocker.ShockerId) === String(selectedShockerId));
+          }
           
           // Only write to KV if piShockUserId has changed
           if (piShockUserId !== userData?.piShockUserId) {
@@ -279,10 +288,16 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       deviceCount,
       hasOwnDevice,
       piShockUserId,
+      selectedShockerId,
+      selectedShockerName,
+      usingLegacySharecodeFallback,
       lastTested,
       isRelay: false,
       maxIntensity,
-      maxDuration
+      maxDuration,
+      deprecations: usingLegacySharecodeFallback ? [
+        'Legacy share code fallback in use. Re-save settings by selecting a shocker.'
+      ] : []
     };
     
     await setCachedUserStatus(env.PISHOCK_KV, userId, result);

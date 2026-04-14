@@ -1,4 +1,4 @@
-import { getPiShockAccount, listPiShockShockers } from '../../_shared/pishock-client';
+import { getPiShockAccount, listPiShockShockers, operatePiShockShocker, resolvePiShockShockerId } from '../../_shared/pishock-client';
 
 interface Env {
   PISHOCK_KV: KVNamespace;
@@ -181,16 +181,62 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       let hasDevice = false;
       let deviceCount = 0;
       let deviceDebugInfo = null;
+      let availableDevices: any[] = [];
+      let usingLegacySharecodeFallback = false;
+      let selectedShockerId: string | null = creds.selectedShockerId || creds.shockerId || null;
+      let selectedShockerName: string | null = creds.selectedShockerName || null;
       
       if (credentialValidation.valid && credentialValidation.userId) {
         const deviceCheck = await checkUserDevices(credentialValidation.userId, creds.apiKey, creds.username);
         hasDevice = deviceCheck.hasDevices;
         deviceCount = deviceCheck.devices?.length || 0;
         deviceDebugInfo = deviceCheck.debugInfo;
+        availableDevices = deviceCheck.devices || [];
         
         userData.piShockUserId = credentialValidation.userId;
         userData.lastTested = new Date().toISOString();
         await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
+      }
+
+      if (credentialValidation.valid) {
+        const credentials = {
+          apiKey: creds.apiKey,
+          username: creds.username,
+          piShockUserId: credentialValidation.userId,
+          shockerId: selectedShockerId || undefined,
+        };
+
+        let shockerIdToTest = selectedShockerId;
+        if (!shockerIdToTest && creds.sharecode) {
+          usingLegacySharecodeFallback = true;
+          const legacyResolve = await resolvePiShockShockerId(credentials, creds.sharecode, { allowDefaultFallback: true });
+          if (legacyResolve.ok && legacyResolve.data) {
+            shockerIdToTest = legacyResolve.data;
+          }
+        }
+
+        if (shockerIdToTest) {
+          const testResult = await operatePiShockShocker(credentials, shockerIdToTest, {
+            operation: 2,
+            intensity: 1,
+            durationSeconds: 1,
+            agentName: 'DiscordActivityConnectionTest',
+          });
+
+          if (!testResult.ok) {
+            return jsonResponse({
+              success: false,
+              isConnected: false,
+              error: testResult.error || 'PiShock test operation failed',
+              selectedShockerId: shockerIdToTest,
+              usingLegacySharecodeFallback,
+            });
+          }
+
+          selectedShockerId = shockerIdToTest;
+          const selected = availableDevices.find((shocker: any) => String(shocker.ShockerId) === String(shockerIdToTest));
+          selectedShockerName = selected?.Name || selectedShockerName;
+        }
       }
       
       const result = {
@@ -199,6 +245,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         hasDevice,
         deviceCount,
         piShockUserId: credentialValidation.userId,
+        selectedShockerId,
+        selectedShockerName,
+        usingLegacySharecodeFallback,
         lastTested: userData.lastTested,
         debug: {
           credentialValidation: credentialValidation.debugInfo,
@@ -208,8 +257,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
             hasApiKey: !!creds.apiKey,
             apiKeyLength: creds.apiKey?.length || 0,
             sharecode: creds.sharecode,
+            selectedShockerId: creds.selectedShockerId || creds.shockerId || null,
             hasOwnDevice: creds.hasOwnDevice
-          }
+          },
+          deprecations: usingLegacySharecodeFallback ? [
+            'Legacy share code fallback in use. Please select a shocker in settings.'
+          ] : []
         }
       };
       

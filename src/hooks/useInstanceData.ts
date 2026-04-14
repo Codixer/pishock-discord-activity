@@ -5,6 +5,9 @@ export interface InstanceData {
   piShockSettings?: {
     apiKey?: string;
     username?: string;
+    selectedShockerId?: string;
+    selectedShockerName?: string;
+    // Deprecated legacy field kept for compatibility reads only.
     sharecode?: string;
   };
   lastUpdated?: string;

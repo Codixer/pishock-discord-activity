@@ -369,10 +369,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         apiKey: creds.apiKey,
         username: creds.username,
         piShockUserId: creds.piShockUserId,
-        shockerId: creds.shockerId,
+        shockerId: creds.selectedShockerId || creds.shockerId,
       };
 
-      const shockerResult = await resolvePiShockShockerId(pishockCredentials, creds.sharecode);
+      const usingLegacySharecodeFallback = Boolean(!pishockCredentials.shockerId && creds.sharecode);
+      const shockerResult = await resolvePiShockShockerId(
+        pishockCredentials,
+        creds.sharecode,
+        { allowDefaultFallback: usingLegacySharecodeFallback }
+      );
       if (!shockerResult.ok || !shockerResult.data) {
         throw new Error(shockerResult.error || 'Unable to resolve PiShock shocker.');
       }
@@ -389,6 +394,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
 
       if (shockerResult.data !== creds.shockerId) {
+        creds.selectedShockerId = creds.selectedShockerId || shockerResult.data;
         creds.shockerId = shockerResult.data;
         userData.credentials = btoa(JSON.stringify(creds));
         await env.PISHOCK_KV.put(`user:${targetUserId}:data`, JSON.stringify(userData));
@@ -421,7 +427,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return jsonResponse({ 
         success: true, 
         logEntryId: logEntry.id,
-        message: `${operationName} command executed successfully`
+        message: `${operationName} command executed successfully`,
+        selectedShockerId: shockerResult.data,
+        usingLegacySharecodeFallback,
+        deprecations: usingLegacySharecodeFallback ? [
+          'Legacy share code fallback was used. Ask the user to re-save settings with selected shocker.'
+        ] : []
       });
 
     } catch (error) {
