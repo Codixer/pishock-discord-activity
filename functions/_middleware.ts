@@ -174,7 +174,7 @@ export async function onRequest(context: any) {
     "script-src-elem 'self' 'unsafe-eval' blob:", // Explicitly set script-src-elem
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https://cdn.discordapp.com",
-    "connect-src 'self' https://discord.com https://auth.pishock.com https://ps.pishock.com",
+    "connect-src 'self' https://discord.com https://api.pishock.com",
     "font-src 'self'",
     "frame-src 'none'",
     "object-src 'none'",

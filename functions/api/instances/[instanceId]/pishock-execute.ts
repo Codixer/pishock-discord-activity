@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { operatePiShockShocker, resolvePiShockShockerId } from '../../_shared/pishock-client';
 
 interface Env {
   PISHOCK_KV: KVNamespace;
@@ -279,23 +280,32 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     try {
       const creds = await decrypt(encrypted);
       
-      const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: creds.username,
-          apikey: creds.apiKey,
-          code: creds.sharecode,
-          intensity: intensity,
-          duration: duration,
-          op: operation,
-          name: 'DiscordActivity',
-        }),
+      const pishockCredentials = {
+        apiKey: creds.apiKey,
+        username: creds.username,
+        piShockUserId: creds.piShockUserId,
+        shockerId: creds.shockerId,
+      };
+
+      const shockerResult = await resolvePiShockShockerId(pishockCredentials, creds.sharecode);
+      if (!shockerResult.ok || !shockerResult.data) {
+        throw new Error(shockerResult.error || 'Unable to resolve PiShock shocker.');
+      }
+
+      const operateResult = await operatePiShockShocker(pishockCredentials, shockerResult.data, {
+        operation,
+        intensity,
+        durationSeconds: duration,
+        agentName: 'DiscordActivity',
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`PiShock API error: ${errorText}`);
+      if (!operateResult.ok) {
+        throw new Error(operateResult.error || 'PiShock operation failed.');
+      }
+
+      if (shockerResult.data !== creds.shockerId) {
+        creds.shockerId = shockerResult.data;
+        await env.PISHOCK_KV.put(`instance:${instanceId}:pishock`, btoa(JSON.stringify(creds)), { expirationTtl: 21600 });
       }
 
       const executorInfo = await getUserInfo(env.PISHOCK_KV, user.id, token);

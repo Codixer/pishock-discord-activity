@@ -24,7 +24,7 @@
   CF-Zone-Id: bypass
   CF-Worker: bypass
   # ULTRA-STRICT CSP - ONLY application scripts allowed
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-eval' blob:; script-src-elem 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.discordapp.com; connect-src 'self' https://discord.com https://auth.pishock.com https://ps.pishock.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests; block-all-mixed-content
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-eval' blob:; script-src-elem 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.discordapp.com; connect-src 'self' https://discord.com https://api.pishock.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests; block-all-mixed-content
 
 # API routes CORS headers
 /api/*
@@ -75,4 +75,4 @@
   Cache-Control: no-cache, no-store, must-revalidate, max-age=0
   Pragma: no-cache
   Expires: 0
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-eval' blob:; script-src-elem 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.discordapp.com; connect-src 'self' https://discord.com https://auth.pishock.com https://ps.pishock.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests; block-all-mixed-content
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-eval' blob:; script-src-elem 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.discordapp.com; connect-src 'self' https://discord.com https://api.pishock.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests; block-all-mixed-content

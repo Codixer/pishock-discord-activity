@@ -1,3 +1,5 @@
+import { getPiShockAccount, listPiShockShockers } from '../../_shared/pishock-client';
+
 interface Env {
   PISHOCK_KV: KVNamespace;
 }
@@ -75,139 +77,52 @@ async function decrypt(encryptedData: string): Promise<any> {
 }
 
 async function validatePiShockCredentials(apiKey: string, username: string): Promise<{ valid: boolean; userId?: string; error?: string; debugInfo?: any }> {
-  try {
-    const url = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
-
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'PiShock-Discord-Activity/1.0',
-        'Accept': 'application/json, text/plain, */*'
-      }
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      return { 
-        valid: false, 
-        error: `Authentication failed: HTTP ${response.status} - ${errorText}`,
-        debugInfo: { status: response.status, error: errorText }
-      };
-    }
-
-    const responseText = await response.text();
-
-    let authData;
-    try {
-      authData = JSON.parse(responseText);
-    } catch (parseError) {
-      if (/^\d+$/.test(responseText.trim())) {
-        const userId = responseText.trim();
-        return { 
-          valid: true, 
-          userId,
-          debugInfo: { type: 'plain_text', value: userId }
-        };
-      }
-      
-      return { 
-        valid: false, 
-        error: 'Invalid response format - not JSON or plain number',
-        debugInfo: { parseError: parseError.message, responseText: responseText.substring(0, 200) }
-      };
-    }
-
-    let userId = null;
-    
-    if (authData.UserId !== undefined && authData.UserId !== null) {
-      userId = authData.UserId.toString();
-    }
-    else if (authData.UserID !== undefined && authData.UserID !== null) {
-      userId = authData.UserID.toString();
-    }
-    else if (authData.userId !== undefined && authData.userId !== null) {
-      userId = authData.userId.toString();
-    }
-    else if (authData.id !== undefined && authData.id !== null) {
-      userId = authData.id.toString();
-    }
-    else if (typeof authData === 'number') {
-      userId = authData.toString();
-    }
-
-    if (userId && /^\d+$/.test(userId)) {
-      return { 
-        valid: true, 
-        userId,
-        debugInfo: { authData, foundUserId: userId }
-      };
-    }
-
-    return { 
-      valid: false, 
-      error: 'No UserID found in API response',
-      debugInfo: { authData, availableFields: Object.keys(authData || {}) }
-    };
-
-  } catch (error) {
-    return { 
-      valid: false, 
-      error: `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      debugInfo: { networkError: error instanceof Error ? error.message : 'Unknown error' }
+  const accountResult = await getPiShockAccount({ apiKey, username });
+  if (!accountResult.ok) {
+    return {
+      valid: false,
+      error: accountResult.error || 'Credential validation failed',
+      debugInfo: { status: accountResult.status, rawBody: accountResult.rawBody },
     };
   }
+
+  const userId = accountResult.data?.UserId;
+  if (userId === undefined || userId === null) {
+    return {
+      valid: false,
+      error: 'No UserID found in API response',
+      debugInfo: { account: accountResult.data },
+    };
+  }
+
+  return {
+    valid: true,
+    userId: String(userId),
+    debugInfo: { account: accountResult.data },
+  };
 }
 
-async function checkUserDevices(userId: string, apiKey: string): Promise<{ hasDevices: boolean; devices?: any[]; error?: string; debugInfo?: any }> {
-  try {
-    const url = `https://ps.pishock.com/PiShock/GetUserDevices?UserId=${userId}&Token=${encodeURIComponent(apiKey)}&api=true`;
-    
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'PiShock-Discord-Activity/1.0',
-        'Accept': 'application/json'
-      }
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      return { 
-        hasDevices: false, 
-        error: `Device check failed: HTTP ${response.status} - ${errorText}`,
-        debugInfo: { status: response.status, error: errorText }
-      };
-    }
-    
-    const responseText = await response.text();
-    
-    let devices;
-    try {
-      devices = JSON.parse(responseText);
-    } catch (parseError) {
-      return { 
-        hasDevices: false, 
-        error: 'Invalid devices response format',
-        debugInfo: { parseError: parseError.message, responseText: responseText.substring(0, 200) }
-      };
-    }
-    
-    const hasDevices = Array.isArray(devices) && devices.length > 0 && 
-                      devices.some(device => device.shockers && Array.isArray(device.shockers) && device.shockers.length > 0);
-    
-    return { 
-      hasDevices, 
-      devices: hasDevices ? devices : [],
-      debugInfo: { deviceCount: devices?.length || 0, devicesWithShockers: devices?.filter(d => d.shockers?.length > 0).length || 0 }
-    };
-    
-  } catch (error) {
-    return { 
-      hasDevices: false, 
-      error: `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      debugInfo: { networkError: error instanceof Error ? error.message : 'Unknown error' }
+async function checkUserDevices(userId: string, apiKey: string, username: string): Promise<{ hasDevices: boolean; devices?: any[]; error?: string; debugInfo?: any }> {
+  const shockersResult = await listPiShockShockers({
+    apiKey,
+    username,
+    piShockUserId: userId,
+  });
+
+  if (!shockersResult.ok) {
+    return {
+      hasDevices: false,
+      error: shockersResult.error || 'Device check failed',
+      debugInfo: { status: shockersResult.status, rawBody: shockersResult.rawBody },
     };
   }
+
+  const devices = Array.isArray(shockersResult.data) ? shockersResult.data : [];
+  return {
+    hasDevices: devices.length > 0,
+    devices,
+    debugInfo: { deviceCount: devices.length },
+  };
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {
@@ -268,7 +183,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       let deviceDebugInfo = null;
       
       if (credentialValidation.valid && credentialValidation.userId) {
-        const deviceCheck = await checkUserDevices(credentialValidation.userId, creds.apiKey);
+        const deviceCheck = await checkUserDevices(credentialValidation.userId, creds.apiKey, creds.username);
         hasDevice = deviceCheck.hasDevices;
         deviceCount = deviceCheck.devices?.length || 0;
         deviceDebugInfo = deviceCheck.debugInfo;

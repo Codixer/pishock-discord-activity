@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { operatePiShockShocker, resolvePiShockShockerId } from '../../_shared/pishock-client';
 
 interface Env {
   PISHOCK_KV: KVNamespace;
@@ -364,53 +365,33 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const operationNames = ['shock', 'vibrate', 'beep'];
       const operationName = operationNames[operation];
       
-      const payload = {
+      const pishockCredentials = {
+        apiKey: creds.apiKey,
         username: creds.username,
-        apikey: creds.apiKey,
-        code: creds.sharecode,
-        intensity: intensity,
-        duration: duration,
-        op: operation,
-        name: 'DiscordActivity',
+        piShockUserId: creds.piShockUserId,
+        shockerId: creds.shockerId,
       };
-      
-      const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'User-Agent': 'PiShock-Discord-Activity/1.0'
-        },
-        body: JSON.stringify(payload),
-      });
 
-      const responseText = await response.text();
-
-      if (!response.ok) {
-        throw new Error(`PiShock API error: HTTP ${response.status} - ${responseText}`);
+      const shockerResult = await resolvePiShockShockerId(pishockCredentials, creds.sharecode);
+      if (!shockerResult.ok || !shockerResult.data) {
+        throw new Error(shockerResult.error || 'Unable to resolve PiShock shocker.');
       }
 
-      if (responseText.includes('Operation Succeeded')) {
-        // Command successful
-      } else {
-        if (responseText.includes("This code doesn't exist")) {
-          throw new Error('Share code not found. Please check device configuration.');
-        } else if (responseText.includes('Not Authorized')) {
-          throw new Error('Not authorized. Please check API credentials.');
-        } else if (responseText.includes('Shocker is Paused')) {
-          throw new Error('Device is paused. Please unpause it in the PiShock web panel.');
-        } else if (responseText.includes('Device currently not connected')) {
-          throw new Error('Device is not connected. Please ensure the device is online.');
-        } else if (responseText.includes('already been used by somebody else')) {
-          throw new Error('Share code is already in use. Please generate a new one.');
-        } else if (responseText.includes('Unknown Op')) {
-          throw new Error('Invalid operation specified.');
-        } else if (responseText.includes('Intensity must be between')) {
-          throw new Error('Invalid intensity specified.');
-        } else if (responseText.includes('Duration must be between')) {
-          throw new Error('Invalid duration specified.');
-        } else {
-          // Unexpected response but proceed
-        }
+      const operateResult = await operatePiShockShocker(pishockCredentials, shockerResult.data, {
+        operation,
+        intensity,
+        durationSeconds: duration,
+        agentName: 'DiscordActivity',
+      });
+
+      if (!operateResult.ok) {
+        throw new Error(operateResult.error || 'PiShock operation failed.');
+      }
+
+      if (shockerResult.data !== creds.shockerId) {
+        creds.shockerId = shockerResult.data;
+        userData.credentials = btoa(JSON.stringify(creds));
+        await env.PISHOCK_KV.put(`user:${targetUserId}:data`, JSON.stringify(userData));
       }
 
       const executorInfo = await getUserInfo(env.PISHOCK_KV, executorUserId, token);

@@ -1,3 +1,5 @@
+import { operatePiShockShocker, resolvePiShockShockerId } from '../../_shared/pishock-client';
+
 interface Env {
   PISHOCK_KV: KVNamespace;
 }
@@ -74,31 +76,25 @@ async function decrypt(encryptedData: string): Promise<any> {
   }
 }
 
-async function testPiShockConnection(apiKey: string, username: string, sharecode: string): Promise<boolean> {
-  try {
-    const response = await fetch('https://ps.pishock.com/PiShock/Operate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        username: username,
-        apikey: apiKey,
-        code: sharecode,
-        intensity: 1,
-        duration: 1,
-        op: 2, // 2 = beep (least intrusive test)
-        name: 'DiscordActivityConnectionTest',
-      }),
-    });
-    
-    if (!response.ok) {
-      return false;
-    }
-    
-    const responseText = await response.text();
-    return responseText.includes('Operation Succeeded') || response.status === 200;
-  } catch (error) {
-    return false;
+async function testPiShockConnection(apiKey: string, username: string, sharecode: string, shockerId?: string): Promise<{ ok: boolean; shockerId?: string }> {
+  const credentials = { apiKey, username, shockerId };
+  const shockerResult = await resolvePiShockShockerId(credentials, sharecode);
+  if (!shockerResult.ok || !shockerResult.data) {
+    return { ok: false };
   }
+
+  const operateResult = await operatePiShockShocker(credentials, shockerResult.data, {
+    operation: 2,
+    intensity: 1,
+    durationSeconds: 1,
+    agentName: 'DiscordActivityConnectionTest',
+  });
+
+  if (!operateResult.ok) {
+    return { ok: false };
+  }
+
+  return { ok: true, shockerId: shockerResult.data };
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {
@@ -141,9 +137,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     try {
       const creds = await decrypt(encrypted);
-      const isConnected = await testPiShockConnection(creds.apiKey, creds.username, creds.sharecode);
+      const connectionResult = await testPiShockConnection(creds.apiKey, creds.username, creds.sharecode, creds.shockerId);
+      const isConnected = connectionResult.ok;
       const lastTested = new Date().toISOString();
       
+      if (connectionResult.shockerId && connectionResult.shockerId !== creds.shockerId) {
+        creds.shockerId = connectionResult.shockerId;
+        await env.PISHOCK_KV.put(`instance:${instanceId}:pishock`, btoa(JSON.stringify(creds)), { expirationTtl: 21600 });
+      }
       await env.PISHOCK_KV.put(`instance:${instanceId}:pishock:lastTested`, lastTested, { expirationTtl: 21600 });
       
       return jsonResponse({ 

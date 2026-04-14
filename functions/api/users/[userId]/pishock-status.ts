@@ -1,3 +1,5 @@
+import { getPiShockAccount, listPiShockShockers } from '../../_shared/pishock-client';
+
 // Type declarations for Cloudflare Workers
 declare global {
   interface KVNamespace {
@@ -95,59 +97,17 @@ async function decrypt(encryptedData: string): Promise<any> {
 }
 
 async function validatePiShockCredentials(apiKey: string, username: string): Promise<{ valid: boolean; userId?: string }> {
-  try {
-    const url = `https://auth.pishock.com/Auth/GetUserIfAPIKeyValid?apikey=${encodeURIComponent(apiKey)}&username=${encodeURIComponent(username)}`;
-    
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'PiShock-Discord-Activity/1.0',
-        'Accept': 'application/json, text/plain, */*'
-      }
-    });
-    
-    if (!response.ok) {
-      return { valid: false };
-    }
-    
-    const responseText = await response.text();
-      let authData;
-    try {
-      authData = JSON.parse(responseText);
-    } catch (parseError) {
-      if (/^\d+$/.test(responseText.trim())) {
-        const userId = responseText.trim();
-        return { valid: true, userId };
-      }
-      return { valid: false };
-    }
-    
-    // Look for UserID field as specified in documentation
-    let userId: string | null = null;
-    
-    if (authData.UserId !== undefined && authData.UserId !== null) {
-      userId = authData.UserId.toString();
-    } else if (authData.UserID !== undefined && authData.UserID !== null) {
-      userId = authData.UserID.toString();
-    } else if (authData.userId !== undefined && authData.userId !== null) {
-      userId = authData.userId.toString();
-    } else if (authData.id !== undefined && authData.id !== null) {
-      userId = authData.id.toString();
-    } else if (typeof authData === 'number') {
-      userId = authData.toString();
-    }
-    
-    if (userId && /^\d+$/.test(userId)) {
-      return { valid: true, userId };
-    } else {
-      console.log('STATUS: No valid user ID found in response');
-      return { valid: false };
-    }
-    
-    return { valid: false };
-  } catch (error) {
+  const accountResult = await getPiShockAccount({ apiKey, username });
+  if (!accountResult.ok) {
     return { valid: false };
   }
+
+  const userId = accountResult.data?.UserId;
+  if (userId === undefined || userId === null) {
+    return { valid: false };
+  }
+
+  return { valid: true, userId: String(userId) };
 }
 
 function getUserStatusCacheKey(userId: string): string {
@@ -215,38 +175,19 @@ async function clearUserStatusCache(kv: KVNamespace, userId: string) {
   }
 }
 
-async function checkUserDevices(userId: string, apiKey: string): Promise<{ hasDevices: boolean; devices?: any[] }> {
-  try {
-    const url = `https://ps.pishock.com/PiShock/GetUserDevices?UserId=${userId}&Token=${encodeURIComponent(apiKey)}&api=true`;
-    
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'PiShock-Discord-Activity/1.0',
-        'Accept': 'application/json'
-      }
-    });
-    
-    if (!response.ok) {
-      return { hasDevices: false };
-    }
-    
-    const responseText = await response.text();
-    
-    let devices;
-    try {
-      devices = JSON.parse(responseText);
-    } catch (parseError) {
-      return { hasDevices: false };
-    }
-    
-    const hasDevices = Array.isArray(devices) && devices.length > 0 && 
-                      devices.some(device => device.shockers && Array.isArray(device.shockers) && device.shockers.length > 0);
-    
-    return { hasDevices, devices: hasDevices ? devices : [] };
-  } catch (error) {
+async function checkUserDevices(userId: string, apiKey: string, username: string): Promise<{ hasDevices: boolean; devices?: any[] }> {
+  const shockersResult = await listPiShockShockers({
+    apiKey,
+    username,
+    piShockUserId: userId,
+  });
+
+  if (!shockersResult.ok) {
     return { hasDevices: false };
   }
+
+  const devices = Array.isArray(shockersResult.data) ? shockersResult.data : [];
+  return { hasDevices: devices.length > 0, devices };
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {
@@ -314,7 +255,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         if (isConnected && credentialValidation.userId) {
           piShockUserId = credentialValidation.userId;
           
-          const deviceCheck = await checkUserDevices(credentialValidation.userId, creds.apiKey);
+          const deviceCheck = await checkUserDevices(credentialValidation.userId, creds.apiKey, creds.username);
           hasDevice = deviceCheck.hasDevices;
           deviceCount = deviceCheck.devices?.length || 0;
           

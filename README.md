@@ -96,7 +96,7 @@ Discord Client → Discord Activity → Cloudflare Workers → PiShock API
 - **Frontend**: React 18, TypeScript, Tailwind CSS, Vite
 - **Backend**: Cloudflare Workers (Pages Functions), Cloudflare KV
 - **Discord Integration**: Discord Embedded App SDK v1.1.0
-- **Device API**: PiShock Legacy & V3 APIs
+- **Device API**: PiShock v0 API (`api.pishock.com`)
 - **Deployment**: Cloudflare Pages with Workers
 - **Build Tools**: Vite 5, TypeScript 5.5, ESLint 9
 
@@ -554,7 +554,7 @@ The application implements comprehensive security headers (see [`_headers`](_hea
 
 From [`index.html`](index.html):
 ```html
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' blob:; script-src-elem 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.discordapp.com; connect-src 'self' https://discord.com https://do.pishock.com https://auth.pishock.com https://ps.pishock.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests; block-all-mixed-content">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' blob:; script-src-elem 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://cdn.discordapp.com; connect-src 'self' https://discord.com https://api.pishock.com; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests; block-all-mixed-content">
 ```
 
 ---
@@ -700,7 +700,7 @@ See [`PrivacyPolicy.tsx`](src/components/PrivacyPolicy.tsx):
 ### Useful Links
 - [Discord Developer Documentation](https://discord.com/developers/docs/activities/overview)
 - [Cloudflare Workers Documentation](https://developers.cloudflare.com/workers/)
-- [PiShock API Documentation](https://pishock.com/#/api)
+- [PiShock API Documentation](https://api.pishock.com/swagger/v0/swagger.json)
 - [Discord Activities SDK](https://github.com/discord/embedded-app-sdk)
 
 ### Community Guidelines
