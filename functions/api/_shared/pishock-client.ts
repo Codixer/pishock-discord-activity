@@ -33,6 +33,7 @@ export interface PiShockShocker {
 export interface PiShockShockerOption {
   id: string;
   name: string;
+  label: string;
   canShock: boolean;
   canVibrate: boolean;
   canBeep: boolean;
@@ -187,15 +188,29 @@ export async function listOwnedPiShockShockerIds(credentials: PiShockCredentials
 export function mapShockersToOptions(shockers: PiShockShocker[] = []): PiShockShockerOption[] {
   return shockers
     .filter((shocker) => shocker.ShockerId !== undefined && shocker.ShockerId !== null)
-    .map((shocker) => ({
-      id: String(shocker.ShockerId),
-      name: shocker.Name || `Shocker ${String(shocker.ShockerId)}`,
-      canShock: Boolean(shocker.CanShock),
-      canVibrate: Boolean(shocker.CanVibrate),
-      canBeep: Boolean(shocker.CanBeep),
-      maxIntensity: typeof shocker.MaxIntensity === 'number' ? shocker.MaxIntensity : 100,
-      maxDurationMs: typeof shocker.MaxDuration === 'number' ? shocker.MaxDuration : 15000,
-    }));
+    .map((shocker) => {
+      const id = String(shocker.ShockerId);
+      const name = shocker.Name || `Shocker ${id}`;
+      const capabilities: string[] = [];
+      if (shocker.CanShock) capabilities.push('Shock');
+      if (shocker.CanVibrate) capabilities.push('Vibrate');
+      if (shocker.CanBeep) capabilities.push('Beep');
+      const capabilityLabel = capabilities.length > 0 ? capabilities.join('/') : 'No actions';
+      const maxIntensity = typeof shocker.MaxIntensity === 'number' ? shocker.MaxIntensity : 100;
+      const maxDurationMs = typeof shocker.MaxDuration === 'number' ? shocker.MaxDuration : 15000;
+      const maxDurationSeconds = Math.max(1, Math.floor(maxDurationMs / 1000));
+
+      return {
+        id,
+        name,
+        label: `${name} (ID ${id}) - ${capabilityLabel} - Max ${maxIntensity}%/${maxDurationSeconds}s`,
+        canShock: Boolean(shocker.CanShock),
+        canVibrate: Boolean(shocker.CanVibrate),
+        canBeep: Boolean(shocker.CanBeep),
+        maxIntensity,
+        maxDurationMs,
+      };
+    });
 }
 
 export async function listPiShockLinks(credentials: PiShockCredentials): Promise<PiShockApiResult<PiShockLink[]>> {

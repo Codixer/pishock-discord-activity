@@ -42,7 +42,7 @@ export function PiShockSettingsModal({
   const [allowedShockerIds, setAllowedShockerIds] = useState<string[]>([]);
   const [allowOverLimitWithConsumable, setAllowOverLimitWithConsumable] = useState(false);
   const [commandsPaused, setCommandsPaused] = useState(false);
-  const [availableShockers, setAvailableShockers] = useState<Array<{ id: string; name: string }>>([]);
+  const [availableShockers, setAvailableShockers] = useState<Array<{ id: string; name: string; label?: string }>>([]);
   const [usingLegacySharecodeFallback, setUsingLegacySharecodeFallback] = useState(false);
   const [disableLegacySharecode, setDisableLegacySharecode] = useState(false);
   const [deprecationMessages, setDeprecationMessages] = useState<string[]>([]);
@@ -589,7 +589,7 @@ export function PiShockSettingsModal({
                 <option value="">Select a shocker from your account</option>
                 {availableShockers.map((shocker) => (
                   <option key={shocker.id} value={shocker.id}>
-                    {shocker.name}
+                    {shocker.label || shocker.name}
                   </option>
                 ))}
               </select>
@@ -617,7 +617,7 @@ export function PiShockSettingsModal({
                       onChange={() => toggleAllowedShockerId(shocker.id)}
                       className="rounded border-purple-500/50 bg-transparent"
                     />
-                    <span>{shocker.name}</span>
+                    <span>{shocker.label || shocker.name}</span>
                   </label>
                 ))}
               </div>
