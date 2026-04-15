@@ -14,6 +14,7 @@ interface ControllerPlusShopModalProps {
   onAcknowledgeOverlimitPurchaseWarning: () => Promise<boolean>;
   onPurchaseControllerPlus: () => void;
   onPurchaseConsumable: () => void;
+  onManageControllerPlusSubscription: () => void;
   controllerPlusPriceLabel: string | null;
   shockPastLimitPriceLabel: string | null;
 }
@@ -31,6 +32,7 @@ export function ControllerPlusShopModal({
   onAcknowledgeOverlimitPurchaseWarning,
   onPurchaseControllerPlus,
   onPurchaseConsumable,
+  onManageControllerPlusSubscription,
   controllerPlusPriceLabel,
   shockPastLimitPriceLabel,
 }: ControllerPlusShopModalProps) {
@@ -46,23 +48,16 @@ export function ControllerPlusShopModal({
 
   const requiresOneTimeAgreement = !hasSeenFirstOverlimitPurchaseWarning;
   const canBuyConsumable = !loading && !warningAcksLoading && (!requiresOneTimeAgreement || termsAccepted);
-  const controllerPlusPriceText = useMemo(() => {
-    if (loading) return 'Price: Loading...';
-    if (!controllerPlusPriceLabel) return 'Price: See Discord checkout';
-    return `Price per month: ${controllerPlusPriceLabel}`;
-  }, [loading, controllerPlusPriceLabel]);
-
-  const shockPastLimitPriceText = useMemo(() => {
-    if (loading) return 'Price: Loading...';
-    if (!shockPastLimitPriceLabel) return 'Price: See Discord checkout';
-    return `Price: ${shockPastLimitPriceLabel}`;
-  }, [loading, shockPastLimitPriceLabel]);
-
   const consumableButtonLabel = useMemo(() => {
     if (agreeingTerms) return 'Saving agreement...';
     if (loading || warningAcksLoading) return 'Checking inventory...';
-    return `Buy Shock Past User Limit (${overlimitConsumableCount} owned)`;
+    return `Buy Shock Past User Limit${shockPastLimitPriceLabel ? ` (${shockPastLimitPriceLabel})` : ''} - ${overlimitConsumableCount} owned`;
   }, [agreeingTerms, loading, warningAcksLoading, overlimitConsumableCount]);
+
+  const controllerPlusButtonLabel = useMemo(() => {
+    if (loading) return 'Loading...';
+    return controllerPlusPriceLabel ? `Buy Controller+ (${controllerPlusPriceLabel}/month)` : 'Buy Controller+';
+  }, [loading, controllerPlusPriceLabel]);
 
   const handleConsumablePurchase = async () => {
     if (!canBuyConsumable) return;
@@ -97,7 +92,8 @@ export function ControllerPlusShopModal({
           </button>
         </div>
 
-        <div className="p-5 space-y-4 overflow-y-auto flex-1 min-h-0">
+        <div className="p-5 overflow-y-auto flex-1 min-h-0">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
           <div className="p-4 bg-gradient-to-br from-indigo-900/35 to-indigo-700/15 border border-indigo-400/40 rounded-xl">
             <div className="space-y-4">
               <div>
@@ -110,28 +106,15 @@ export function ControllerPlusShopModal({
                 </p>
               </div>
 
-              <div className="flex flex-col gap-2">
-                <span className="px-2 py-1 rounded-full text-xs bg-indigo-500/20 border border-indigo-400/40 text-indigo-100">
-                  {controllerPlusPriceText}
-                </span>
-                <span className={`px-2 py-1 rounded-full text-xs border ${
-                  loading
-                    ? 'bg-gray-700/40 border-gray-500 text-gray-200'
-                    : hasControllerPlus
-                      ? 'bg-emerald-700/30 border-emerald-500/60 text-emerald-100'
-                      : 'bg-gray-700/40 border-gray-500 text-gray-200'
-                }`}>
-                  Status: {loading ? 'Checking...' : hasControllerPlus ? 'Active' : 'Not active'}
-                </span>
-              </div>
-
-              <div className="rounded-lg border border-indigo-300/30 bg-indigo-900/30 p-3 space-y-2">
-                <p className="text-xs text-indigo-200">Price Per Month</p>
-                <p className="text-base font-semibold text-white">{controllerPlusPriceLabel ?? '$9.99 USD'}</p>
-                <p className="text-xs text-indigo-100/90 pt-1">
-                  Subscription SKUs are automatically charged each month unless cancelled. Changing the price of this SKU will only change it for new subscribers. Existing subscribers will continue to be charged the existing price.
-                </p>
-              </div>
+              <p className={`text-xs ${
+                loading
+                  ? 'text-gray-200'
+                  : hasControllerPlus
+                    ? 'text-emerald-200'
+                    : 'text-gray-200'
+              }`}>
+                Status: {loading ? 'Checking...' : hasControllerPlus ? 'Active' : 'Not active'}
+              </p>
 
               <div>
                 <p className="text-xs uppercase tracking-wide text-indigo-200/80 mb-2">Benefits</p>
@@ -150,9 +133,20 @@ export function ControllerPlusShopModal({
                   className="w-full px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors"
                 >
                   <ShoppingCart className="h-4 w-4" />
-                  Subscribe to Controller+
+                  {controllerPlusButtonLabel}
                 </button>
               )}
+
+              <button
+                onClick={onManageControllerPlusSubscription}
+                className="w-full px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors"
+              >
+                Manage / Cancel Subscription
+              </button>
+
+              <p className="text-xs text-indigo-100/80">
+                Subscription SKUs are automatically charged each month unless cancelled. To cancel, open Discord User Settings and go to Billing/Subscriptions.
+              </p>
             </div>
           </div>
 
@@ -168,14 +162,9 @@ export function ControllerPlusShopModal({
                 </p>
               </div>
 
-              <div className="flex flex-col gap-2">
-                <span className="px-2 py-1 rounded-full text-xs bg-purple-500/20 border border-purple-400/40 text-purple-100">
-                  {shockPastLimitPriceText}
-                </span>
-                <span className="px-2 py-1 rounded-full text-xs bg-purple-500/20 border border-purple-400/40 text-purple-100">
-                  Status: {loading || warningAcksLoading ? 'Checking...' : hasOverlimitConsumable ? 'Available' : 'Not available'}
-                </span>
-              </div>
+              <p className="text-xs text-purple-200">
+                Status: {loading || warningAcksLoading ? 'Checking...' : hasOverlimitConsumable ? 'Available' : 'Not available'}
+              </p>
 
               <div className="space-y-2 text-sm text-purple-100">
                 <p><span className="font-semibold">Use case:</span> Helps groups continue intense scenes without changing each user's permanent safety cap.</p>
@@ -194,6 +183,7 @@ export function ControllerPlusShopModal({
                 </button>
               </div>
             </div>
+          </div>
           </div>
 
           {requiresOneTimeAgreement && (

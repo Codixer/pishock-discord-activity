@@ -258,6 +258,26 @@ function MainApp() {
     await purchaseSku(CONTROLLER_PLUS_SKU_ID);
   }, [purchaseSku]);
 
+  const manageControllerPlusSubscription = useCallback(async () => {
+    const billingUrl = 'https://discord.com/settings/billing';
+
+    if (!isEmbedded || !discordSdk) {
+      window.open(billingUrl, '_blank');
+      return;
+    }
+
+    try {
+      const commands = discordSdk.commands as any;
+      if (typeof commands.openExternalLink === 'function') {
+        await commands.openExternalLink({ url: billingUrl });
+      } else {
+        window.open(billingUrl, '_blank');
+      }
+    } catch (error) {
+      addNotification('warning', 'Subscription', 'Open Discord billing settings to manage or cancel your subscription.');
+    }
+  }, [addNotification]);
+
   const purchaseOverlimitConsumable = useCallback(async () => {
     if (!hasSeenFirstOverlimitPurchaseWarning) {
       addNotification('warning', 'Agreement Required', 'Please acknowledge and agree to the consumable conditions before buying.');
@@ -1030,6 +1050,7 @@ function MainApp() {
           onAcknowledgeOverlimitPurchaseWarning={acknowledgeOverlimitPurchaseWarning}
           onPurchaseControllerPlus={purchaseControllerPlus}
           onPurchaseConsumable={purchaseOverlimitConsumable}
+          onManageControllerPlusSubscription={manageControllerPlusSubscription}
           controllerPlusPriceLabel={controllerPlusPriceLabel}
           shockPastLimitPriceLabel={shockPastLimitPriceLabel}
         />
@@ -1126,6 +1147,7 @@ function MainApp() {
         onAcknowledgeOverlimitPurchaseWarning={acknowledgeOverlimitPurchaseWarning}
         onPurchaseControllerPlus={purchaseControllerPlus}
         onPurchaseConsumable={purchaseOverlimitConsumable}
+        onManageControllerPlusSubscription={manageControllerPlusSubscription}
         controllerPlusPriceLabel={controllerPlusPriceLabel}
         shockPastLimitPriceLabel={shockPastLimitPriceLabel}
       />
