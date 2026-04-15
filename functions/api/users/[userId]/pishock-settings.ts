@@ -285,6 +285,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         username, 
         sharecode, 
         selectedShockerId,
+        refreshShockersOnly = false,
         allowedShockerIds = [],
         allowOverLimitWithConsumable = false,
         commandsPaused,
@@ -298,6 +299,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const existingUserDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
       const existingUserData = existingUserDataStr ? JSON.parse(existingUserDataStr) : null;
       const isExistingUser = !!existingUserData?.credentials;
+      const isShockerRefreshOnly = Boolean(refreshShockersOnly);
       
       const isBanListOnlyUpdate = !apiKey && !username && !sharecode && !selectedShockerId &&
                                  Array.isArray(bannedExecutors) && 
@@ -334,18 +336,33 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           commandsPaused: Boolean(updatedUserData.commandsPaused),
         });
       } else {
-        if (!isExistingUser && (!apiKey || !username || (!selectedShockerId && !sharecode))) {
-          return jsonResponse({ 
-            success: false, 
-            error: 'Missing required fields: API Key, Username, and Selected Shocker are required.' 
-          }, 400);
-        }
-        
-        if (!username || !selectedShockerId) {
-          return jsonResponse({ 
-            success: false, 
-            error: 'Username and Selected Shocker are required.' 
-          }, 400);
+        if (isShockerRefreshOnly) {
+          if (!username) {
+            return jsonResponse({
+              success: false,
+              error: 'Username is required to refresh owned shockers.'
+            }, 400);
+          }
+          if (!isExistingUser && !apiKey) {
+            return jsonResponse({
+              success: false,
+              error: 'API Key and Username are required to refresh owned shockers for new accounts.'
+            }, 400);
+          }
+        } else {
+          if (!isExistingUser && (!apiKey || !username || (!selectedShockerId && !sharecode))) {
+            return jsonResponse({ 
+              success: false, 
+              error: 'Missing required fields: API Key, Username, and Selected Shocker are required.' 
+            }, 400);
+          }
+          
+          if (!username || !selectedShockerId) {
+            return jsonResponse({ 
+              success: false, 
+              error: 'Username and Selected Shocker are required.' 
+            }, 400);
+          }
         }
       }
       
@@ -426,6 +443,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         .filter((id) => availableShockers.some((shocker) => shocker.id === id));
       if (finalSelectedShockerId && !normalizedAllowedShockerIds.includes(finalSelectedShockerId)) {
         normalizedAllowedShockerIds.push(finalSelectedShockerId);
+      }
+
+      if (isShockerRefreshOnly) {
+        return jsonResponse({
+          success: true,
+          isConnected: true,
+          refreshOnly: true,
+          availableShockers,
+          selectedShockerId: finalSelectedShockerId || null,
+          allowedShockerIds: normalizedAllowedShockerIds,
+          piShockUserId,
+          deviceCount: deviceCheck.devices?.length || 0,
+        });
       }
       const generatedShareCodesResult = await generateLegacyShareCodesForOwnedShockers(
         {
