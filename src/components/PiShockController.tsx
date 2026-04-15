@@ -182,8 +182,8 @@ export function PiShockController({
         // Browser modal APIs are blocked in Discord embedded sandbox, so surface warning non-blockingly.
         addNotification(
           'warning',
-          'Bypass Warning',
-          'Bypass enabled: delivery is not guaranteed, target/device constraints still apply, and consumables go to the developer.'
+          'Bypass Warning (First Use)',
+          'Conditions: target may disable bypass, command delivery is not guaranteed due to device/API constraints, and consumable purchases go to the developer (not the shocked user).'
         );
       } else {
         warningAccepted = window.confirm(

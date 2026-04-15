@@ -104,6 +104,8 @@ function MainApp() {
   const [showControllerPlusShop, setShowControllerPlusShop] = useState(false);
   const [multishockMode, setMultishockMode] = useState(false);
   const [togglingEmergencyStop, setTogglingEmergencyStop] = useState(false);
+  const [warningAcksLoading, setWarningAcksLoading] = useState(false);
+  const [hasSeenFirstOverlimitPurchaseWarning, setHasSeenFirstOverlimitPurchaseWarning] = useState(false);
   const [multishockSelectionsByExecutor, setMultishockSelectionsByExecutor] = useState<Record<string, Record<string, string[]>>>({});
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
@@ -177,45 +179,6 @@ function MainApp() {
   }, [auth?.access_token, addNotification]);
 
   const purchaseSku = useCallback(async (skuId: string) => {
-    const showFirstOverlimitPurchaseWarningIfNeeded = async () => {
-      if (!auth?.access_token) return;
-
-      try {
-        const statusResponse = await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${auth.access_token}`,
-          },
-        });
-        if (!statusResponse.ok) {
-          throw new Error('Unable to verify purchase warning acknowledgement.');
-        }
-
-        const status = await statusResponse.json();
-        if (status.hasSeenFirstOverlimitPurchaseWarning) {
-          return;
-        }
-
-        window.alert(
-          'Over-limit purchase warning (one-time)\n\n' +
-          '- This application cannot guarantee people will have this feature enabled.\n' +
-          '- This application cannot guarantee the command will deliver because users can still limit their shocker itself.\n' +
-          '- Money used for this feature goes to the developer, not the shocked user.'
-        );
-
-        await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${auth.access_token}`,
-          },
-          body: JSON.stringify({ hasSeenFirstOverlimitPurchaseWarning: true }),
-        });
-      } catch (error) {
-        addNotification('warning', 'Purchase Notice', 'Could not persist one-time purchase warning acknowledgement.');
-      }
-    };
-
     if (!isEmbedded || !discordSdk) {
       window.open('https://discord.com/channels/@me', '_blank');
       return;
@@ -229,9 +192,6 @@ function MainApp() {
         await commands.openExternalLink({ url: 'https://discord.com/channels/@me' });
       }
       await refreshEntitlements();
-      if (skuId === OVERLIMIT_SKU_ID) {
-        await showFirstOverlimitPurchaseWarningIfNeeded();
-      }
     } catch (error) {
       addNotification('warning', 'Purchase', 'Unable to open Discord purchase flow');
     }
@@ -242,8 +202,61 @@ function MainApp() {
   }, [purchaseSku]);
 
   const purchaseOverlimitConsumable = useCallback(async () => {
+    if (!hasSeenFirstOverlimitPurchaseWarning) {
+      addNotification('warning', 'Agreement Required', 'Please acknowledge and agree to the consumable conditions before buying.');
+      return;
+    }
     await purchaseSku(OVERLIMIT_SKU_ID);
-  }, [purchaseSku]);
+  }, [purchaseSku, hasSeenFirstOverlimitPurchaseWarning, addNotification]);
+
+  const refreshWarningAcks = useCallback(async () => {
+    if (!auth?.access_token) return;
+    setWarningAcksLoading(true);
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error('Failed to load warning acknowledgements');
+      }
+      const result = await response.json();
+      setHasSeenFirstOverlimitPurchaseWarning(Boolean(result.hasSeenFirstOverlimitPurchaseWarning));
+    } catch (error) {
+      addNotification('warning', 'Warnings', 'Unable to verify consumable warning acknowledgement status.');
+    } finally {
+      setWarningAcksLoading(false);
+    }
+  }, [auth?.access_token, addNotification]);
+
+  const acknowledgeOverlimitPurchaseWarning = useCallback(async (): Promise<boolean> => {
+    if (!auth?.access_token) return false;
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({ hasSeenFirstOverlimitPurchaseWarning: true }),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to persist acknowledgement');
+      }
+      setHasSeenFirstOverlimitPurchaseWarning(true);
+      return true;
+    } catch (error) {
+      addNotification('error', 'Agreement', 'Unable to persist your agreement. Please try again.');
+      return false;
+    }
+  }, [auth?.access_token, addNotification]);
+
+  const refreshShopData = useCallback(() => {
+    refreshEntitlements();
+    refreshWarningAcks();
+  }, [refreshEntitlements, refreshWarningAcks]);
 
   const handleMultishockToggle = useCallback((enabled: boolean) => {
     if (enabled && !hasControllerPlus) {
@@ -520,8 +533,9 @@ function MainApp() {
   useEffect(() => {
     if (auth?.access_token) {
       refreshEntitlements();
+      refreshWarningAcks();
     }
-  }, [auth?.access_token, refreshEntitlements]);
+  }, [auth?.access_token, refreshEntitlements, refreshWarningAcks]);
   
   useEffect(() => {
     (window as any).userPiShockStatus = userPiShockStatus;
@@ -943,10 +957,13 @@ function MainApp() {
           isOpen={showControllerPlusShop}
           onClose={() => setShowControllerPlusShop(false)}
           loading={entitlementsLoading}
+          warningAcksLoading={warningAcksLoading}
+          hasSeenFirstOverlimitPurchaseWarning={hasSeenFirstOverlimitPurchaseWarning}
           hasControllerPlus={hasControllerPlus}
           hasOverlimitConsumable={hasOverlimitConsumable}
           overlimitConsumableCount={overlimitConsumableCount}
-          onRefresh={refreshEntitlements}
+          onRefresh={refreshShopData}
+          onAcknowledgeOverlimitPurchaseWarning={acknowledgeOverlimitPurchaseWarning}
           onPurchaseControllerPlus={purchaseControllerPlus}
           onPurchaseConsumable={purchaseOverlimitConsumable}
         />
@@ -1034,10 +1051,13 @@ function MainApp() {
         isOpen={showControllerPlusShop}
         onClose={() => setShowControllerPlusShop(false)}
         loading={entitlementsLoading}
+        warningAcksLoading={warningAcksLoading}
+        hasSeenFirstOverlimitPurchaseWarning={hasSeenFirstOverlimitPurchaseWarning}
         hasControllerPlus={hasControllerPlus}
         hasOverlimitConsumable={hasOverlimitConsumable}
         overlimitConsumableCount={overlimitConsumableCount}
-        onRefresh={refreshEntitlements}
+        onRefresh={refreshShopData}
+        onAcknowledgeOverlimitPurchaseWarning={acknowledgeOverlimitPurchaseWarning}
         onPurchaseControllerPlus={purchaseControllerPlus}
         onPurchaseConsumable={purchaseOverlimitConsumable}
       />
