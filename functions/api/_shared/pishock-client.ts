@@ -78,6 +78,13 @@ interface OperatePayload {
   agentName: string;
 }
 
+interface LegacyShareCodeFailureDetail {
+  shockerId: string;
+  status: number;
+  error: string;
+  rawBody?: string;
+}
+
 function createHeaders(credentials: PiShockCredentials): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -386,16 +393,39 @@ export async function createLegacyShareCodeForShocker(
     };
   }
 
-  const createResult = await requestLegacy<string>('/PiShock/CreateShare', {
-    method: 'POST',
-    body: JSON.stringify({
-      userId: legacyUserId,
-      token: credentials.apiKey,
-      shockerId: Math.floor(shockerIdNumber),
-    }),
+  const query = new URLSearchParams({
+    UserId: String(legacyUserId),
+    Token: credentials.apiKey,
+    ShockerId: String(Math.floor(shockerIdNumber)),
+    api: 'true',
   });
+  const createResult = await requestLegacy<unknown>(`/PiShock/CreateShare?${query.toString()}`, {
+    method: 'POST',
+  });
+  const shareCodeFromData = typeof createResult.data === 'string'
+    ? createResult.data.trim()
+    : typeof createResult.data === 'object' && createResult.data !== null
+      ? String(
+        (createResult.data as Record<string, unknown>).Code
+        || (createResult.data as Record<string, unknown>).code
+        || ''
+      ).trim()
+      : '';
+  const rawBody = String(createResult.rawBody || '').trim();
+  const shareCodeFromRawBody = rawBody
+    ? rawBody.replace(/^["']|["']$/g, '').trim()
+    : '';
+  const normalizedShareCode = shareCodeFromData || shareCodeFromRawBody;
 
-  if (!createResult.ok || typeof createResult.data !== 'string' || !createResult.data.trim()) {
+  if ((!createResult.ok && createResult.status >= 200 && createResult.status < 300 && normalizedShareCode) || (createResult.ok && normalizedShareCode)) {
+    return {
+      ok: true,
+      status: createResult.status,
+      data: normalizedShareCode,
+    };
+  }
+
+  if (!normalizedShareCode) {
     return {
       ok: false,
       status: createResult.status,
@@ -407,7 +437,7 @@ export async function createLegacyShareCodeForShocker(
   return {
     ok: true,
     status: createResult.status,
-    data: createResult.data.trim(),
+    data: normalizedShareCode,
   };
 }
 
@@ -441,20 +471,36 @@ export async function generateLegacyShareCodesForOwnedShockers(
 
   const mapping: PiShockGeneratedShareCodeMap = {};
   const errors: string[] = [];
+  const failureDetails: LegacyShareCodeFailureDetail[] = [];
   for (const shockerId of candidateIds) {
     const shareResult = await createLegacyShareCodeForShocker(credentials, shockerId);
     if (!shareResult.ok || !shareResult.data) {
-      errors.push(shareResult.error || `Failed to create sharecode for shocker ${shockerId}.`);
+      const message = shareResult.error || `Failed to create sharecode for shocker ${shockerId}.`;
+      const diagnostic = [
+        `shockerId=${shockerId}`,
+        `status=${shareResult.status}`,
+        `error=${message}`,
+        shareResult.rawBody ? `rawBody=${shareResult.rawBody.slice(0, 300)}` : '',
+      ].filter(Boolean).join(' | ');
+      errors.push(diagnostic);
+      failureDetails.push({
+        shockerId,
+        status: shareResult.status,
+        error: message,
+        rawBody: shareResult.rawBody,
+      });
       continue;
     }
     mapping[shockerId] = shareResult.data;
   }
 
   if (errors.length > 0) {
+    const errorPrefix = `Failed generating ${errors.length} of ${candidateIds.length} sharecodes.`;
     return {
       ok: false,
       status: 502,
-      error: errors.join(' '),
+      error: `${errorPrefix} ${errors.join(' ')}`.trim(),
+      rawBody: JSON.stringify(failureDetails),
     };
   }
 
