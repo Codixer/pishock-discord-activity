@@ -39,14 +39,29 @@
   Pragma: no-cache
   Expires: 0
 
-# User status endpoints - short cache with revalidation
+# User-specific PiShock endpoints - never cache at edge
 /api/users/*/pishock-status
-  Cache-Control: public, max-age=60, stale-while-revalidate=30
+  Cache-Control: no-cache, no-store, must-revalidate, max-age=0
+  Pragma: no-cache
+  Expires: 0
   Vary: Authorization
 
-# User settings endpoints - same cache as status to prevent inconsistency
 /api/users/*/pishock-settings
-  Cache-Control: public, max-age=60, stale-while-revalidate=30
+  Cache-Control: no-cache, no-store, must-revalidate, max-age=0
+  Pragma: no-cache
+  Expires: 0
+  Vary: Authorization
+
+/api/users/*/pishock-test
+  Cache-Control: no-cache, no-store, must-revalidate, max-age=0
+  Pragma: no-cache
+  Expires: 0
+  Vary: Authorization
+
+/api/users/*/pishock-execute
+  Cache-Control: no-cache, no-store, must-revalidate, max-age=0
+  Pragma: no-cache
+  Expires: 0
   Vary: Authorization
 
 # Discord member data - medium cache

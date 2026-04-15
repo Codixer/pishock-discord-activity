@@ -23,8 +23,9 @@ function jsonResponse(body: any, status = 200) {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      // Match caching with status endpoint to prevent inconsistency
-      'Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
+      'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0',
       'Vary': 'Authorization',
     },
   });

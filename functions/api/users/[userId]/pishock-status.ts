@@ -232,7 +232,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     const cachedStatus = await getCachedUserStatus(env.PISHOCK_KV, userId);
     if (cachedStatus) {
       return jsonResponse(cachedStatus, 200, {
-        'Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
+        'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
         'X-Cache-Status': 'HIT'
       });
     }
@@ -356,7 +358,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     await setCachedUserStatus(env.PISHOCK_KV, userId, result);
     
     return jsonResponse(result, 200, {
-      'Cache-Control': 'public, max-age=30, stale-while-revalidate=15',
+      'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0',
     });
   } catch (error) {
     return jsonResponse({ 
