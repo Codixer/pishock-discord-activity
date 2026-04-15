@@ -52,7 +52,7 @@ export function ControllerPlusShopModal({
     if (agreeingTerms) return 'Saving agreement...';
     if (loading || warningAcksLoading) return 'Checking inventory...';
     return `Buy Shock Past User Limit${shockPastLimitPriceLabel ? ` (${shockPastLimitPriceLabel})` : ''} - ${overlimitConsumableCount} owned`;
-  }, [agreeingTerms, loading, warningAcksLoading, overlimitConsumableCount]);
+  }, [agreeingTerms, loading, warningAcksLoading, overlimitConsumableCount, shockPastLimitPriceLabel]);
 
   const controllerPlusButtonLabel = useMemo(() => {
     if (loading) return 'Loading...';
@@ -71,6 +71,7 @@ export function ControllerPlusShopModal({
       }
     }
 
+    await Promise.resolve();
     onPurchaseConsumable();
   };
 

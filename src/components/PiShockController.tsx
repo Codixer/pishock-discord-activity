@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Zap, Settings, Play, Square, AlertTriangle, Lock, Wifi, WifiOff } from 'lucide-react';
 import { DiscordSDK, Common } from '@discord/embedded-app-sdk';
 import { PiShockSettingsModal } from './PiShockSettingsModal';
@@ -72,6 +72,8 @@ export function PiShockController({
   const [discordConnected, setDiscordConnected] = useState(!!auth);
   const [isMultishocking, setIsMultishocking] = useState(false);
   const [bypassModeEnabled, setBypassModeEnabled] = useState(false);
+  const embeddedBypassWaiter = useRef<{ resolve: (accepted: boolean) => void } | null>(null);
+  const [embeddedBypassModalOpen, setEmbeddedBypassModalOpen] = useState(false);
   const effectivePiShockConnected = currentUserPiShockConnected || isConnected;
 
   // Check if we're in PIP mode
@@ -177,14 +179,17 @@ export function PiShockController({
         return true;
       }
 
-      let warningAccepted = true;
+      let warningAccepted = false;
       if (isEmbedded) {
-        // Browser modal APIs are blocked in Discord embedded sandbox, so surface warning non-blockingly.
         addNotification(
           'warning',
           'Bypass Warning (First Use)',
-          'Conditions: target may disable bypass, command delivery is not guaranteed due to device/API constraints, and consumable purchases go to the developer (not the shocked user).'
+          'Conditions: target may disable bypass, command delivery is not guaranteed due to device/API constraints, and consumable purchases go to the developer (not the shocked user). Use the in-app button to acknowledge.'
         );
+        warningAccepted = await new Promise<boolean>((resolve) => {
+          embeddedBypassWaiter.current = { resolve };
+          setEmbeddedBypassModalOpen(true);
+        });
       } else {
         warningAccepted = window.confirm(
           'Bypass Warning (one-time acknowledgement)\n\n' +
@@ -198,16 +203,18 @@ export function PiShockController({
         return false;
       }
 
-      const ackResponse = await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${auth.access_token}`,
-        },
-        body: JSON.stringify({ hasSeenFirstBypassWarning: true }),
-      });
-      if (!ackResponse.ok) {
-        throw new Error('Unable to persist warning acknowledgement.');
+      if (!isEmbedded) {
+        const ackResponse = await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${auth.access_token}`,
+          },
+          body: JSON.stringify({ hasSeenFirstBypassWarning: true }),
+        });
+        if (!ackResponse.ok) {
+          throw new Error('Unable to persist warning acknowledgement.');
+        }
       }
 
       return true;
@@ -437,11 +444,35 @@ export function PiShockController({
           operation,
         }),
       });
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Multishock failed');
+      const result = await response.json().catch(() => ({} as Record<string, unknown>));
+      const partialOk = response.status === 207 || result.partialSuccess === true;
+      const fatal = !response.ok && response.status !== 207;
+      if (fatal || (!result.success && !partialOk)) {
+        throw new Error(
+          (typeof result.error === 'string' && result.error) || `Multishock failed (${response.status})`
+        );
       }
-      addNotification('success', 'Multishock Sent', `Executed multishock across ${result.targetCount} targets.`);
+      if (partialOk && Array.isArray(result.failures) && result.failures.length > 0) {
+        const failures = result.failures as Array<{ targetUserId?: string; shockerId?: string; error?: string }>;
+        const detail = failures
+          .slice(0, 5)
+          .map(
+            (f) =>
+              `${f.targetUserId ?? '?'}${f.shockerId ? ` / ${f.shockerId}` : ''}: ${f.error ?? 'failed'}`
+          )
+          .join('; ');
+        addNotification(
+          'warning',
+          'Multishock partial success',
+          `${String(result.targetCount ?? '')} target(s); failures: ${detail}${failures.length > 5 ? '…' : ''}`
+        );
+      } else {
+        addNotification(
+          'success',
+          'Multishock Sent',
+          `Executed multishock across ${String(result.targetCount ?? 0)} targets.`
+        );
+      }
     } catch (error) {
       addNotification('error', 'Multishock Failed', error instanceof Error ? error.message : 'Multishock failed');
     } finally {
@@ -463,6 +494,63 @@ export function PiShockController({
 
   return (
     <>
+      {embeddedBypassModalOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4">
+          <div className="max-w-md rounded-xl border border-amber-500/40 bg-gray-900 p-5 shadow-xl">
+            <h4 className="text-lg font-semibold text-amber-100 mb-2">Bypass warning</h4>
+            <p className="text-sm text-gray-300 mb-4">
+              Target may disable bypass; delivery is not guaranteed; consumable purchases go to the developer, not
+              the shocked user. This acknowledgement is saved to your account after you confirm.
+            </p>
+            <div className="flex flex-wrap gap-2 justify-end">
+              <button
+                type="button"
+                className="px-3 py-2 rounded-lg bg-gray-700 text-sm text-gray-100 hover:bg-gray-600"
+                onClick={() => {
+                  embeddedBypassWaiter.current?.resolve(false);
+                  embeddedBypassWaiter.current = null;
+                  setEmbeddedBypassModalOpen(false);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="px-3 py-2 rounded-lg bg-amber-600 text-sm text-white hover:bg-amber-500"
+                onClick={async () => {
+                  try {
+                    const ackResponse = await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${auth.access_token}`,
+                      },
+                      body: JSON.stringify({ hasSeenFirstBypassWarning: true }),
+                    });
+                    if (!ackResponse.ok) {
+                      throw new Error('Unable to persist warning acknowledgement.');
+                    }
+                    embeddedBypassWaiter.current?.resolve(true);
+                    embeddedBypassWaiter.current = null;
+                    setEmbeddedBypassModalOpen(false);
+                  } catch (err) {
+                    addNotification(
+                      'error',
+                      'Bypass Warning',
+                      err instanceof Error ? err.message : 'Failed to save acknowledgement.'
+                    );
+                    embeddedBypassWaiter.current?.resolve(false);
+                    embeddedBypassWaiter.current = null;
+                    setEmbeddedBypassModalOpen(false);
+                  }
+                }}
+              >
+                I understand — continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Settings Modal */}
       <PiShockSettingsModal
         isOpen={showSettings}

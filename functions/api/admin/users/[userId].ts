@@ -1,9 +1,11 @@
 import { requireAdminUser } from '../../_shared/admin-auth';
+import { ACTIVITY_BATCH_KV_TTL_SECONDS } from '../../_shared/activity-batch-kv';
 
 interface Env {
   PISHOCK_KV: KVNamespace;
   DISCORD_CLIENT_ID?: string;
   DISCORD_CLIENT_SECRET?: string;
+  OWNER_ADMIN_USER_IDS?: string;
 }
 
 interface PagesFunction<Environment = unknown> {
@@ -142,7 +144,7 @@ async function anonymizeDeletedUserInActivityLogs(kv: KVNamespace, userId: strin
       entries: nextEntries,
       lastUpdated: new Date().toISOString(),
     };
-    await kv.put(batchKey, JSON.stringify(nextBatch), { expirationTtl: 604800 });
+    await kv.put(batchKey, JSON.stringify(nextBatch), { expirationTtl: ACTIVITY_BATCH_KV_TTL_SECONDS });
     batchesUpdated++;
   }
 
@@ -284,7 +286,29 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         `user_status_cache:${userId}`,
       ];
 
-      await Promise.allSettled(keysToDelete.map((key) => env.PISHOCK_KV.delete(key)));
+      const deleteResults = await Promise.allSettled(keysToDelete.map((key) => env.PISHOCK_KV.delete(key)));
+      const failedDeletes = deleteResults
+        .map((result, index) =>
+          result.status === 'rejected'
+            ? { key: keysToDelete[index], error: String(result.reason) }
+            : null
+        )
+        .filter(Boolean) as Array<{ key: string; error: string }>;
+
+      if (failedDeletes.length > 0) {
+        return jsonResponse(
+          {
+            success: false,
+            userId,
+            reason,
+            error: 'One or more KV delete operations failed',
+            failedKeys: failedDeletes.map((f) => f.key),
+            failedDetails: failedDeletes,
+          },
+          500
+        );
+      }
+
       const activityResult = await anonymizeDeletedUserInActivityLogs(env.PISHOCK_KV, userId);
 
       return jsonResponse({

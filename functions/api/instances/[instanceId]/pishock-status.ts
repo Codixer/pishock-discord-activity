@@ -107,13 +107,21 @@ async function testPiShockConnection(
   }
 
   let generatedShareCodes = normalizeGeneratedShareCodes(creds.generatedShareCodes);
-  const hasAllOwnedShareCodes = ownedShockerIds.every((id) => Boolean(generatedShareCodes[id]));
-  if (!hasAllOwnedShareCodes) {
-    const generatedResult = await generateLegacyShareCodesForOwnedShockers(credentials, ownedShockerIds);
-    if (!generatedResult.ok || !generatedResult.data) {
-      return { ok: false, error: generatedResult.error || 'Failed generating sharecodes for owned shockers.' };
+  if (!getGeneratedShareCodeForShocker(generatedShareCodes, String(selectedShockerId))) {
+    const generatedResult = await generateLegacyShareCodesForOwnedShockers(credentials, [
+      String(selectedShockerId),
+    ]);
+    const merged = {
+      ...generatedShareCodes,
+      ...(generatedResult.data ? normalizeGeneratedShareCodes(generatedResult.data) : {}),
+    };
+    if (!getGeneratedShareCodeForShocker(merged, String(selectedShockerId))) {
+      return {
+        ok: false,
+        error: generatedResult.error || 'Failed generating sharecode for the selected shocker.',
+      };
     }
-    generatedShareCodes = normalizeGeneratedShareCodes(generatedResult.data);
+    generatedShareCodes = merged;
     creds.generatedShareCodes = generatedShareCodes;
     creds.generatedShareCodesLastUpdated = new Date().toISOString();
   }
@@ -177,19 +185,32 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (encrypted) {
       try {
         const creds = await decrypt(encrypted);
+        const persistSnapshot = () =>
+          JSON.stringify({
+            shockerId: creds.shockerId,
+            selectedShockerId: creds.selectedShockerId,
+            generatedShareCodes: creds.generatedShareCodes,
+            generatedShareCodesLastUpdated: creds.generatedShareCodesLastUpdated,
+          });
+        const snapshotBefore = persistSnapshot();
         const connectionResult = await testPiShockConnection(creds);
         isConnected = connectionResult.ok;
-        
+
         if (isConnected) {
           if (connectionResult.shockerId && connectionResult.shockerId !== creds.shockerId) {
             creds.selectedShockerId = creds.selectedShockerId || connectionResult.shockerId;
             creds.shockerId = connectionResult.shockerId;
-            await env.PISHOCK_KV.put(`instance:${instanceId}:pishock`, btoa(JSON.stringify(creds)), { expirationTtl: 21600 });
           }
-          if (creds.generatedShareCodes && typeof creds.generatedShareCodes === 'object') {
-            await env.PISHOCK_KV.put(`instance:${instanceId}:pishock`, btoa(JSON.stringify(creds)), { expirationTtl: 21600 });
+          if (persistSnapshot() !== snapshotBefore) {
+            await env.PISHOCK_KV.put(
+              `instance:${instanceId}:pishock`,
+              btoa(JSON.stringify(creds)),
+              { expirationTtl: 21600 }
+            );
           }
-          await env.PISHOCK_KV.put(`instance:${instanceId}:pishock:lastTested`, new Date().toISOString(), { expirationTtl: 21600 });
+          await env.PISHOCK_KV.put(`instance:${instanceId}:pishock:lastTested`, new Date().toISOString(), {
+            expirationTtl: 21600,
+          });
         }
       } catch (error) {
         console.error('Failed to test stored credentials:', error);

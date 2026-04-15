@@ -65,7 +65,10 @@ export function useUserStatusCache() {
                         existing.data.commandsPaused !== status.commandsPaused ||
                         existing.data.canShock !== status.canShock ||
                         existing.data.canVibrate !== status.canVibrate ||
-                        existing.data.canBeep !== status.canBeep;
+                        existing.data.canBeep !== status.canBeep ||
+                        existing.data.canPause !== status.canPause ||
+                        existing.data.maxIntensityOverriddenByApi !== status.maxIntensityOverriddenByApi ||
+                        existing.data.maxDurationOverriddenByApi !== status.maxDurationOverriddenByApi;
       
       if (!hasChanges) {
         return false; // No changes, don't update cache

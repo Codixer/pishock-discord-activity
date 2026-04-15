@@ -41,6 +41,16 @@ function getDefaultWarningState(): WarningAckState {
   };
 }
 
+function parseStoredWarningState(raw: string | null): WarningAckState {
+  if (!raw) return getDefaultWarningState();
+  try {
+    return { ...getDefaultWarningState(), ...JSON.parse(raw) };
+  } catch (error) {
+    console.error('warning_acks: failed to parse KV payload, resetting to defaults', error);
+    return getDefaultWarningState();
+  }
+}
+
 export const onRequest = async (context: { request: Request; env: Env }): Promise<Response> => {
   const { request, env } = context;
 
@@ -71,12 +81,10 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
 
   try {
     const key = warningAckKey(user.id);
-    const existingStateRaw = await env.PISHOCK_KV.get(key);
-    const existingState: WarningAckState = existingStateRaw
-      ? { ...getDefaultWarningState(), ...JSON.parse(existingStateRaw) }
-      : getDefaultWarningState();
 
     if (request.method === 'GET') {
+      const existingStateRaw = await env.PISHOCK_KV.get(key);
+      const existingState = parseStoredWarningState(existingStateRaw);
       return jsonResponse({
         userId: user.id,
         ...existingState,
@@ -87,34 +95,58 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
     const hasBypassUpdate = typeof body.hasSeenFirstBypassWarning === 'boolean';
     const hasPurchaseUpdate = typeof body.hasSeenFirstOverlimitPurchaseWarning === 'boolean';
     if (!hasBypassUpdate && !hasPurchaseUpdate) {
-      return jsonResponse({
-        success: false,
-        error: 'Expected hasSeenFirstBypassWarning and/or hasSeenFirstOverlimitPurchaseWarning boolean fields.',
-      }, 400);
+      return jsonResponse(
+        {
+          success: false,
+          error:
+            'Expected hasSeenFirstBypassWarning and/or hasSeenFirstOverlimitPurchaseWarning boolean fields.',
+        },
+        400
+      );
     }
 
-    const nextState: WarningAckState = {
-      ...existingState,
-      hasSeenFirstBypassWarning: hasBypassUpdate
-        ? existingState.hasSeenFirstBypassWarning || Boolean(body.hasSeenFirstBypassWarning)
-        : existingState.hasSeenFirstBypassWarning,
-      hasSeenFirstOverlimitPurchaseWarning: hasPurchaseUpdate
-        ? existingState.hasSeenFirstOverlimitPurchaseWarning || Boolean(body.hasSeenFirstOverlimitPurchaseWarning)
-        : existingState.hasSeenFirstOverlimitPurchaseWarning,
-      updatedAt: new Date().toISOString(),
-    };
-
-    await env.PISHOCK_KV.put(key, JSON.stringify(nextState));
+    let lastMerged: WarningAckState | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const latestRaw = await env.PISHOCK_KV.get(key);
+      const latest = parseStoredWarningState(latestRaw);
+      const merged: WarningAckState = {
+        hasSeenFirstBypassWarning: hasBypassUpdate
+          ? latest.hasSeenFirstBypassWarning || Boolean(body.hasSeenFirstBypassWarning)
+          : latest.hasSeenFirstBypassWarning,
+        hasSeenFirstOverlimitPurchaseWarning: hasPurchaseUpdate
+          ? latest.hasSeenFirstOverlimitPurchaseWarning ||
+            Boolean(body.hasSeenFirstOverlimitPurchaseWarning)
+          : latest.hasSeenFirstOverlimitPurchaseWarning,
+        updatedAt: new Date().toISOString(),
+      };
+      await env.PISHOCK_KV.put(key, JSON.stringify(merged));
+      const verify = parseStoredWarningState(await env.PISHOCK_KV.get(key));
+      const bypassOk =
+        !hasBypassUpdate ||
+        !merged.hasSeenFirstBypassWarning ||
+        verify.hasSeenFirstBypassWarning;
+      const purchaseOk =
+        !hasPurchaseUpdate ||
+        !merged.hasSeenFirstOverlimitPurchaseWarning ||
+        verify.hasSeenFirstOverlimitPurchaseWarning;
+      lastMerged = merged;
+      if (bypassOk && purchaseOk) {
+        break;
+      }
+    }
 
     return jsonResponse({
       success: true,
       userId: user.id,
-      ...nextState,
+      ...lastMerged!,
     });
   } catch (error) {
-    return jsonResponse({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to update warning acknowledgements',
-    }, 500);
+    return jsonResponse(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to update warning acknowledgements',
+      },
+      500
+    );
   }
 };

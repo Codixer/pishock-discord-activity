@@ -8,6 +8,7 @@ import {
   operatePiShockShareCode,
 } from '../../_shared/pishock-client';
 import { consumeOverlimitEntitlement, getControllerPlusState } from '../../_shared/discord-entitlements';
+import { ACTIVITY_BATCH_KV_TTL_SECONDS } from '../../_shared/activity-batch-kv';
 
 interface Env {
   PISHOCK_KV: KVNamespace;
@@ -245,7 +246,7 @@ async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
       batchData.entries = batchData.entries.slice(0, 500);
     }
     
-    await kv.put(batchKey, JSON.stringify(batchData), { expirationTtl: 2592000 });
+    await kv.put(batchKey, JSON.stringify(batchData), { expirationTtl: ACTIVITY_BATCH_KV_TTL_SECONDS });
   } catch (error) {
     console.error('Failed to update activity batch:', error);
     throw error;
@@ -403,17 +404,22 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
 
       let generatedShareCodes = normalizeGeneratedShareCodes(creds.generatedShareCodes);
-      const hasAllOwnedShareCodes = ownedShockerIds.every((id) => Boolean(generatedShareCodes[id]));
       let shareCodeGenerationFailed = false;
-      if (!hasAllOwnedShareCodes) {
+      if (!getGeneratedShareCodeForShocker(generatedShareCodes, String(selectedShockerId))) {
         const generatedShareCodesResult = await generateLegacyShareCodesForOwnedShockers(
           pishockCredentials,
-          ownedShockerIds
+          [String(selectedShockerId)]
         );
-        if (!generatedShareCodesResult.ok || !generatedShareCodesResult.data) {
+        const merged = {
+          ...generatedShareCodes,
+          ...(generatedShareCodesResult.data
+            ? normalizeGeneratedShareCodes(generatedShareCodesResult.data)
+            : {}),
+        };
+        if (!getGeneratedShareCodeForShocker(merged, String(selectedShockerId))) {
           shareCodeGenerationFailed = true;
         } else {
-          generatedShareCodes = normalizeGeneratedShareCodes(generatedShareCodesResult.data);
+          generatedShareCodes = merged;
           creds.generatedShareCodes = generatedShareCodes;
           creds.generatedShareCodesLastUpdated = new Date().toISOString();
           userData.credentials = btoa(JSON.stringify(creds));
@@ -452,9 +458,20 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const configuredMaxDuration = Number(creds.maxDuration) || 15;
       let effectiveMaxIntensity = configuredMaxIntensity;
       let effectiveMaxDuration = configuredMaxDuration;
+      const apiMaxIntensity = Number(selectedShocker.MaxIntensity);
+      if (Number.isFinite(apiMaxIntensity) && apiMaxIntensity > 0) {
+        effectiveMaxIntensity = Math.min(effectiveMaxIntensity, Math.floor(apiMaxIntensity));
+      }
+      const apiMaxDurationMs = Number(selectedShocker.MaxDuration);
+      if (Number.isFinite(apiMaxDurationMs) && apiMaxDurationMs > 0) {
+        effectiveMaxDuration = Math.min(
+          effectiveMaxDuration,
+          Math.max(1, Math.floor(apiMaxDurationMs / 1000))
+        );
+      }
 
       const overLimitAttempt = intensity > effectiveMaxIntensity || duration > effectiveMaxDuration;
-      let consumedEntitlementId: string | undefined;
+      let pendingOverlimitEntitlementId: string | undefined;
       if (overLimitAttempt) {
         if (!creds.allowOverLimitWithConsumable) {
           return jsonResponse({
@@ -471,8 +488,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           }, 403);
         }
 
-        await consumeOverlimitEntitlement(env, entitlementState.overlimitEntitlementId);
-        consumedEntitlementId = entitlementState.overlimitEntitlementId;
+        pendingOverlimitEntitlementId = entitlementState.overlimitEntitlementId;
       }
 
       const operateResult = useDirectShockerOperation
@@ -491,6 +507,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       if (!operateResult.ok) {
         throw new Error(operateResult.error || 'PiShock operation failed.');
+      }
+
+      let consumedEntitlementId: string | undefined;
+      if (overLimitAttempt && pendingOverlimitEntitlementId) {
+        await consumeOverlimitEntitlement(env, pendingOverlimitEntitlementId);
+        consumedEntitlementId = pendingOverlimitEntitlementId;
       }
 
       const executorInfo = await getUserInfo(env.PISHOCK_KV, executorUserId, token);
@@ -526,7 +548,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         consumedOverlimitEntitlementId: consumedEntitlementId || null,
         effectiveMaxIntensity,
         effectiveMaxDuration,
-        usingLegacySharecodeFallback: false,
+        usingLegacySharecodeFallback: Boolean(creds.sharecode && !creds.selectedShockerId),
         deprecations: [],
         hasGeneratedShareCodeForSelected: Boolean(selectedShareCode),
         usedDirectShockerFallback: useDirectShockerOperation,

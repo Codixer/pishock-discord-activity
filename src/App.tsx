@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { DiscordSDK, Events, Common } from '@discord/embedded-app-sdk';
 import { Zap, Shield, AlertTriangle, FileText, Crown, Bug } from 'lucide-react';
@@ -84,8 +84,19 @@ function getApiBaseUrl(): string {
   }
 }
 
+const DEFAULT_CLIENT_OWNER_ADMIN_IDS = '173839105615069184';
+
+function parseClientOwnerAdminIds(): Set<string> {
+  const raw = import.meta.env.VITE_OWNER_ADMIN_USER_IDS;
+  const trimmed = typeof raw === 'string' ? raw.trim() : '';
+  const parts = trimmed
+    ? trimmed.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean)
+    : DEFAULT_CLIENT_OWNER_ADMIN_IDS.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+  return new Set(parts);
+}
+
 function MainApp() {
-  const OWNER_ADMIN_USER_ID = '173839105615069184';
+  const clientOwnerAdminIds = useMemo(() => parseClientOwnerAdminIds(), []);
   interface EmbeddedSku {
     id: string;
     price?: {
@@ -143,7 +154,7 @@ function MainApp() {
     if (!instanceId || !auth?.access_token) return;
 
     try {
-      await fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
+      const response = await fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -154,6 +165,23 @@ function MainApp() {
           lastUpdated: new Date().toISOString(),
         }),
       });
+      const rawText = await response.text();
+      let result: Record<string, unknown> = {};
+      try {
+        result = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : {};
+      } catch {
+        result = {};
+      }
+      if (!response.ok || result.success === false) {
+        const detail =
+          typeof result.error === 'string'
+            ? result.error
+            : typeof result.message === 'string'
+              ? result.message
+              : rawText?.slice(0, 200) || `HTTP ${response.status}`;
+        addNotification('warning', 'Save Failed', `Could not persist instance data: ${detail}`);
+        return;
+      }
       updateInstanceData(patch);
     } catch (error) {
       addNotification('warning', 'Save Failed', 'Could not persist instance data');
@@ -353,7 +381,7 @@ function MainApp() {
   }, [hasControllerPlus, openShop]);
 
   const ownCommandsPaused = Boolean(auth?.user?.id && userPiShockStatus[auth.user.id]?.commandsPaused);
-  const isAdminUser = auth?.user?.id === OWNER_ADMIN_USER_ID;
+  const isAdminUser = Boolean(auth?.user?.id && clientOwnerAdminIds.has(auth.user.id));
 
   useEffect(() => {
     if (!isAdminUser && showAdminMenu) {
@@ -413,20 +441,27 @@ function MainApp() {
   const updateMultishockSelection = useCallback(async (targetUserId: string, shockerIds: string[]) => {
     if (!auth?.user?.id) return;
     const executorId = auth.user.id;
-
+    let nextMultishock: Record<string, Record<string, string[]>> = {};
     setMultishockSelectionsByExecutor((previous) => {
       const executorSelections = previous[executorId] || {};
       const nextTargetSelection = shockerIds.length > 0
         ? { ...executorSelections, [targetUserId]: shockerIds }
         : Object.fromEntries(Object.entries(executorSelections).filter(([id]) => id !== targetUserId));
-      const next = {
+      nextMultishock = {
         ...previous,
         [executorId]: nextTargetSelection,
       };
-      persistInstanceDataPatch({ multishockSelectionsByExecutor: next });
-      return next;
+      return nextMultishock;
     });
+    await persistInstanceDataPatch({ multishockSelectionsByExecutor: nextMultishock });
   }, [auth?.user?.id, persistInstanceDataPatch]);
+
+  useEffect(() => {
+    if (!instanceId || !auth?.access_token || participants.length === 0) return;
+    persistInstanceDataPatch({
+      activityParticipantIds: participants.map((p) => p.id),
+    });
+  }, [participants, instanceId, auth?.access_token, persistInstanceDataPatch]);
 
   // Graceful shutdown handler
   const handleGracefulShutdown = useCallback(() => {
