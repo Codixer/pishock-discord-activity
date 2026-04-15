@@ -176,6 +176,45 @@ function MainApp() {
   }, [auth?.access_token, addNotification]);
 
   const purchaseSku = useCallback(async (skuId: string) => {
+    const showFirstOverlimitPurchaseWarningIfNeeded = async () => {
+      if (!auth?.access_token) return;
+
+      try {
+        const statusResponse = await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${auth.access_token}`,
+          },
+        });
+        if (!statusResponse.ok) {
+          throw new Error('Unable to verify purchase warning acknowledgement.');
+        }
+
+        const status = await statusResponse.json();
+        if (status.hasSeenFirstOverlimitPurchaseWarning) {
+          return;
+        }
+
+        window.alert(
+          'Over-limit purchase warning (one-time)\n\n' +
+          '- This application cannot guarantee people will have this feature enabled.\n' +
+          '- This application cannot guarantee the command will deliver because users can still limit their shocker itself.\n' +
+          '- Money used for this feature goes to the developer, not the shocked user.'
+        );
+
+        await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${auth.access_token}`,
+          },
+          body: JSON.stringify({ hasSeenFirstOverlimitPurchaseWarning: true }),
+        });
+      } catch (error) {
+        addNotification('warning', 'Purchase Notice', 'Could not persist one-time purchase warning acknowledgement.');
+      }
+    };
+
     if (!isEmbedded || !discordSdk) {
       window.open('https://discord.com/channels/@me', '_blank');
       return;
@@ -189,10 +228,13 @@ function MainApp() {
         await commands.openExternalLink({ url: 'https://discord.com/channels/@me' });
       }
       await refreshEntitlements();
+      if (skuId === OVERLIMIT_SKU_ID) {
+        await showFirstOverlimitPurchaseWarningIfNeeded();
+      }
     } catch (error) {
       addNotification('warning', 'Purchase', 'Unable to open Discord purchase flow');
     }
-  }, [refreshEntitlements, addNotification]);
+  }, [refreshEntitlements, addNotification, auth?.access_token]);
 
   const purchaseControllerPlus = useCallback(async () => {
     await purchaseSku(CONTROLLER_PLUS_SKU_ID);

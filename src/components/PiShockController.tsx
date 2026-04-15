@@ -71,6 +71,7 @@ export function PiShockController({
   const [currentUserPiShockConnected, setCurrentUserPiShockConnected] = useState(false);
   const [discordConnected, setDiscordConnected] = useState(!!auth);
   const [isMultishocking, setIsMultishocking] = useState(false);
+  const [bypassModeEnabled, setBypassModeEnabled] = useState(false);
   const effectivePiShockConnected = currentUserPiShockConnected || isConnected;
 
   // Check if we're in PIP mode
@@ -100,6 +101,7 @@ export function PiShockController({
   const effectiveLimits = getEffectiveLimits();
   const selectedUserStatus = selectedUser ? (window as any).userPiShockStatus?.[selectedUser.id] : null;
   const selectedUserCommandsPaused = Boolean(selectedUserStatus?.commandsPaused);
+  const targetAllowsBypass = Boolean(selectedUserStatus?.allowOverLimitWithConsumable);
   const selectedUserCapabilities = {
     canShock: selectedUserStatus?.canShock !== false,
     canVibrate: selectedUserStatus?.canVibrate !== false,
@@ -108,26 +110,109 @@ export function PiShockController({
   const limitsOverriddenByApi = Boolean(
     selectedUserStatus?.maxIntensityOverriddenByApi || selectedUserStatus?.maxDurationOverriddenByApi
   );
+  const isSelectionOverLimit =
+    intensity > effectiveLimits.maxIntensity || duration > effectiveLimits.maxDuration;
+  const canArmBypassMode = Boolean(selectedUser && !multishockMode && targetAllowsBypass && hasOverlimitConsumable);
+  const bypassReadyWithoutSpend = bypassModeEnabled && canArmBypassMode && !isSelectionOverLimit;
+  const bypassWillSpendConsumable = bypassModeEnabled && canArmBypassMode && isSelectionOverLimit;
+  const limitIndicatorColor: 'yellow' | 'green' | 'red' =
+    bypassWillSpendConsumable ? 'red' : bypassReadyWithoutSpend ? 'green' : 'yellow';
+  const limitTextColorClass = limitIndicatorColor === 'red'
+    ? 'text-red-400'
+    : limitIndicatorColor === 'green'
+      ? 'text-green-400'
+      : 'text-yellow-400';
+  const sliderStateClass = limitIndicatorColor === 'red'
+    ? 'consumable-slider'
+    : limitIndicatorColor === 'green'
+      ? 'unlocked-slider'
+      : 'limited-slider';
+  const sliderMaxIntensity = bypassModeEnabled && !multishockMode ? 100 : effectiveLimits.maxIntensity;
+  const sliderMaxDuration = bypassModeEnabled && !multishockMode ? 15 : effectiveLimits.maxDuration;
 
   // Update intensity and duration when selected user or limits change
   useEffect(() => {
     const limits = getEffectiveLimits();
+    const clampMaxIntensity = bypassModeEnabled && !multishockMode ? 100 : limits.maxIntensity;
+    const clampMaxDuration = bypassModeEnabled && !multishockMode ? 15 : limits.maxDuration;
     // Clamp current values to new limits
     setIntensity(prevIntensity => {
-      if (prevIntensity > limits.maxIntensity) {
-        return limits.maxIntensity;
+      if (prevIntensity > clampMaxIntensity) {
+        return clampMaxIntensity;
       }
       return prevIntensity;
     });
     
     setDuration(prevDuration => {
-      if (prevDuration > limits.maxDuration) {
-        return limits.maxDuration;
+      if (prevDuration > clampMaxDuration) {
+        return clampMaxDuration;
       }
       return prevDuration;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedUser]); // Only depend on selectedUser, not intensity/duration
+  }, [selectedUser, bypassModeEnabled, multishockMode]); // Only depend on mode inputs, not intensity/duration
+
+  useEffect(() => {
+    if (!canArmBypassMode && bypassModeEnabled) {
+      setBypassModeEnabled(false);
+    }
+  }, [canArmBypassMode, bypassModeEnabled]);
+
+  const ensureFirstBypassWarningAcknowledged = async (): Promise<boolean> => {
+    if (!auth?.access_token) {
+      addNotification('error', 'Bypass Unavailable', 'Missing auth token for warning acknowledgement.');
+      return false;
+    }
+
+    try {
+      const statusResponse = await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+      });
+      if (!statusResponse.ok) {
+        throw new Error('Unable to verify warning acknowledgement status.');
+      }
+
+      const status = await statusResponse.json();
+      if (status.hasSeenFirstBypassWarning) {
+        return true;
+      }
+
+      const warningAccepted = window.confirm(
+        'Bypass Warning (one-time acknowledgement)\n\n' +
+        '- This application cannot guarantee people will have bypass enabled.\n' +
+        '- This application cannot guarantee the command will deliver; users can still limit their shocker itself.\n' +
+        '- Money used for this feature goes to the developer, not the shocked user.\n\n' +
+        'Do you understand and want to continue?'
+      );
+      if (!warningAccepted) {
+        return false;
+      }
+
+      const ackResponse = await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({ hasSeenFirstBypassWarning: true }),
+      });
+      if (!ackResponse.ok) {
+        throw new Error('Unable to persist warning acknowledgement.');
+      }
+
+      return true;
+    } catch (error) {
+      addNotification(
+        'error',
+        'Bypass Warning',
+        error instanceof Error ? error.message : 'Failed to process bypass warning acknowledgement.'
+      );
+      return false;
+    }
+  };
 
   // Load current user's PiShock connection status when component mounts
   const checkCurrentUserCredentials = async () => {
@@ -198,6 +283,32 @@ export function PiShockController({
       return;
     }
 
+    const bypassEligibleOperation = operation === 0 || operation === 1;
+    const bypassActiveForOperation = bypassModeEnabled && bypassEligibleOperation && !multishockMode;
+    const requestIntensity = bypassActiveForOperation
+      ? intensity
+      : Math.min(intensity, effectiveLimits.maxIntensity);
+    const requestDuration = bypassActiveForOperation
+      ? duration
+      : Math.min(duration, effectiveLimits.maxDuration);
+    const willAttemptOverLimit =
+      requestIntensity > effectiveLimits.maxIntensity || requestDuration > effectiveLimits.maxDuration;
+
+    if (bypassModeEnabled && operation === 2 && isSelectionOverLimit) {
+      addNotification(
+        'info',
+        'Bypass Not Applied',
+        `Bypass applies to shock/vibrate only. Beep will use ${requestIntensity}% / ${requestDuration}s.`
+      );
+    }
+
+    if (bypassActiveForOperation) {
+      const warningReady = await ensureFirstBypassWarningAcknowledged();
+      if (!warningReady) {
+        return;
+      }
+    }
+
     setIsShocking(true);
 
     try {
@@ -212,8 +323,8 @@ export function PiShockController({
         body: JSON.stringify({
           executorUserId: currentUser.id,
           targetUserId: selectedUser.id,
-          intensity,
-          duration,
+          intensity: requestIntensity,
+          duration: requestDuration,
           operation, // 0 = shock, 1 = vibrate, 2 = beep
         }),
       });
@@ -222,7 +333,18 @@ export function PiShockController({
         const result = await response.json();
         if (result.success) {
           const actionName = operation === 0 ? 'Shock' : operation === 1 ? 'Vibration' : 'Beep';
-          addNotification('success', 'Command Sent', `${actionName} sent to ${selectedUser.displayName || selectedUser.username} - Intensity: ${intensity}%, Duration: ${duration}s`);
+          const bypassLabel = bypassActiveForOperation ? ' [Bypass Armed]' : '';
+          const consumableNotice = result.overLimitUsed
+            ? ' Consumable spent for over-limit execution.'
+            : (bypassActiveForOperation && !willAttemptOverLimit ? ' Bypass armed; no consumable spent.' : '');
+          addNotification(
+            'success',
+            'Command Sent',
+            `${actionName}${bypassLabel} sent to ${selectedUser.displayName || selectedUser.username} - Intensity: ${requestIntensity}%, Duration: ${requestDuration}s.${consumableNotice}`
+          );
+          if (result.overLimitUsed) {
+            onRefreshEntitlements();
+          }
         } else {
           throw new Error(result.error || 'Command failed');
         }
@@ -492,13 +614,60 @@ export function PiShockController({
                 </div>
               </div>
             )}
+            {!isPipMode && selectedUser && !multishockMode && (
+              <div className={`p-3 rounded-lg border ${
+                limitIndicatorColor === 'red'
+                  ? 'bg-red-900/20 border-red-500/40'
+                  : limitIndicatorColor === 'green'
+                    ? 'bg-emerald-900/20 border-emerald-500/40'
+                    : 'bg-yellow-900/20 border-yellow-500/40'
+              }`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className={`text-sm font-medium ${limitTextColorClass}`}>
+                      Over-limit bypass for Shock/Vibrate
+                    </p>
+                    <p className="text-xs text-gray-200 mt-1">
+                      Yellow = normal limits, Green = bypass armed, Red = consumable will be spent on activation.
+                    </p>
+                    {!targetAllowsBypass && (
+                      <p className="text-xs text-red-300 mt-1">
+                        Target has not enabled over-limit bypass in their settings.
+                      </p>
+                    )}
+                    {targetAllowsBypass && !hasOverlimitConsumable && (
+                      <p className="text-xs text-red-300 mt-1">
+                        You do not currently have an over-limit consumable.
+                      </p>
+                    )}
+                    {targetAllowsBypass && hasOverlimitConsumable && (
+                      <p className="text-xs text-emerald-300 mt-1">
+                        Consumables available: {overlimitConsumableCount}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setBypassModeEnabled((previous) => !previous)}
+                    disabled={!canArmBypassMode}
+                    className={`px-3 py-1.5 rounded text-xs font-semibold transition-colors ${
+                      bypassModeEnabled
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                        : 'bg-gray-700 hover:bg-gray-600 text-gray-100'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    {bypassModeEnabled ? 'Bypass ON' : 'Bypass OFF'}
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="flex-1 flex flex-col space-y-4 min-h-0">
               <div>
                 <label className={`block font-medium text-gray-300 mb-3 ${isPipMode ? 'text-xs' : 'text-sm sm:text-base'}`}>
                   <div className="flex items-center justify-between">
                     <span>Intensity: {intensity}%</span>
                     {effectiveLimits.maxIntensity < 100 && !isPipMode && (
-                      <div className="flex items-center space-x-1 text-sm text-yellow-400">
+                      <div className={`flex items-center space-x-1 text-sm ${limitTextColorClass}`}>
                         <Lock className="h-3 w-3" />
                         <span>
                           Max: {effectiveLimits.maxIntensity}%{selectedUserStatus?.maxIntensityOverriddenByApi ? ' (PiShock API)' : ''}
@@ -510,19 +679,19 @@ export function PiShockController({
                 <input
                   type="range"
                   min="1"
-                  max={effectiveLimits.maxIntensity}
+                  max={sliderMaxIntensity}
                   value={intensity}
                   onChange={(e) => setIntensity(parseInt(e.target.value))}
                   className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider ${
-                    effectiveLimits.maxIntensity < 100 ? 'limited-slider' : ''
+                    bypassModeEnabled || effectiveLimits.maxIntensity < 100 ? sliderStateClass : ''
                   } slider-large`}
                 />
                 {!isPipMode && (
                   <div className="flex justify-between text-sm text-gray-400 mt-2">
                   <span>1%</span>
-                  <span>{Math.floor(effectiveLimits.maxIntensity / 2)}%</span>
-                  <span className={effectiveLimits.maxIntensity < 100 ? 'text-yellow-400' : ''}>
-                    {effectiveLimits.maxIntensity}%{effectiveLimits.maxIntensity < 100 ? ' (Max)' : ''}
+                  <span>{Math.floor(sliderMaxIntensity / 2)}%</span>
+                  <span className={bypassModeEnabled || effectiveLimits.maxIntensity < 100 ? limitTextColorClass : ''}>
+                    {sliderMaxIntensity}%{bypassModeEnabled || effectiveLimits.maxIntensity < 100 ? ' (Max)' : ''}
                   </span>
                   </div>
                 )}
@@ -533,7 +702,7 @@ export function PiShockController({
                   <div className="flex items-center justify-between">
                     <span>Duration: {duration}s</span>
                     {effectiveLimits.maxDuration < 15 && !isPipMode && (
-                      <div className="flex items-center space-x-1 text-sm text-yellow-400">
+                      <div className={`flex items-center space-x-1 text-sm ${limitTextColorClass}`}>
                         <Lock className="h-3 w-3" />
                         <span>
                           Max: {effectiveLimits.maxDuration}s{selectedUserStatus?.maxDurationOverriddenByApi ? ' (PiShock API)' : ''}
@@ -545,19 +714,19 @@ export function PiShockController({
                 <input
                   type="range"
                   min="1"
-                  max={effectiveLimits.maxDuration}
+                  max={sliderMaxDuration}
                   value={duration}
                   onChange={(e) => setDuration(parseInt(e.target.value))}
                   className={`w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider ${
-                    effectiveLimits.maxDuration < 15 ? 'limited-slider' : ''
+                    bypassModeEnabled || effectiveLimits.maxDuration < 15 ? sliderStateClass : ''
                   } slider-large`}
                 />
                 {!isPipMode && (
                   <div className="flex justify-between text-sm text-gray-400 mt-2">
                   <span>1s</span>
-                  <span>{Math.floor(effectiveLimits.maxDuration / 2)}s</span>
-                  <span className={effectiveLimits.maxDuration < 15 ? 'text-yellow-400' : ''}>
-                    {effectiveLimits.maxDuration}s{effectiveLimits.maxDuration < 15 ? ' (Max)' : ''}
+                  <span>{Math.floor(sliderMaxDuration / 2)}s</span>
+                  <span className={bypassModeEnabled || effectiveLimits.maxDuration < 15 ? limitTextColorClass : ''}>
+                    {sliderMaxDuration}s{bypassModeEnabled || effectiveLimits.maxDuration < 15 ? ' (Max)' : ''}
                   </span>
                   </div>
                 )}
