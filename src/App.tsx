@@ -103,6 +103,7 @@ function MainApp() {
   const [overlimitConsumableCount, setOverlimitConsumableCount] = useState(0);
   const [showControllerPlusShop, setShowControllerPlusShop] = useState(false);
   const [multishockMode, setMultishockMode] = useState(false);
+  const [togglingEmergencyStop, setTogglingEmergencyStop] = useState(false);
   const [multishockSelectionsByExecutor, setMultishockSelectionsByExecutor] = useState<Record<string, Record<string, string[]>>>({});
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
@@ -251,6 +252,57 @@ function MainApp() {
     }
     setMultishockMode(enabled);
   }, [hasControllerPlus]);
+
+  const ownCommandsPaused = Boolean(auth?.user?.id && userPiShockStatus[auth.user.id]?.commandsPaused);
+
+  const toggleEmergencyStop = useCallback(async () => {
+    if (!auth?.user?.id || !auth?.access_token || togglingEmergencyStop) return;
+    const nextPausedValue = !ownCommandsPaused;
+    setTogglingEmergencyStop(true);
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/users/${auth.user.id}/pishock-settings`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({
+          commandsPaused: nextPausedValue,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Unable to update emergency stop');
+      }
+
+      setUserPiShockStatus((previous) => ({
+        ...previous,
+        [auth.user.id]: {
+          ...(previous[auth.user.id] || {}),
+          commandsPaused: nextPausedValue,
+          lastChecked: Date.now(),
+        },
+      }));
+      addNotification(
+        'success',
+        nextPausedValue ? 'Emergency Stop Enabled' : 'Emergency Stop Disabled',
+        nextPausedValue
+          ? 'Incoming commands to your PiShock are now blocked.'
+          : 'Incoming commands to your PiShock are now allowed.'
+      );
+      if (window.refreshAllUserStatuses) {
+        window.refreshAllUserStatuses();
+      }
+    } catch (error) {
+      addNotification(
+        'error',
+        'Emergency Stop',
+        error instanceof Error ? error.message : 'Failed to update emergency stop'
+      );
+    } finally {
+      setTogglingEmergencyStop(false);
+    }
+  }, [auth?.user?.id, auth?.access_token, togglingEmergencyStop, ownCommandsPaused, addNotification]);
 
   const updateMultishockSelection = useCallback(async (targetUserId: string, shockerIds: string[]) => {
     if (!auth?.user?.id) return;
@@ -1009,6 +1061,22 @@ function MainApp() {
               </div>
             </div>
             <div className="flex items-center space-x-4">
+              {auth?.user?.id && (
+                <button
+                  type="button"
+                  onClick={toggleEmergencyStop}
+                  disabled={togglingEmergencyStop}
+                  className={`px-2 py-1 rounded-md text-xs font-semibold transition-colors border ${
+                    ownCommandsPaused
+                      ? 'bg-red-600 hover:bg-red-700 border-red-400 text-white'
+                      : 'bg-emerald-700/40 hover:bg-emerald-700 border-emerald-500/70 text-emerald-100'
+                  } disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center space-x-1`}
+                  title="Emergency stop for incoming commands to your PiShock"
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                  <span>{togglingEmergencyStop ? 'Updating...' : ownCommandsPaused ? 'Emergency Stop ON' : 'Emergency Stop OFF'}</span>
+                </button>
+              )}
               {instanceId && (
                 <div className="text-xs text-gray-400">
                   Instance: {instanceId.slice(-8)}

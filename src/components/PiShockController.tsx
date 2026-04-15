@@ -72,8 +72,6 @@ export function PiShockController({
   const [discordConnected, setDiscordConnected] = useState(!!auth);
   const [isMultishocking, setIsMultishocking] = useState(false);
   const [bypassModeEnabled, setBypassModeEnabled] = useState(false);
-  const [ownCommandsPaused, setOwnCommandsPaused] = useState(false);
-  const [togglingEmergencyStop, setTogglingEmergencyStop] = useState(false);
   const effectivePiShockConnected = currentUserPiShockConnected || isConnected;
 
   // Check if we're in PIP mode
@@ -179,13 +177,23 @@ export function PiShockController({
         return true;
       }
 
-      const warningAccepted = window.confirm(
-        'Bypass Warning (one-time acknowledgement)\n\n' +
-        '- This application cannot guarantee people will have bypass enabled.\n' +
-        '- This application cannot guarantee the command will deliver; users can still limit their shocker itself.\n' +
-        '- Money used for this feature goes to the developer, not the shocked user.\n\n' +
-        'Do you understand and want to continue?'
-      );
+      let warningAccepted = true;
+      if (isEmbedded) {
+        // Browser modal APIs are blocked in Discord embedded sandbox, so surface warning non-blockingly.
+        addNotification(
+          'warning',
+          'Bypass Warning',
+          'Bypass enabled: delivery is not guaranteed, target/device constraints still apply, and consumables go to the developer.'
+        );
+      } else {
+        warningAccepted = window.confirm(
+          'Bypass Warning (one-time acknowledgement)\n\n' +
+          '- This application cannot guarantee people will have bypass enabled.\n' +
+          '- This application cannot guarantee the command will deliver; users can still limit their shocker itself.\n' +
+          '- Money used for this feature goes to the developer, not the shocked user.\n\n' +
+          'Do you understand and want to continue?'
+        );
+      }
       if (!warningAccepted) {
         return false;
       }
@@ -228,7 +236,6 @@ export function PiShockController({
         const status = await response.json();
         
         setCurrentUserPiShockConnected(status.isConnected);
-        setOwnCommandsPaused(Boolean(status.commandsPaused));
         onConnectionChange(status.isConnected);
         
         if (status.hasCredentials && !status.isConnected) {
@@ -244,48 +251,6 @@ export function PiShockController({
     }
   };
 
-  const toggleEmergencyStop = async () => {
-    if (!currentUser || !auth || togglingEmergencyStop) return;
-    const nextPausedValue = !ownCommandsPaused;
-    setTogglingEmergencyStop(true);
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${auth.access_token}`,
-        },
-        body: JSON.stringify({
-          commandsPaused: nextPausedValue,
-        }),
-      });
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Unable to update emergency stop');
-      }
-
-      setOwnCommandsPaused(nextPausedValue);
-      if (window.refreshAllUserStatuses) {
-        window.refreshAllUserStatuses();
-      }
-      addNotification(
-        'success',
-        nextPausedValue ? 'Emergency Stop Enabled' : 'Emergency Stop Disabled',
-        nextPausedValue
-          ? 'Incoming commands to your PiShock are now blocked.'
-          : 'Incoming commands to your PiShock are now allowed.'
-      );
-    } catch (error) {
-      addNotification(
-        'error',
-        'Emergency Stop',
-        error instanceof Error ? error.message : 'Failed to update emergency stop'
-      );
-    } finally {
-      setTogglingEmergencyStop(false);
-    }
-  };
-  
   useEffect(() => {
     checkCurrentUserCredentials();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -513,27 +478,9 @@ export function PiShockController({
       <div className="h-full flex flex-col space-y-4 overflow-y-auto">
         <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6 flex-1 flex flex-col min-h-0 ${isPipMode ? 'p-2' : ''}`}>
           <div className="flex items-center justify-between mb-6 flex-shrink-0">
-            <div className="flex items-center gap-3">
-              <h3 className={`font-semibold ${isPipMode ? 'text-sm' : 'text-lg sm:text-xl'}`}>
-                Control Panel
-              </h3>
-              {!isPipMode && (
-                <button
-                  type="button"
-                  onClick={toggleEmergencyStop}
-                  disabled={togglingEmergencyStop || !auth}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border ${
-                    ownCommandsPaused
-                      ? 'bg-red-600 hover:bg-red-700 border-red-400 text-white'
-                      : 'bg-emerald-700/40 hover:bg-emerald-700 border-emerald-500/70 text-emerald-100'
-                  } disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5`}
-                  title="Emergency stop for incoming commands to your PiShock"
-                >
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  <span>{togglingEmergencyStop ? 'Updating...' : ownCommandsPaused ? 'Emergency Stop ON' : 'Emergency Stop OFF'}</span>
-                </button>
-              )}
-            </div>
+            <h3 className={`font-semibold ${isPipMode ? 'text-sm' : 'text-lg sm:text-xl'}`}>
+              Control Panel
+            </h3>
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-4">
                 <div className="flex items-center space-x-2">
