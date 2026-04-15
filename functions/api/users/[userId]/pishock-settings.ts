@@ -465,21 +465,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         },
         availableShockers.map((shocker) => String(shocker.id))
       );
-      if (!generatedShareCodesResult.ok || !generatedShareCodesResult.data) {
-        return jsonResponse({
-          success: false,
-          isConnected: false,
-          error: generatedShareCodesResult.error || 'Failed to generate legacy bridge sharecodes.',
-          debug: {
-            step: 'share_code_generation',
-            status: generatedShareCodesResult.status,
-            rawBody: generatedShareCodesResult.rawBody,
-          }
-        }, 502);
-      }
-      const generatedShareCodes = normalizeGeneratedShareCodes(generatedShareCodesResult.data);
+      const generatedShareCodes = generatedShareCodesResult.ok && generatedShareCodesResult.data
+        ? normalizeGeneratedShareCodes(generatedShareCodesResult.data)
+        : {};
+      const shareCodeGenerationFailed = !generatedShareCodesResult.ok || !generatedShareCodesResult.data;
       const selectedShareCode = getGeneratedShareCodeForShocker(generatedShareCodes, finalSelectedShockerId);
-      if (!selectedShareCode) {
+      if (!selectedShareCode && !shareCodeGenerationFailed) {
         return jsonResponse({
           success: false,
           isConnected: false,
@@ -504,6 +495,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         allowedShockerIds: normalizedAllowedShockerIds,
         allowOverLimitWithConsumable: Boolean(allowOverLimitWithConsumable),
         generatedShareCodes,
+        generatedShareCodeGenerationFailed: shareCodeGenerationFailed,
         generatedShareCodesLastUpdated: new Date().toISOString(),
         hasOwnDevice: actuallyHasDevice,
         piShockUserId,
@@ -560,13 +552,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         allowedShockerIds: normalizedAllowedShockerIds,
         allowOverLimitWithConsumable: Boolean(allowOverLimitWithConsumable),
         commandsPaused: Boolean(userData.commandsPaused),
-        deprecations: [],
+        deprecations: shareCodeGenerationFailed ? [
+          'Legacy bridge sharecode generation failed. Commands will use direct shocker control fallback.'
+        ] : [],
         debug: {
           credentialValidation: credentialValidation.debugInfo,
           deviceCheck: deviceCheck.debugInfo,
           shareCodeGeneration: {
             generatedShareCodeCount: Object.keys(generatedShareCodes).length,
             hasSelectedShareCode: Boolean(selectedShareCode),
+            failed: shareCodeGenerationFailed,
+            status: generatedShareCodesResult.status,
+            error: generatedShareCodesResult.error,
+            rawBody: generatedShareCodesResult.rawBody,
           },
           usingLegacySharecodeFallback: false
         }

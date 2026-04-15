@@ -54,6 +54,7 @@ export function PiShockSettingsModal({
   const [loadingData, setLoadingData] = useState(false);
   const [refreshingShockers, setRefreshingShockers] = useState(false);
   const [hasStoredCredentials, setHasStoredCredentials] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<{
     connected: boolean;
     message: string;
@@ -230,15 +231,16 @@ export function PiShockSettingsModal({
     const isNewUser = !hasStoredCredentials;
     
     if (isNewUser && (!apiKey || !username || !selectedShockerId)) {
-      alert('Please fill in all required fields: API Key, Username, and Selected Shocker');
+      setFormError('Please fill in all required fields: API Key, Username, and Selected Shocker.');
       return;
     }
     
     if (!username || !selectedShockerId) {
-      alert('Please fill in Username and Selected Shocker');
+      setFormError('Please fill in Username and Selected Shocker.');
       return;
     }
 
+    setFormError(null);
     setSaving(true);
     try {
       const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
@@ -291,10 +293,18 @@ export function PiShockSettingsModal({
         onSettingsSaved();
         onClose();
       } else {
-        throw new Error(result.error || 'Failed to save settings');
+        const debugStep = result?.debug?.step ? ` (step: ${result.debug.step})` : '';
+        const debugRawBody = result?.debug?.rawBody ? ` Details: ${String(result.debug.rawBody).slice(0, 300)}` : '';
+        throw new Error(`${result.error || 'Failed to save settings'}${debugStep}${debugRawBody}`);
       }
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to save settings');
+      const message = error instanceof Error ? error.message : 'Failed to save settings';
+      setFormError(message);
+      setConnectionStatus({
+        connected: false,
+        message: message.slice(0, 120),
+        color: 'red'
+      });
     } finally {
       setSaving(false);
     }
@@ -367,6 +377,7 @@ export function PiShockSettingsModal({
   const refreshOwnedShockers = async () => {
     if (!currentUser || !auth) return;
 
+    setFormError(null);
     setRefreshingShockers(true);
     try {
       const hasCredentialsInput = Boolean(username.trim()) && (Boolean(apiKey.trim()) || hasStoredCredentials);
@@ -391,11 +402,11 @@ export function PiShockSettingsModal({
               'Authorization': `Bearer ${auth.access_token}`,
             },
           });
-      if (!response.ok) {
-        throw new Error('Unable to refresh owned shockers');
-      }
-
       const result = await response.json();
+      if (!response.ok) {
+        const debugStep = result?.debug?.step ? ` (step: ${result.debug.step})` : '';
+        throw new Error(`${result?.error || 'Unable to refresh owned shockers'}${debugStep}`);
+      }
       const settings = result?.settings || result;
       const ownedShockers = Array.isArray(settings?.availableShockers) ? settings.availableShockers : [];
       if (ownedShockers.length === 0) {
@@ -414,7 +425,7 @@ export function PiShockSettingsModal({
         window.refreshAllUserStatuses();
       }
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to refresh owned shockers');
+      setFormError(error instanceof Error ? error.message : 'Failed to refresh owned shockers');
     } finally {
       setRefreshingShockers(false);
     }
@@ -479,6 +490,11 @@ export function PiShockSettingsModal({
                 <Loader className="h-4 w-4 animate-spin" />
                 <span>Loading your saved settings...</span>
               </div>
+            </div>
+          )}
+          {formError && (
+            <div className="p-4 bg-red-900/20 border border-red-500/30 rounded-lg text-sm text-red-200">
+              {formError}
             </div>
           )}
 

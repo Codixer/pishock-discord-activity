@@ -4,6 +4,7 @@ import {
   getPiShockAccount,
   listPiShockShockers,
   normalizeGeneratedShareCodes,
+  operatePiShockShocker,
   operatePiShockShareCode,
 } from '../../_shared/pishock-client';
 
@@ -231,43 +232,35 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         let generatedShareCodes = normalizeGeneratedShareCodes(creds.generatedShareCodes);
         const ownedIdList = Array.from(ownedShockerIds);
         const hasAllOwnedShareCodes = ownedIdList.every((id) => Boolean(generatedShareCodes[id]));
+        let shareCodeGenerationFailed = false;
         if (!hasAllOwnedShareCodes) {
           const generatedShareCodesResult = await generateLegacyShareCodesForOwnedShockers(credentials, ownedIdList);
           if (!generatedShareCodesResult.ok || !generatedShareCodesResult.data) {
-            return jsonResponse({
-              success: false,
-              isConnected: false,
-              error: generatedShareCodesResult.error || 'Failed generating sharecodes for owned shockers.',
-              debug: {
-                step: 'share_code_generation',
-                status: generatedShareCodesResult.status,
-                rawBody: generatedShareCodesResult.rawBody,
-              }
-            }, 502);
+            shareCodeGenerationFailed = true;
+          } else {
+            generatedShareCodes = normalizeGeneratedShareCodes(generatedShareCodesResult.data);
+            creds.generatedShareCodes = generatedShareCodes;
+            creds.generatedShareCodesLastUpdated = new Date().toISOString();
+            userData.credentials = btoa(JSON.stringify(creds));
+            await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
           }
-          generatedShareCodes = normalizeGeneratedShareCodes(generatedShareCodesResult.data);
-          creds.generatedShareCodes = generatedShareCodes;
-          creds.generatedShareCodesLastUpdated = new Date().toISOString();
-          userData.credentials = btoa(JSON.stringify(creds));
-          await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
         }
 
         const selectedShareCode = getGeneratedShareCodeForShocker(generatedShareCodes, selectedShockerId);
-        if (!selectedShareCode) {
-          return jsonResponse({
-            success: false,
-            isConnected: false,
-            error: 'Selected shocker is missing a generated sharecode.',
-            selectedShockerId,
-          }, 502);
-        }
-
-        const testResult = await operatePiShockShareCode(credentials, selectedShareCode, {
-          operation: 2,
-          intensity: 1,
-          durationSeconds: 1,
-          agentName: 'DiscordActivityConnectionTest',
-        });
+        const useDirectShockerOperation = !selectedShareCode;
+        const testResult = useDirectShockerOperation
+          ? await operatePiShockShocker(credentials, String(selectedShockerId), {
+              operation: 2,
+              intensity: 1,
+              durationSeconds: 1,
+              agentName: 'DiscordActivityConnectionTest',
+            })
+          : await operatePiShockShareCode(credentials, selectedShareCode, {
+              operation: 2,
+              intensity: 1,
+              durationSeconds: 1,
+              agentName: 'DiscordActivityConnectionTest',
+            });
 
         if (!testResult.ok) {
           return jsonResponse({
@@ -278,6 +271,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
             hasGeneratedShareCodeForSelected: Boolean(selectedShareCode),
             allowedShockerIds,
             allowOverLimitWithConsumable,
+            usedDirectShockerFallback: useDirectShockerOperation,
+            shareCodeGenerationFailed,
           });
         }
 

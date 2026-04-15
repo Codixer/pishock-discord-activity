@@ -4,6 +4,7 @@ import {
   getGeneratedShareCodeForShocker,
   listPiShockShockers,
   normalizeGeneratedShareCodes,
+  operatePiShockShocker,
   operatePiShockShareCode,
 } from '../../_shared/pishock-client';
 import { consumeOverlimitEntitlement, getControllerPlusState } from '../../_shared/discord-entitlements';
@@ -403,24 +404,24 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       let generatedShareCodes = normalizeGeneratedShareCodes(creds.generatedShareCodes);
       const hasAllOwnedShareCodes = ownedShockerIds.every((id) => Boolean(generatedShareCodes[id]));
+      let shareCodeGenerationFailed = false;
       if (!hasAllOwnedShareCodes) {
         const generatedShareCodesResult = await generateLegacyShareCodesForOwnedShockers(
           pishockCredentials,
           ownedShockerIds
         );
         if (!generatedShareCodesResult.ok || !generatedShareCodesResult.data) {
-          throw new Error(generatedShareCodesResult.error || 'Failed to generate sharecodes for owned shockers.');
+          shareCodeGenerationFailed = true;
+        } else {
+          generatedShareCodes = normalizeGeneratedShareCodes(generatedShareCodesResult.data);
+          creds.generatedShareCodes = generatedShareCodes;
+          creds.generatedShareCodesLastUpdated = new Date().toISOString();
+          userData.credentials = btoa(JSON.stringify(creds));
+          await env.PISHOCK_KV.put(`user:${targetUserId}:data`, JSON.stringify(userData));
         }
-        generatedShareCodes = normalizeGeneratedShareCodes(generatedShareCodesResult.data);
-        creds.generatedShareCodes = generatedShareCodes;
-        creds.generatedShareCodesLastUpdated = new Date().toISOString();
-        userData.credentials = btoa(JSON.stringify(creds));
-        await env.PISHOCK_KV.put(`user:${targetUserId}:data`, JSON.stringify(userData));
       }
       const selectedShareCode = getGeneratedShareCodeForShocker(generatedShareCodes, String(selectedShockerId));
-      if (!selectedShareCode) {
-        throw new Error('Selected shocker does not have a generated sharecode.');
-      }
+      const useDirectShockerOperation = !selectedShareCode;
 
       if (operation === 0 && !selectedShocker.CanShock) {
         return jsonResponse({
@@ -492,12 +493,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         consumedEntitlementId = entitlementState.overlimitEntitlementId;
       }
 
-      const operateResult = await operatePiShockShareCode(pishockCredentials, selectedShareCode, {
-        operation,
-        intensity,
-        durationSeconds: duration,
-        agentName: 'DiscordActivity',
-      });
+      const operateResult = useDirectShockerOperation
+        ? await operatePiShockShocker(pishockCredentials, String(selectedShockerId), {
+            operation,
+            intensity,
+            durationSeconds: duration,
+            agentName: 'DiscordActivity',
+          })
+        : await operatePiShockShareCode(pishockCredentials, selectedShareCode, {
+            operation,
+            intensity,
+            durationSeconds: duration,
+            agentName: 'DiscordActivity',
+          });
 
       if (!operateResult.ok) {
         throw new Error(operateResult.error || 'PiShock operation failed.');
@@ -540,7 +548,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         maxDurationOverriddenByApi,
         usingLegacySharecodeFallback: false,
         deprecations: [],
-        hasGeneratedShareCodeForSelected: true,
+        hasGeneratedShareCodeForSelected: Boolean(selectedShareCode),
+        usedDirectShockerFallback: useDirectShockerOperation,
+        shareCodeGenerationFailed,
       });
 
     } catch (error) {
