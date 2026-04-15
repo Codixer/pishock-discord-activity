@@ -1,4 +1,11 @@
-import { getPiShockAccount, listPiShockShockers, operatePiShockShocker, resolvePiShockShockerId } from '../../_shared/pishock-client';
+import {
+  generateLegacyShareCodesForOwnedShockers,
+  getGeneratedShareCodeForShocker,
+  getPiShockAccount,
+  listPiShockShockers,
+  normalizeGeneratedShareCodes,
+  operatePiShockShareCode,
+} from '../../_shared/pishock-client';
 
 interface Env {
   PISHOCK_KV: KVNamespace;
@@ -182,7 +189,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       let deviceCount = 0;
       let deviceDebugInfo = null;
       let availableDevices: any[] = [];
-      let usingLegacySharecodeFallback = false;
       let selectedShockerId: string | null = creds.selectedShockerId || creds.shockerId || null;
       let selectedShockerName: string | null = creds.selectedShockerName || null;
       const allowedShockerIds: string[] = Array.isArray(creds.allowedShockerIds) ? creds.allowedShockerIds.map((id: any) => String(id)) : [];
@@ -205,42 +211,78 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           apiKey: creds.apiKey,
           username: creds.username,
           piShockUserId: credentialValidation.userId,
-          shockerId: selectedShockerId || undefined,
         };
-
-        let shockerIdToTest = selectedShockerId;
-        if (!shockerIdToTest && creds.sharecode) {
-          usingLegacySharecodeFallback = true;
-          const legacyResolve = await resolvePiShockShockerId(credentials, creds.sharecode, { allowDefaultFallback: true });
-          if (legacyResolve.ok && legacyResolve.data) {
-            shockerIdToTest = legacyResolve.data;
-          }
+        const ownedShockerIds = new Set(
+          Array.isArray(availableDevices)
+            ? availableDevices
+                .filter((shocker: any) => shocker?.ShockerId !== undefined && shocker?.ShockerId !== null)
+                .map((shocker: any) => String(shocker.ShockerId))
+            : []
+        );
+        if (!selectedShockerId || !ownedShockerIds.has(String(selectedShockerId))) {
+          return jsonResponse({
+            success: false,
+            isConnected: false,
+            error: 'No valid selected shocker is configured for this account.',
+            selectedShockerId,
+          });
         }
 
-        if (shockerIdToTest) {
-          const testResult = await operatePiShockShocker(credentials, shockerIdToTest, {
-            operation: 2,
-            intensity: 1,
-            durationSeconds: 1,
-            agentName: 'DiscordActivityConnectionTest',
-          });
-
-          if (!testResult.ok) {
+        let generatedShareCodes = normalizeGeneratedShareCodes(creds.generatedShareCodes);
+        const ownedIdList = Array.from(ownedShockerIds);
+        const hasAllOwnedShareCodes = ownedIdList.every((id) => Boolean(generatedShareCodes[id]));
+        if (!hasAllOwnedShareCodes) {
+          const generatedShareCodesResult = await generateLegacyShareCodesForOwnedShockers(credentials, ownedIdList);
+          if (!generatedShareCodesResult.ok || !generatedShareCodesResult.data) {
             return jsonResponse({
               success: false,
               isConnected: false,
-              error: testResult.error || 'PiShock test operation failed',
-              selectedShockerId: shockerIdToTest,
-              usingLegacySharecodeFallback,
-              allowedShockerIds,
-              allowOverLimitWithConsumable,
-            });
+              error: generatedShareCodesResult.error || 'Failed generating sharecodes for owned shockers.',
+              debug: {
+                step: 'share_code_generation',
+                status: generatedShareCodesResult.status,
+                rawBody: generatedShareCodesResult.rawBody,
+              }
+            }, 502);
           }
-
-          selectedShockerId = shockerIdToTest;
-          const selected = availableDevices.find((shocker: any) => String(shocker.ShockerId) === String(shockerIdToTest));
-          selectedShockerName = selected?.Name || selectedShockerName;
+          generatedShareCodes = normalizeGeneratedShareCodes(generatedShareCodesResult.data);
+          creds.generatedShareCodes = generatedShareCodes;
+          creds.generatedShareCodesLastUpdated = new Date().toISOString();
+          userData.credentials = btoa(JSON.stringify(creds));
+          await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
         }
+
+        const selectedShareCode = getGeneratedShareCodeForShocker(generatedShareCodes, selectedShockerId);
+        if (!selectedShareCode) {
+          return jsonResponse({
+            success: false,
+            isConnected: false,
+            error: 'Selected shocker is missing a generated sharecode.',
+            selectedShockerId,
+          }, 502);
+        }
+
+        const testResult = await operatePiShockShareCode(credentials, selectedShareCode, {
+          operation: 2,
+          intensity: 1,
+          durationSeconds: 1,
+          agentName: 'DiscordActivityConnectionTest',
+        });
+
+        if (!testResult.ok) {
+          return jsonResponse({
+            success: false,
+            isConnected: false,
+            error: testResult.error || 'PiShock test operation failed',
+            selectedShockerId,
+            hasGeneratedShareCodeForSelected: Boolean(selectedShareCode),
+            allowedShockerIds,
+            allowOverLimitWithConsumable,
+          });
+        }
+
+        const selected = availableDevices.find((shocker: any) => String(shocker.ShockerId) === String(selectedShockerId));
+        selectedShockerName = selected?.Name || selectedShockerName;
       }
       
       const result = {
@@ -253,7 +295,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         selectedShockerName,
         allowedShockerIds,
         allowOverLimitWithConsumable,
-        usingLegacySharecodeFallback,
+        hasGeneratedShareCodeForSelected: Boolean(getGeneratedShareCodeForShocker(creds.generatedShareCodes, selectedShockerId)),
         lastTested: userData.lastTested,
         debug: {
           credentialValidation: credentialValidation.debugInfo,
@@ -264,11 +306,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
             apiKeyLength: creds.apiKey?.length || 0,
             sharecode: creds.sharecode,
             selectedShockerId: creds.selectedShockerId || creds.shockerId || null,
-            hasOwnDevice: creds.hasOwnDevice
+            hasOwnDevice: creds.hasOwnDevice,
+            generatedShareCodeCount: Object.keys(normalizeGeneratedShareCodes(creds.generatedShareCodes)).length,
           },
-          deprecations: usingLegacySharecodeFallback ? [
-            'Legacy share code fallback in use. Please select a shocker in settings.'
-          ] : []
+          deprecations: []
         }
       };
       

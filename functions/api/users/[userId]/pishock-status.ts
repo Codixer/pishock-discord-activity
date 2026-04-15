@@ -1,4 +1,9 @@
-import { getPiShockAccount, listPiShockShockers } from '../../_shared/pishock-client';
+import {
+  getGeneratedShareCodeForShocker,
+  getPiShockAccount,
+  listPiShockShockers,
+  normalizeGeneratedShareCodes,
+} from '../../_shared/pishock-client';
 
 // Type declarations for Cloudflare Workers
 declare global {
@@ -248,6 +253,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     let selectedShockerId: string | null = null;
     let selectedShockerName: string | null = null;
     let usingLegacySharecodeFallback = false;
+    let hasGeneratedShareCodeForSelected = false;
+    let generatedShareCodeCount = 0;
     let allowedShockerIds: string[] = [];
     let allowOverLimitWithConsumable = false;
     let commandsPaused = Boolean(userData?.commandsPaused);
@@ -266,7 +273,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         maxDuration = creds.maxDuration || 15;
         selectedShockerId = creds.selectedShockerId || creds.shockerId || null;
         selectedShockerName = creds.selectedShockerName || null;
-        usingLegacySharecodeFallback = Boolean(creds.sharecode && !creds.selectedShockerId);
+        usingLegacySharecodeFallback = false;
+        const generatedShareCodes = normalizeGeneratedShareCodes(creds.generatedShareCodes);
+        generatedShareCodeCount = Object.keys(generatedShareCodes).length;
+        hasGeneratedShareCodeForSelected = Boolean(getGeneratedShareCodeForShocker(generatedShareCodes, selectedShockerId));
         allowedShockerIds = Array.isArray(creds.allowedShockerIds) ? creds.allowedShockerIds.map((id: any) => String(id)) : [];
         allowOverLimitWithConsumable = Boolean(creds.allowOverLimitWithConsumable);
         
@@ -342,6 +352,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       selectedShockerId,
       selectedShockerName,
       allowedShockerIds,
+      hasGeneratedShareCodeForSelected,
+      generatedShareCodeCount,
       allowOverLimitWithConsumable,
       commandsPaused,
       canShock,
@@ -355,8 +367,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       maxDuration,
       maxIntensityOverriddenByApi,
       maxDurationOverriddenByApi,
-      deprecations: usingLegacySharecodeFallback ? [
-        'Legacy share code fallback in use. Re-save settings by selecting a shocker.'
+      deprecations: selectedShockerId && !hasGeneratedShareCodeForSelected ? [
+        'Selected shocker is missing a generated sharecode. Run Save or Test to regenerate.'
       ] : []
     };
     

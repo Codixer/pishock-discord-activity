@@ -1,5 +1,11 @@
 import { v4 as uuidv4 } from 'uuid';
-import { listPiShockShockers, operatePiShockShocker, resolvePiShockShockerId } from '../../_shared/pishock-client';
+import {
+  generateLegacyShareCodesForOwnedShockers,
+  getGeneratedShareCodeForShocker,
+  listPiShockShockers,
+  normalizeGeneratedShareCodes,
+  operatePiShockShareCode,
+} from '../../_shared/pishock-client';
 import { consumeOverlimitEntitlement, getControllerPlusState } from '../../_shared/discord-entitlements';
 
 interface Env {
@@ -372,17 +378,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         apiKey: creds.apiKey,
         username: creds.username,
         piShockUserId: creds.piShockUserId,
-        shockerId: creds.selectedShockerId || creds.shockerId,
       };
-
-      const usingLegacySharecodeFallback = Boolean(!pishockCredentials.shockerId && creds.sharecode);
-      const shockerResult = await resolvePiShockShockerId(
-        pishockCredentials,
-        creds.sharecode,
-        { allowDefaultFallback: usingLegacySharecodeFallback }
-      );
-      if (!shockerResult.ok || !shockerResult.data) {
-        throw new Error(shockerResult.error || 'Unable to resolve PiShock shocker.');
+      const selectedShockerId = creds.selectedShockerId || creds.shockerId;
+      if (!selectedShockerId) {
+        throw new Error('No selected shocker configured for this user.');
       }
 
       const shockersResult = await listPiShockShockers(pishockCredentials);
@@ -392,14 +391,35 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const ownedShockerIds = shockersResult.data
         .filter((shocker: any) => shocker?.ShockerId !== undefined && shocker?.ShockerId !== null)
         .map((shocker: any) => String(shocker.ShockerId));
-      if (!ownedShockerIds.includes(shockerResult.data)) {
+      if (!ownedShockerIds.includes(String(selectedShockerId))) {
         throw new Error('Selected shocker is not owned by this PiShock account.');
       }
       const selectedShocker = shockersResult.data.find(
-        (shocker: any) => String(shocker?.ShockerId) === shockerResult.data
+        (shocker: any) => String(shocker?.ShockerId) === String(selectedShockerId)
       );
       if (!selectedShocker) {
         throw new Error('Selected shocker context is unavailable.');
+      }
+
+      let generatedShareCodes = normalizeGeneratedShareCodes(creds.generatedShareCodes);
+      const hasAllOwnedShareCodes = ownedShockerIds.every((id) => Boolean(generatedShareCodes[id]));
+      if (!hasAllOwnedShareCodes) {
+        const generatedShareCodesResult = await generateLegacyShareCodesForOwnedShockers(
+          pishockCredentials,
+          ownedShockerIds
+        );
+        if (!generatedShareCodesResult.ok || !generatedShareCodesResult.data) {
+          throw new Error(generatedShareCodesResult.error || 'Failed to generate sharecodes for owned shockers.');
+        }
+        generatedShareCodes = normalizeGeneratedShareCodes(generatedShareCodesResult.data);
+        creds.generatedShareCodes = generatedShareCodes;
+        creds.generatedShareCodesLastUpdated = new Date().toISOString();
+        userData.credentials = btoa(JSON.stringify(creds));
+        await env.PISHOCK_KV.put(`user:${targetUserId}:data`, JSON.stringify(userData));
+      }
+      const selectedShareCode = getGeneratedShareCodeForShocker(generatedShareCodes, String(selectedShockerId));
+      if (!selectedShareCode) {
+        throw new Error('Selected shocker does not have a generated sharecode.');
       }
 
       if (operation === 0 && !selectedShocker.CanShock) {
@@ -472,7 +492,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         consumedEntitlementId = entitlementState.overlimitEntitlementId;
       }
 
-      const operateResult = await operatePiShockShocker(pishockCredentials, shockerResult.data, {
+      const operateResult = await operatePiShockShareCode(pishockCredentials, selectedShareCode, {
         operation,
         intensity,
         durationSeconds: duration,
@@ -481,13 +501,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       if (!operateResult.ok) {
         throw new Error(operateResult.error || 'PiShock operation failed.');
-      }
-
-      if (shockerResult.data !== creds.shockerId) {
-        creds.selectedShockerId = creds.selectedShockerId || shockerResult.data;
-        creds.shockerId = shockerResult.data;
-        userData.credentials = btoa(JSON.stringify(creds));
-        await env.PISHOCK_KV.put(`user:${targetUserId}:data`, JSON.stringify(userData));
       }
 
       const executorInfo = await getUserInfo(env.PISHOCK_KV, executorUserId, token);
@@ -518,17 +531,16 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         success: true, 
         logEntryId: logEntry.id,
         message: `${operationName} command executed successfully`,
-        selectedShockerId: shockerResult.data,
+        selectedShockerId: String(selectedShockerId),
         overLimitUsed: overLimitAttempt,
         consumedOverlimitEntitlementId: consumedEntitlementId || null,
         effectiveMaxIntensity,
         effectiveMaxDuration,
         maxIntensityOverriddenByApi,
         maxDurationOverriddenByApi,
-        usingLegacySharecodeFallback,
-        deprecations: usingLegacySharecodeFallback ? [
-          'Legacy share code fallback was used. Ask the user to re-save settings with selected shocker.'
-        ] : []
+        usingLegacySharecodeFallback: false,
+        deprecations: [],
+        hasGeneratedShareCodeForSelected: true,
       });
 
     } catch (error) {
