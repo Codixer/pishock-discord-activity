@@ -131,10 +131,32 @@ async function testPiShockConnection(
     return { ok: false, error: 'Selected shocker has no generated sharecode.' };
   }
 
+  const selectedShocker = shockersResult.data.find((s: any) => String(s.ShockerId) === String(selectedShockerId));
+  let probeOperation = 2;
+  let probeIntensity = 1;
+  let probeDuration = 1;
+  if (selectedShocker) {
+    if (selectedShocker.CanShock) {
+      probeOperation = 0;
+      probeIntensity = 1;
+      probeDuration = 1;
+    } else if (selectedShocker.CanVibrate) {
+      probeOperation = 1;
+      probeIntensity = 1;
+      probeDuration = 1;
+    } else if (selectedShocker.CanBeep) {
+      probeOperation = 2;
+      probeIntensity = 1;
+      probeDuration = 1;
+    } else {
+      return { ok: false, error: 'Selected device does not support any probe operations.' };
+    }
+  }
+
   const operateResult = await operatePiShockShareCode(credentials, selectedShareCode, {
-    operation: 2,
-    intensity: 1,
-    durationSeconds: 1,
+    operation: probeOperation,
+    intensity: probeIntensity,
+    durationSeconds: probeDuration,
     agentName: 'DiscordActivityStatusTest',
   });
 

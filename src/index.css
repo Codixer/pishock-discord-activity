@@ -98,7 +98,7 @@ html, body {
   border-color: #34d399;
 }
 
-.unlocked-slider::-webkit-slider-track {
+.unlocked-slider::-webkit-slider-runnable-track {
   background: linear-gradient(to right, #374151 0%, #10b981 100%);
 }
 
@@ -117,7 +117,7 @@ html, body {
   border-color: #f87171;
 }
 
-.consumable-slider::-webkit-slider-track {
+.consumable-slider::-webkit-slider-runnable-track {
   background: linear-gradient(to right, #374151 0%, #ef4444 100%);
 }
 

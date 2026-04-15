@@ -3,14 +3,10 @@ import { useState, useCallback } from 'react';
 export interface InstanceData {
   selectedUserId?: string;
   piShockSettings?: {
-    apiKey?: string;
-    username?: string;
     selectedShockerId?: string;
     selectedShockerName?: string;
     allowedShockerIds?: string[];
     allowOverLimitWithConsumable?: boolean;
-    // Deprecated legacy field kept for compatibility reads only.
-    sharecode?: string;
   };
   lastUpdated?: string;
   [key: string]: any;

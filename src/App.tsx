@@ -150,42 +150,56 @@ function MainApp() {
     setIsPipMode(update.layout_mode === Common.LayoutModeTypeObject.PIP);
   }, []);
 
+  const instanceWriteQueue = React.useRef<Promise<void>>(Promise.resolve());
+  const pendingPatch = React.useRef<Record<string, any>>({});
+
   const persistInstanceDataPatch = useCallback(async (patch: Record<string, any>) => {
     if (!instanceId || !auth?.access_token) return;
 
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${auth.access_token}`,
-        },
-        body: JSON.stringify({
-          ...patch,
-          lastUpdated: new Date().toISOString(),
-        }),
-      });
-      const rawText = await response.text();
-      let result: Record<string, unknown> = {};
+    Object.assign(pendingPatch.current, patch);
+
+    instanceWriteQueue.current = instanceWriteQueue.current.then(async () => {
+      if (Object.keys(pendingPatch.current).length === 0) return;
+
+      const patchToSend = { ...pendingPatch.current };
+      pendingPatch.current = {};
+
       try {
-        result = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : {};
-      } catch {
-        result = {};
+        const response = await fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${auth.access_token}`,
+          },
+          body: JSON.stringify({
+            ...patchToSend,
+            lastUpdated: new Date().toISOString(),
+          }),
+        });
+        const rawText = await response.text();
+        let result: Record<string, unknown> = {};
+        try {
+          result = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : {};
+        } catch {
+          result = {};
+        }
+        if (!response.ok || result.success === false) {
+          const detail =
+            typeof result.error === 'string'
+              ? result.error
+              : typeof result.message === 'string'
+                ? result.message
+                : rawText?.slice(0, 200) || `HTTP ${response.status}`;
+          addNotification('warning', 'Save Failed', `Could not persist instance data: ${detail}`);
+          return;
+        }
+        updateInstanceData(patchToSend);
+      } catch (error) {
+        addNotification('warning', 'Save Failed', 'Could not persist instance data');
       }
-      if (!response.ok || result.success === false) {
-        const detail =
-          typeof result.error === 'string'
-            ? result.error
-            : typeof result.message === 'string'
-              ? result.message
-              : rawText?.slice(0, 200) || `HTTP ${response.status}`;
-        addNotification('warning', 'Save Failed', `Could not persist instance data: ${detail}`);
-        return;
-      }
-      updateInstanceData(patch);
-    } catch (error) {
-      addNotification('warning', 'Save Failed', 'Could not persist instance data');
-    }
+    });
+
+    return instanceWriteQueue.current;
   }, [instanceId, auth?.access_token, updateInstanceData, addNotification]);
 
   const refreshEntitlements = useCallback(async () => {

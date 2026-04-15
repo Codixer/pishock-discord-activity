@@ -180,8 +180,26 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         }, 502);
       }
 
+      const selectedShocker = shockersResult.data.find((s: any) => String(s.ShockerId) === String(selectedShockerId));
+      let probeOperation = 2;
+      if (selectedShocker) {
+        if (selectedShocker.CanShock) {
+          probeOperation = 0;
+        } else if (selectedShocker.CanVibrate) {
+          probeOperation = 1;
+        } else if (selectedShocker.CanBeep) {
+          probeOperation = 2;
+        } else {
+          return jsonResponse({
+            success: false,
+            isConnected: false,
+            error: 'Selected device does not support any probe operations.',
+          }, 400);
+        }
+      }
+
       const testResult = await operatePiShockShareCode(credentials, selectedShareCode, {
-        operation: 2,
+        operation: probeOperation,
         intensity: 1,
         durationSeconds: 1,
         agentName: 'DiscordActivityConnectionTest',

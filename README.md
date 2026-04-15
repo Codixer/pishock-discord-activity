@@ -96,9 +96,11 @@ Discord Client → Discord Activity → Cloudflare Workers → PiShock API
 - **Frontend**: React 18, TypeScript, Tailwind CSS, Vite
 - **Backend**: Cloudflare Workers (Pages Functions), Cloudflare KV
 - **Discord Integration**: Discord Embedded App SDK v1.1.0
-- **Device API**: PiShock v0 API (`api.pishock.com`)
+- **Device API**: PiShock v0 API (`api.pishock.com` and legacy `ps.pishock.com`)
 - **Deployment**: Cloudflare Pages with Workers
 - **Build Tools**: Vite 5, TypeScript 5.5, ESLint 9
+
+**Note**: The application uses both `api.pishock.com` (primary) and `ps.pishock.com` (legacy compatibility) for PiShock device communication. Self-hosters must ensure both domains are accessible in network allowlists/proxies. See `functions/api/_shared/pishock-client.ts` for implementation details.
 
 ### Project Structure
 ```

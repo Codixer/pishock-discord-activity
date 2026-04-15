@@ -106,6 +106,7 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
     }
 
     let lastMerged: WarningAckState | null = null;
+    let verified = false;
     for (let attempt = 0; attempt < 3; attempt++) {
       const latestRaw = await env.PISHOCK_KV.get(key);
       const latest = parseStoredWarningState(latestRaw);
@@ -131,8 +132,17 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
         verify.hasSeenFirstOverlimitPurchaseWarning;
       lastMerged = merged;
       if (bypassOk && purchaseOk) {
+        verified = true;
         break;
       }
+    }
+
+    if (!verified) {
+      return jsonResponse({
+        success: false,
+        userId: user.id,
+        error: 'KV verification failed',
+      }, 500);
     }
 
     return jsonResponse({

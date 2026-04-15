@@ -141,12 +141,13 @@ async function checkUserDevices(userId: string, apiKey: string, username: string
 
 function hasSettingsChanged(existing: any, newData: any): boolean {
   if (!existing) return true;
-  
+
   const existingCreds = existing.credentials ? JSON.parse(atob(existing.credentials)) : {};
   const newCreds = newData.credentials ? JSON.parse(atob(newData.credentials)) : {};
-  
+
   return existing.maxIntensity !== newData.maxIntensity ||
          existing.maxDuration !== newData.maxDuration ||
+         existing.commandsPaused !== newData.commandsPaused ||
          JSON.stringify(existing.bannedExecutors || []) !== JSON.stringify(newData.bannedExecutors || []) ||
          existingCreds.username !== newCreds.username ||
          existingCreds.sharecode !== newCreds.sharecode ||
@@ -295,6 +296,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         hasOwnDevice,
         maxIntensity = 100,
         maxDuration = 15,
+        bannedExecutors,
       } = body;
       const hasBannedExecutorsField = Object.prototype.hasOwnProperty.call(body, 'bannedExecutors');
 

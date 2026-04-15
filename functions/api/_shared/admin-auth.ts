@@ -1,6 +1,6 @@
 import { validateDiscordTokenWithRefresh } from './token-utils';
 
-/** Default allowlist when `OWNER_ADMIN_USER_IDS` is unset (backward compatible). */
+/** @deprecated No longer used. Configure OWNER_ADMIN_USER_IDS environment variable instead. */
 const DEFAULT_OWNER_ADMIN_USER_IDS = '173839105615069184';
 
 export function parseOwnerAdminUserIds(raw?: string | null): Set<string> {
@@ -11,8 +11,7 @@ export function parseOwnerAdminUserIds(raw?: string | null): Set<string> {
         .map((id) => id.trim())
         .filter((id) => id.length > 0)
     : [];
-  const ids = parts.length > 0 ? parts : DEFAULT_OWNER_ADMIN_USER_IDS.split(/[\n,]+/).map((id) => id.trim()).filter(Boolean);
-  return new Set(ids);
+  return new Set(parts);
 }
 
 function ownerAdminIdSet(env: AdminAuthEnv): Set<string> {

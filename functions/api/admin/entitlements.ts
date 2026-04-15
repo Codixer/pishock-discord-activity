@@ -40,6 +40,10 @@ function getManagedSku(key: string): string | null {
   return null;
 }
 
+function isTestEntitlement(entitlement: any): boolean {
+  return entitlement && entitlement.type === 8;
+}
+
 export const onRequest = async (context: { request: Request; env: Env }): Promise<Response> => {
   const { request, env } = context;
 
@@ -67,11 +71,13 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
         return jsonResponse({ success: false, error: 'Missing userId query parameter' }, 400);
       }
 
-      const entitlements = await listDiscordEntitlementsForUser(env, userId, {
+      const allEntitlements = await listDiscordEntitlementsForUser(env, userId, {
         excludeEnded: false,
         excludeDeleted: false,
         limit: 100,
       });
+
+      const entitlements = allEntitlements.filter(isTestEntitlement);
 
       return jsonResponse({
         success: true,
@@ -106,8 +112,21 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
     if (request.method === 'DELETE') {
       const body = await request.json().catch(() => ({}));
       const entitlementId = typeof body.entitlementId === 'string' ? body.entitlementId : '';
+      const userId = typeof body.userId === 'string' ? body.userId : '';
       if (!entitlementId) {
         return jsonResponse({ success: false, error: 'Missing entitlementId' }, 400);
+      }
+
+      if (userId) {
+        const allEntitlements = await listDiscordEntitlementsForUser(env, userId, {
+          excludeEnded: false,
+          excludeDeleted: false,
+          limit: 100,
+        });
+        const entitlement = allEntitlements.find((e) => e.id === entitlementId);
+        if (entitlement && !isTestEntitlement(entitlement)) {
+          return jsonResponse({ success: false, error: 'Cannot delete non-test entitlements' }, 403);
+        }
       }
 
       await deleteDiscordTestEntitlement(env, entitlementId);

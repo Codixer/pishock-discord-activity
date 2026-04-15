@@ -218,13 +218,41 @@ export function AdminDevMenu({ isOpen, onClose, auth, addNotification }: AdminDe
     }
   };
 
+  React.useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+
+    const previousFocus = document.activeElement as HTMLElement;
+    const dialogElement = document.querySelector('[role="dialog"]') as HTMLElement;
+    if (dialogElement) {
+      dialogElement.focus();
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+      if (previousFocus) {
+        previousFocus.focus();
+      }
+    };
+  }, [onClose]);
+
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto">
-      <div className="w-full max-w-5xl bg-slate-900 border border-white/10 rounded-xl shadow-2xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="admin-devmenu-title"
+        tabIndex={-1}
+        className="w-full max-w-5xl bg-slate-900 border border-white/10 rounded-xl shadow-2xl"
+      >
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
           <div className="flex items-center gap-2">
             <Bug className="h-5 w-5 text-amber-300" />
-            <h2 className="text-lg font-semibold text-white">Admin / Dev Menu</h2>
+            <h2 id="admin-devmenu-title" className="text-lg font-semibold text-white">Admin / Dev Menu</h2>
           </div>
           <button
             type="button"

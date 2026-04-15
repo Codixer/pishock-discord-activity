@@ -68,7 +68,12 @@ export function useUserStatusCache() {
                         existing.data.canBeep !== status.canBeep ||
                         existing.data.canPause !== status.canPause ||
                         existing.data.maxIntensityOverriddenByApi !== status.maxIntensityOverriddenByApi ||
-                        existing.data.maxDurationOverriddenByApi !== status.maxDurationOverriddenByApi;
+                        existing.data.maxDurationOverriddenByApi !== status.maxDurationOverriddenByApi ||
+                        existing.data.hasDevice !== status.hasDevice ||
+                        existing.data.deviceCount !== status.deviceCount ||
+                        existing.data.piShockUserId !== status.piShockUserId ||
+                        existing.data.isRelay !== status.isRelay ||
+                        JSON.stringify(existing.data.bannedExecutors || []) !== JSON.stringify(status.bannedExecutors || []);
       
       if (!hasChanges) {
         return false; // No changes, don't update cache

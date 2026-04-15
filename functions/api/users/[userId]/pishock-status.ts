@@ -152,8 +152,16 @@ async function setCachedUserStatus(kv: KVNamespace, userId: string, newStatus: a
                         existingData.status?.commandsPaused !== newStatus.commandsPaused ||
                         existingData.status?.canShock !== newStatus.canShock ||
                         existingData.status?.canVibrate !== newStatus.canVibrate ||
-                        existingData.status?.canBeep !== newStatus.canBeep;
-      
+                        existingData.status?.canBeep !== newStatus.canBeep ||
+                        existingData.status?.selectedShockerId !== newStatus.selectedShockerId ||
+                        existingData.status?.selectedShockerName !== newStatus.selectedShockerName ||
+                        existingData.status?.hasGeneratedShareCodeForSelected !== newStatus.hasGeneratedShareCodeForSelected ||
+                        existingData.status?.generatedShareCodeCount !== newStatus.generatedShareCodeCount ||
+                        existingData.status?.allowOverLimitWithConsumable !== newStatus.allowOverLimitWithConsumable ||
+                        existingData.status?.canPause !== newStatus.canPause ||
+                        existingData.status?.usingLegacySharecodeFallback !== newStatus.usingLegacySharecodeFallback ||
+                        JSON.stringify(existingData.status?.allowedShockerIds || []) !== JSON.stringify(newStatus.allowedShockerIds || []);
+
       if (!hasChanges) {
         return; // No changes, don't update cache
       }
@@ -299,6 +307,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           if (selectedShockerId && !ownedShockerIds.has(String(selectedShockerId))) {
             selectedShockerId = null;
             selectedShockerName = null;
+            hasGeneratedShareCodeForSelected = false;
           }
           allowedShockerIds = allowedShockerIds.filter((id) => ownedShockerIds.has(String(id)));
           if (selectedShockerId && Array.isArray(deviceCheck.devices)) {

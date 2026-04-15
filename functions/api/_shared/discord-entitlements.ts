@@ -73,24 +73,39 @@ async function discordRequest<T>(env: DiscordCommerceEnv, path: string, init: Re
     throw new Error('Missing DISCORD_CLIENT_ID');
   }
 
-  const response = await fetch(`${getDiscordApiBase()}${path}`, {
-    ...init,
-    headers: {
-      ...getAuthHeaders(env),
-      ...(init.headers || {}),
-    },
-  });
+  const controller = new AbortController();
+  const signal = init.signal || controller.signal;
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Discord API request failed (${response.status}): ${text}`);
+  try {
+    const response = await fetch(`${getDiscordApiBase()}${path}`, {
+      ...init,
+      signal,
+      headers: {
+        ...getAuthHeaders(env),
+        ...(init.headers || {}),
+      },
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Discord API request failed (${response.status}): ${text}`);
+    }
+
+    if (response.status === 204) {
+      return undefined as T;
+    }
+
+    return response.json() as Promise<T>;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Discord API request timed out or was aborted');
+    }
+    throw error;
   }
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return response.json() as Promise<T>;
 }
 
 export async function listDiscordSkus(env: DiscordCommerceEnv): Promise<DiscordSku[]> {

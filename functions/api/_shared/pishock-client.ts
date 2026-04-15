@@ -1,5 +1,6 @@
 const PISHOCK_API_BASE_URL = 'https://api.pishock.com';
 const LEGACY_PISHOCK_API_BASE_URL = 'https://ps.pishock.com';
+const PI_SHOCK_TIMEOUT_MS = 15000;
 
 export interface PiShockCredentials {
   apiKey: string;
@@ -135,14 +136,21 @@ async function request<T>(
   credentials: PiShockCredentials,
   init: RequestInit = {}
 ): Promise<PiShockApiResult<T>> {
+  const controller = new AbortController();
+  const signal = init.signal || controller.signal;
+  const timeoutId = setTimeout(() => controller.abort(), PI_SHOCK_TIMEOUT_MS);
+
   try {
     const response = await fetch(`${PISHOCK_API_BASE_URL}${path}`, {
       ...init,
+      signal,
       headers: {
         ...createHeaders(credentials),
         ...(init.headers || {}),
       },
     });
+
+    clearTimeout(timeoutId);
 
     if (response.status === 204) {
       return { ok: true, status: response.status };
@@ -180,6 +188,14 @@ async function request<T>(
       };
     }
   } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === 'AbortError') {
+      return {
+        ok: false,
+        status: 0,
+        error: 'PiShock API request timed out or was aborted.',
+      };
+    }
     return {
       ok: false,
       status: 0,
@@ -192,15 +208,22 @@ async function requestLegacy<T>(
   path: string,
   init: RequestInit = {}
 ): Promise<PiShockApiResult<T>> {
+  const controller = new AbortController();
+  const signal = init.signal || controller.signal;
+  const timeoutId = setTimeout(() => controller.abort(), PI_SHOCK_TIMEOUT_MS);
+
   try {
     const response = await fetch(`${LEGACY_PISHOCK_API_BASE_URL}${path}`, {
       ...init,
+      signal,
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
         ...(init.headers || {}),
       },
     });
+
+    clearTimeout(timeoutId);
 
     if (response.status === 204) {
       return { ok: true, status: response.status };
@@ -235,6 +258,14 @@ async function requestLegacy<T>(
       };
     }
   } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === 'AbortError') {
+      return {
+        ok: false,
+        status: 0,
+        error: 'Legacy PiShock API request timed out or was aborted.',
+      };
+    }
     return {
       ok: false,
       status: 0,

@@ -328,17 +328,38 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         creds.generatedShareCodesLastUpdated = new Date().toISOString();
         await env.PISHOCK_KV.put(`instance:${instanceId}:pishock`, btoa(JSON.stringify(creds)), { expirationTtl: 21600 });
       }
-      const selectedShareCode = getGeneratedShareCodeForShocker(generatedShareCodes, String(selectedShockerId));
+      let selectedShareCode = getGeneratedShareCodeForShocker(generatedShareCodes, String(selectedShockerId));
       if (!selectedShareCode) {
         throw new Error('Selected shocker does not have a generated sharecode.');
       }
 
-      const operateResult = await operatePiShockShareCode(pishockCredentials, selectedShareCode, {
+      let operateResult = await operatePiShockShareCode(pishockCredentials, selectedShareCode, {
         operation,
         intensity,
         durationSeconds: duration,
         agentName: 'DiscordActivity',
       });
+
+      if (!operateResult.ok && (operateResult.status === 404 || operateResult.status === 410)) {
+        const refreshResult = await generateLegacyShareCodesForOwnedShockers(pishockCredentials, [String(selectedShockerId)]);
+        if (refreshResult.ok && refreshResult.data) {
+          const newCodes = normalizeGeneratedShareCodes(refreshResult.data);
+          generatedShareCodes = { ...generatedShareCodes, ...newCodes };
+          creds.generatedShareCodes = generatedShareCodes;
+          creds.generatedShareCodesLastUpdated = new Date().toISOString();
+          await env.PISHOCK_KV.put(`instance:${instanceId}:pishock`, btoa(JSON.stringify(creds)), { expirationTtl: 21600 });
+
+          selectedShareCode = getGeneratedShareCodeForShocker(generatedShareCodes, String(selectedShockerId));
+          if (selectedShareCode) {
+            operateResult = await operatePiShockShareCode(pishockCredentials, selectedShareCode, {
+              operation,
+              intensity,
+              durationSeconds: duration,
+              agentName: 'DiscordActivity',
+            });
+          }
+        }
+      }
 
       if (!operateResult.ok) {
         throw new Error(operateResult.error || 'PiShock operation failed.');

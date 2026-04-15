@@ -116,6 +116,7 @@ async function anonymizeDeletedUserInActivityLogs(kv: KVNamespace, userId: strin
           if (entry.targetUserId === userId) {
             nextEntry = {
               ...nextEntry,
+              targetUserId: 'deleted',
               targetUsername: 'Deleted User',
               targetAvatar: undefined,
             };
@@ -126,6 +127,7 @@ async function anonymizeDeletedUserInActivityLogs(kv: KVNamespace, userId: strin
           if (entry.executorUserId === userId) {
             nextEntry = {
               ...nextEntry,
+              executorUserId: 'deleted',
               executorUsername: 'Deleted User',
               executorAvatar: undefined,
             };
@@ -186,7 +188,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         env.PISHOCK_KV.get(`cache:user_status:${userId}`),
       ]);
 
-      const tokenMetadata = tokenMetadataRaw ? (JSON.parse(tokenMetadataRaw) as TokenMetadata) : null;
+      let tokenMetadata: TokenMetadata | null = null;
+      try {
+        tokenMetadata = tokenMetadataRaw ? (JSON.parse(tokenMetadataRaw) as TokenMetadata) : null;
+      } catch (error) {
+        console.warn('Failed to parse token metadata:', error);
+        tokenMetadata = null;
+      }
       const tokenValidationKey = tokenMetadata?.access_token
         ? `discord_token_validation:${String(tokenMetadata.access_token).slice(-8)}`
         : tokenRaw
@@ -265,7 +273,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       const tokenMetadataRaw = await env.PISHOCK_KV.get(`discord_token_metadata:${userId}`);
       const tokenRaw = await env.PISHOCK_KV.get(`discord_token:${userId}`);
-      const tokenMetadata = tokenMetadataRaw ? (JSON.parse(tokenMetadataRaw) as TokenMetadata) : null;
+      let tokenMetadata: TokenMetadata | null = null;
+      try {
+        tokenMetadata = tokenMetadataRaw ? (JSON.parse(tokenMetadataRaw) as TokenMetadata) : null;
+      } catch (error) {
+        console.warn('Failed to parse token metadata during delete:', error);
+        tokenMetadata = null;
+      }
 
       const tokenValidationCandidates = new Set<string>();
       if (tokenMetadata?.access_token) {

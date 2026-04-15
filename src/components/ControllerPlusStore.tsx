@@ -42,13 +42,13 @@ export function ControllerPlusStore({
           >
             Refresh
           </button>
-          {!hasControllerPlus && !loading && (
+          {!loading && (!hasControllerPlus || !hasOverlimitConsumable) && (
             <button
               onClick={onPurchase}
               className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 rounded text-xs flex items-center gap-1"
             >
               <ShoppingCart className="h-3 w-3" />
-              Buy
+              {hasControllerPlus ? 'Buy consumable' : 'Buy'}
             </button>
           )}
         </div>

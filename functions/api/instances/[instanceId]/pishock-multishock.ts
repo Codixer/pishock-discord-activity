@@ -5,6 +5,7 @@ import {
   listPiShockShockers,
   normalizeGeneratedShareCodes,
   operatePiShockShareCode,
+  operatePiShockShocker,
 } from '../../_shared/pishock-client';
 import { getControllerPlusState } from '../../_shared/discord-entitlements';
 import { ACTIVITY_BATCH_KV_TTL_SECONDS } from '../../_shared/activity-batch-kv';
@@ -350,21 +351,15 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
       }
 
       const shareCodesByShockerId: Record<string, string> = {};
-      let shareCodesComplete = true;
+      const directShockerIds: string[] = [];
       for (const shockerId of normalizedShockers) {
         const shareCode = getGeneratedShareCodeForShocker(generatedShareCodes, shockerId);
-        if (!shareCode) {
-          prepFailures.push({
-            targetUserId: target.userId,
-            shockerId,
-            error: `Shocker ${shockerId} has no generated sharecode.`,
-          });
-          shareCodesComplete = false;
-          break;
+        if (shareCode) {
+          shareCodesByShockerId[shockerId] = shareCode;
+        } else {
+          directShockerIds.push(shockerId);
         }
-        shareCodesByShockerId[shockerId] = shareCode;
       }
-      if (!shareCodesComplete) continue;
 
       prepared.push({
         targetUserId: target.userId,
@@ -372,6 +367,7 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
         credentials: targetCredentials,
         shockerIds: normalizedShockers,
         shareCodesByShockerId,
+        directShockerIds,
       });
     }
 
@@ -393,16 +389,36 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
       prepared.map(async (target) => {
         const operations = await Promise.all(
           target.shockerIds.map(async (shockerId) => {
-            const result = await operatePiShockShareCode(
-              target.credentials,
-              target.shareCodesByShockerId[shockerId],
-              {
-                operation,
-                intensity,
-                durationSeconds: duration,
-                agentName: 'DiscordActivityMultishock',
-              }
-            );
+            let result;
+            if (target.shareCodesByShockerId[shockerId]) {
+              result = await operatePiShockShareCode(
+                target.credentials,
+                target.shareCodesByShockerId[shockerId],
+                {
+                  operation,
+                  intensity,
+                  durationSeconds: duration,
+                  agentName: 'DiscordActivityMultishock',
+                }
+              );
+            } else if (target.directShockerIds && target.directShockerIds.includes(shockerId)) {
+              result = await operatePiShockShocker(
+                target.credentials,
+                shockerId,
+                {
+                  operation,
+                  intensity,
+                  durationSeconds: duration,
+                  agentName: 'DiscordActivityMultishock',
+                }
+              );
+            } else {
+              result = {
+                ok: false,
+                status: 500,
+                error: `No sharecode or direct access method available for shocker ${shockerId}`,
+              };
+            }
             return { shockerId, result };
           })
         );

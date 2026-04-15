@@ -254,15 +254,35 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
         const selectedShareCode = getGeneratedShareCodeForShocker(generatedShareCodes, selectedShockerId);
         const useDirectShockerOperation = !selectedShareCode;
+
+        const selectedShocker = availableDevices.find((s: any) => String(s.ShockerId) === String(selectedShockerId));
+        let supportedOperation = 2;
+        if (selectedShocker) {
+          if (selectedShocker.CanShock) {
+            supportedOperation = 0;
+          } else if (selectedShocker.CanVibrate) {
+            supportedOperation = 1;
+          } else if (selectedShocker.CanBeep) {
+            supportedOperation = 2;
+          } else {
+            return jsonResponse({
+              success: false,
+              isConnected: false,
+              error: 'Selected device does not support any test operations.',
+              selectedShockerId,
+            });
+          }
+        }
+
         const testResult = useDirectShockerOperation
           ? await operatePiShockShocker(credentials, String(selectedShockerId), {
-              operation: 2,
+              operation: supportedOperation,
               intensity: 1,
               durationSeconds: 1,
               agentName: 'DiscordActivityConnectionTest',
             })
           : await operatePiShockShareCode(credentials, selectedShareCode, {
-              operation: 2,
+              operation: supportedOperation,
               intensity: 1,
               durationSeconds: 1,
               agentName: 'DiscordActivityConnectionTest',
