@@ -84,6 +84,14 @@ function getApiBaseUrl(): string {
 }
 
 function MainApp() {
+  interface EmbeddedSku {
+    id: string;
+    price?: {
+      amount?: number;
+      currency?: string;
+    };
+  }
+
   const CONTROLLER_PLUS_SKU_ID = '1387037988558606457';
   const OVERLIMIT_SKU_ID = '1418562984946569267';
   const [auth, setAuth] = useState<any>(null);
@@ -106,6 +114,8 @@ function MainApp() {
   const [togglingEmergencyStop, setTogglingEmergencyStop] = useState(false);
   const [warningAcksLoading, setWarningAcksLoading] = useState(false);
   const [hasSeenFirstOverlimitPurchaseWarning, setHasSeenFirstOverlimitPurchaseWarning] = useState(false);
+  const [controllerPlusPriceLabel, setControllerPlusPriceLabel] = useState<string | null>(null);
+  const [shockPastLimitPriceLabel, setShockPastLimitPriceLabel] = useState<string | null>(null);
   const [multishockSelectionsByExecutor, setMultishockSelectionsByExecutor] = useState<Record<string, Record<string, string[]>>>({});
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
@@ -177,6 +187,53 @@ function MainApp() {
       setEntitlementsLoading(false);
     }
   }, [auth?.access_token, addNotification]);
+
+  const formatSkuPrice = useCallback((amount?: number, currency?: string): string | null => {
+    if (typeof amount !== 'number' || amount < 0 || !currency) {
+      return null;
+    }
+
+    try {
+      return new Intl.NumberFormat(undefined, {
+        style: 'currency',
+        currency: currency.toUpperCase(),
+      }).format(amount / 100);
+    } catch (error) {
+      return `${(amount / 100).toFixed(2)} ${currency.toUpperCase()}`;
+    }
+  }, []);
+
+  const refreshSkus = useCallback(async () => {
+    if (!isEmbedded || !discordSdk) {
+      setControllerPlusPriceLabel(null);
+      setShockPastLimitPriceLabel(null);
+      return;
+    }
+
+    try {
+      const commands = discordSdk.commands as any;
+      if (typeof commands.getSkus !== 'function') {
+        setControllerPlusPriceLabel(null);
+        setShockPastLimitPriceLabel(null);
+        return;
+      }
+
+      const response = await commands.getSkus();
+      const skus: EmbeddedSku[] = Array.isArray(response?.skus) ? response.skus : [];
+      const controllerPlusSku = skus.find((sku) => sku.id === CONTROLLER_PLUS_SKU_ID);
+      const overlimitSku = skus.find((sku) => sku.id === OVERLIMIT_SKU_ID);
+
+      setControllerPlusPriceLabel(
+        formatSkuPrice(controllerPlusSku?.price?.amount, controllerPlusSku?.price?.currency)
+      );
+      setShockPastLimitPriceLabel(
+        formatSkuPrice(overlimitSku?.price?.amount, overlimitSku?.price?.currency)
+      );
+    } catch (error) {
+      setControllerPlusPriceLabel(null);
+      setShockPastLimitPriceLabel(null);
+    }
+  }, [formatSkuPrice]);
 
   const purchaseSku = useCallback(async (skuId: string) => {
     if (!isEmbedded || !discordSdk) {
@@ -256,15 +313,21 @@ function MainApp() {
   const refreshShopData = useCallback(() => {
     refreshEntitlements();
     refreshWarningAcks();
-  }, [refreshEntitlements, refreshWarningAcks]);
+    refreshSkus();
+  }, [refreshEntitlements, refreshWarningAcks, refreshSkus]);
+
+  const openShop = useCallback(() => {
+    setShowControllerPlusShop(true);
+    refreshShopData();
+  }, [refreshShopData]);
 
   const handleMultishockToggle = useCallback((enabled: boolean) => {
     if (enabled && !hasControllerPlus) {
-      setShowControllerPlusShop(true);
+      openShop();
       return;
     }
     setMultishockMode(enabled);
-  }, [hasControllerPlus]);
+  }, [hasControllerPlus, openShop]);
 
   const ownCommandsPaused = Boolean(auth?.user?.id && userPiShockStatus[auth.user.id]?.commandsPaused);
 
@@ -534,8 +597,9 @@ function MainApp() {
     if (auth?.access_token) {
       refreshEntitlements();
       refreshWarningAcks();
+      refreshSkus();
     }
-  }, [auth?.access_token, refreshEntitlements, refreshWarningAcks]);
+  }, [auth?.access_token, refreshEntitlements, refreshWarningAcks, refreshSkus]);
   
   useEffect(() => {
     (window as any).userPiShockStatus = userPiShockStatus;
@@ -966,6 +1030,8 @@ function MainApp() {
           onAcknowledgeOverlimitPurchaseWarning={acknowledgeOverlimitPurchaseWarning}
           onPurchaseControllerPlus={purchaseControllerPlus}
           onPurchaseConsumable={purchaseOverlimitConsumable}
+          controllerPlusPriceLabel={controllerPlusPriceLabel}
+          shockPastLimitPriceLabel={shockPastLimitPriceLabel}
         />
         
         <div className="w-full h-full max-w-sm mx-auto p-4 flex flex-col">
@@ -997,7 +1063,7 @@ function MainApp() {
               hasOverlimitConsumable={hasOverlimitConsumable}
               overlimitConsumableCount={overlimitConsumableCount}
               entitlementsLoading={entitlementsLoading}
-              onOpenShop={() => setShowControllerPlusShop(true)}
+              onOpenShop={openShop}
               onRefreshEntitlements={refreshEntitlements}
               multishockSelections={currentUserMultishockSelections}
               onUpdateMultishockSelection={updateMultishockSelection}
@@ -1060,6 +1126,8 @@ function MainApp() {
         onAcknowledgeOverlimitPurchaseWarning={acknowledgeOverlimitPurchaseWarning}
         onPurchaseControllerPlus={purchaseControllerPlus}
         onPurchaseConsumable={purchaseOverlimitConsumable}
+        controllerPlusPriceLabel={controllerPlusPriceLabel}
+        shockPastLimitPriceLabel={shockPastLimitPriceLabel}
       />
       
       <div className="bg-black/20 backdrop-blur-sm border-b border-white/10 flex-shrink-0">
@@ -1103,7 +1171,7 @@ function MainApp() {
                 </div>
               )}
               <button
-                onClick={() => setShowControllerPlusShop(true)}
+                onClick={openShop}
                 className="px-2 py-1 rounded-md bg-indigo-700 hover:bg-indigo-600 text-xs transition-colors flex items-center space-x-1"
                 title="Open Controller+ shop"
               >
@@ -1197,7 +1265,7 @@ function MainApp() {
                 hasOverlimitConsumable={hasOverlimitConsumable}
                 overlimitConsumableCount={overlimitConsumableCount}
                 entitlementsLoading={entitlementsLoading}
-                onOpenShop={() => setShowControllerPlusShop(true)}
+                onOpenShop={openShop}
                 onRefreshEntitlements={refreshEntitlements}
                 multishockSelections={currentUserMultishockSelections}
                 onUpdateMultishockSelection={updateMultishockSelection}
