@@ -109,9 +109,6 @@ export function PiShockController({
     canVibrate: selectedUserStatus?.canVibrate !== false,
     canBeep: selectedUserStatus?.canBeep !== false,
   };
-  const limitsOverriddenByApi = Boolean(
-    selectedUserStatus?.maxIntensityOverriddenByApi || selectedUserStatus?.maxDurationOverriddenByApi
-  );
   const isSelectionOverLimit =
     intensity > effectiveLimits.maxIntensity || duration > effectiveLimits.maxDuration;
   const canArmBypassMode = Boolean(selectedUser && !multishockMode && targetAllowsBypass && hasOverlimitConsumable);
@@ -643,11 +640,6 @@ export function PiShockController({
                 {!selectedUserCapabilities.canBeep && (
                   <p className="text-xs text-orange-300 mt-1">Beep is disabled by the selected PiShock device.</p>
                 )}
-                {limitsOverriddenByApi && (
-                  <p className="text-xs text-yellow-300 mt-1">
-                    Limits shown here were overridden by the PiShock API for this device.
-                  </p>
-                )}
               </div>
             )}
             {!isPipMode && multishockMode && selectedUser && (
@@ -733,7 +725,7 @@ export function PiShockController({
                       <div className={`flex items-center space-x-1 text-sm ${limitTextColorClass}`}>
                         <Lock className="h-3 w-3" />
                         <span>
-                          Max: {effectiveLimits.maxIntensity}%{selectedUserStatus?.maxIntensityOverriddenByApi ? ' (PiShock API)' : ''}
+                          Max: {effectiveLimits.maxIntensity}%
                         </span>
                       </div>
                     )}
@@ -768,7 +760,7 @@ export function PiShockController({
                       <div className={`flex items-center space-x-1 text-sm ${limitTextColorClass}`}>
                         <Lock className="h-3 w-3" />
                         <span>
-                          Max: {effectiveLimits.maxDuration}s{selectedUserStatus?.maxDurationOverriddenByApi ? ' (PiShock API)' : ''}
+                          Max: {effectiveLimits.maxDuration}s
                         </span>
                       </div>
                     )}

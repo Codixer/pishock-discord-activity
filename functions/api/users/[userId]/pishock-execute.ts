@@ -452,22 +452,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const configuredMaxDuration = Number(creds.maxDuration) || 15;
       let effectiveMaxIntensity = configuredMaxIntensity;
       let effectiveMaxDuration = configuredMaxDuration;
-      let maxIntensityOverriddenByApi = false;
-      let maxDurationOverriddenByApi = false;
-
-      const apiMaxIntensity = Number(selectedShocker.MaxIntensity);
-      if (Number.isFinite(apiMaxIntensity) && apiMaxIntensity > 0) {
-        const bounded = Math.min(effectiveMaxIntensity, Math.floor(apiMaxIntensity));
-        maxIntensityOverriddenByApi = bounded < effectiveMaxIntensity;
-        effectiveMaxIntensity = bounded;
-      }
-      const apiMaxDurationMs = Number(selectedShocker.MaxDuration);
-      if (Number.isFinite(apiMaxDurationMs) && apiMaxDurationMs > 0) {
-        const apiMaxDurationSeconds = Math.max(1, Math.floor(apiMaxDurationMs / 1000));
-        const bounded = Math.min(effectiveMaxDuration, apiMaxDurationSeconds);
-        maxDurationOverriddenByApi = bounded < effectiveMaxDuration;
-        effectiveMaxDuration = bounded;
-      }
 
       const overLimitAttempt = intensity > effectiveMaxIntensity || duration > effectiveMaxDuration;
       let consumedEntitlementId: string | undefined;
@@ -476,8 +460,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           return jsonResponse({
             success: false,
             error: `Command exceeds target limits (${effectiveMaxIntensity}% / ${effectiveMaxDuration}s) and over-limit consent is disabled.`,
-            maxIntensityOverriddenByApi,
-            maxDurationOverriddenByApi,
           });
         }
 
@@ -544,8 +526,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         consumedOverlimitEntitlementId: consumedEntitlementId || null,
         effectiveMaxIntensity,
         effectiveMaxDuration,
-        maxIntensityOverriddenByApi,
-        maxDurationOverriddenByApi,
         usingLegacySharecodeFallback: false,
         deprecations: [],
         hasGeneratedShareCodeForSelected: Boolean(selectedShareCode),

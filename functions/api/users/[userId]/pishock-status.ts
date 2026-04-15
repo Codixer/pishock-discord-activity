@@ -262,8 +262,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     let canVibrate = true;
     let canBeep = true;
     let canPause = false;
-    let maxIntensityOverriddenByApi = false;
-    let maxDurationOverriddenByApi = false;
     
     if (encrypted) {
       try {
@@ -311,21 +309,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
               canVibrate = Boolean(selectedShocker.CanVibrate);
               canBeep = Boolean(selectedShocker.CanBeep);
               canPause = Boolean(selectedShocker.CanPause);
-
-              const apiMaxIntensity = Number(selectedShocker.MaxIntensity);
-              if (Number.isFinite(apiMaxIntensity) && apiMaxIntensity > 0) {
-                const boundedIntensity = Math.min(maxIntensity, Math.floor(apiMaxIntensity));
-                maxIntensityOverriddenByApi = boundedIntensity < maxIntensity;
-                maxIntensity = boundedIntensity;
-              }
-
-              const apiMaxDurationMs = Number(selectedShocker.MaxDuration);
-              if (Number.isFinite(apiMaxDurationMs) && apiMaxDurationMs > 0) {
-                const apiMaxDurationSeconds = Math.max(1, Math.floor(apiMaxDurationMs / 1000));
-                const boundedDuration = Math.min(maxDuration, apiMaxDurationSeconds);
-                maxDurationOverriddenByApi = boundedDuration < maxDuration;
-                maxDuration = boundedDuration;
-              }
             }
           }
           
@@ -365,8 +348,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       isRelay: false,
       maxIntensity,
       maxDuration,
-      maxIntensityOverriddenByApi,
-      maxDurationOverriddenByApi,
       deprecations: selectedShockerId && !hasGeneratedShareCodeForSelected ? [
         'Selected shocker is missing a generated sharecode. Run Save or Test to regenerate.'
       ] : []
