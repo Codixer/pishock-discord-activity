@@ -1,0 +1,48 @@
+import { validateDiscordTokenWithRefresh } from './token-utils';
+
+export const OWNER_ADMIN_USER_ID = '173839105615069184';
+
+export interface AdminAuthEnv {
+  PISHOCK_KV: KVNamespace;
+  DISCORD_CLIENT_ID?: string;
+  DISCORD_CLIENT_SECRET?: string;
+}
+
+export interface AdminAuthResult {
+  ok: boolean;
+  status: number;
+  user?: any;
+  error?: string;
+}
+
+export function requireBearerToken(request: Request): string | null {
+  const auth = request.headers.get('authorization');
+  if (!auth || !auth.startsWith('Bearer ')) return null;
+  return auth.slice(7);
+}
+
+export async function requireAdminUser(
+  request: Request,
+  env: AdminAuthEnv
+): Promise<AdminAuthResult> {
+  const token = requireBearerToken(request);
+  if (!token) {
+    return { ok: false, status: 401, error: 'Unauthorized' };
+  }
+
+  const user = await validateDiscordTokenWithRefresh(token, env.PISHOCK_KV, {
+    PISHOCK_KV: env.PISHOCK_KV,
+    DISCORD_CLIENT_ID: env.DISCORD_CLIENT_ID || '',
+    DISCORD_CLIENT_SECRET: env.DISCORD_CLIENT_SECRET || '',
+  });
+
+  if (!user?.id) {
+    return { ok: false, status: 401, error: 'Invalid token' };
+  }
+
+  if (user.id !== OWNER_ADMIN_USER_ID) {
+    return { ok: false, status: 403, error: 'Forbidden' };
+  }
+
+  return { ok: true, status: 200, user };
+}

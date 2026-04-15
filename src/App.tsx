@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { DiscordSDK, Events, Common } from '@discord/embedded-app-sdk';
-import { Zap, Shield, AlertTriangle, FileText, Crown } from 'lucide-react';
+import { Zap, Shield, AlertTriangle, FileText, Crown, Bug } from 'lucide-react';
 import { PiShockController } from './components/PiShockController';
 import { SafetyWarning } from './components/SafetyWarning';
 import { UserSelector } from './components/UserSelector';
@@ -11,6 +11,7 @@ import { ActivityLog } from './components/ActivityLog';
 import { PrivacyPolicy } from './components/PrivacyPolicy';
 import { TermsOfService } from './components/TermsOfService';
 import { ControllerPlusShopModal } from './components/ControllerPlusShopModal';
+import { AdminDevMenu } from './components/AdminDevMenu';
 import { useNotifications } from './hooks/useNotifications';
 import { useInstanceData } from './hooks/useInstanceData';
 import { useParticipants } from './hooks/useParticipants';
@@ -84,6 +85,7 @@ function getApiBaseUrl(): string {
 }
 
 function MainApp() {
+  const OWNER_ADMIN_USER_ID = '173839105615069184';
   interface EmbeddedSku {
     id: string;
     price?: {
@@ -110,6 +112,7 @@ function MainApp() {
   const [hasOverlimitConsumable, setHasOverlimitConsumable] = useState(false);
   const [overlimitConsumableCount, setOverlimitConsumableCount] = useState(0);
   const [showControllerPlusShop, setShowControllerPlusShop] = useState(false);
+  const [showAdminMenu, setShowAdminMenu] = useState(false);
   const [multishockMode, setMultishockMode] = useState(false);
   const [togglingEmergencyStop, setTogglingEmergencyStop] = useState(false);
   const [warningAcksLoading, setWarningAcksLoading] = useState(false);
@@ -350,6 +353,13 @@ function MainApp() {
   }, [hasControllerPlus, openShop]);
 
   const ownCommandsPaused = Boolean(auth?.user?.id && userPiShockStatus[auth.user.id]?.commandsPaused);
+  const isAdminUser = auth?.user?.id === OWNER_ADMIN_USER_ID;
+
+  useEffect(() => {
+    if (!isAdminUser && showAdminMenu) {
+      setShowAdminMenu(false);
+    }
+  }, [isAdminUser, showAdminMenu]);
 
   const toggleEmergencyStop = useCallback(async () => {
     if (!auth?.user?.id || !auth?.access_token || togglingEmergencyStop) return;
@@ -1037,6 +1047,12 @@ function MainApp() {
           notifications={notifications} 
           onDismiss={dismissNotification} 
         />
+        <AdminDevMenu
+          isOpen={showAdminMenu}
+          onClose={() => setShowAdminMenu(false)}
+          auth={auth}
+          addNotification={addNotification}
+        />
         <ControllerPlusShopModal
           isOpen={showControllerPlusShop}
           onClose={() => setShowControllerPlusShop(false)}
@@ -1134,6 +1150,12 @@ function MainApp() {
         notifications={notifications} 
         onDismiss={dismissNotification} 
       />
+      <AdminDevMenu
+        isOpen={showAdminMenu}
+        onClose={() => setShowAdminMenu(false)}
+        auth={auth}
+        addNotification={addNotification}
+      />
       <ControllerPlusShopModal
         isOpen={showControllerPlusShop}
         onClose={() => setShowControllerPlusShop(false)}
@@ -1200,6 +1222,16 @@ function MainApp() {
                 <Crown className="h-3 w-3" />
                 <span className="hidden sm:inline">Shop ({overlimitConsumableCount})</span>
               </button>
+              {isAdminUser && (
+                <button
+                  onClick={() => setShowAdminMenu(true)}
+                  className="px-2 py-1 rounded-md bg-amber-700 hover:bg-amber-600 text-xs transition-colors flex items-center space-x-1"
+                  title="Open admin/dev tools"
+                >
+                  <Bug className="h-3 w-3" />
+                  <span className="hidden sm:inline">Admin</span>
+                </button>
+              )}
               <button
                 onClick={() => handleMultishockToggle(!multishockMode)}
                 className={`flex items-center gap-2 px-2 py-1 rounded-md text-xs border transition-colors ${
