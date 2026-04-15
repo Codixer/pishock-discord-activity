@@ -273,7 +273,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         maxDuration = creds.maxDuration || 15;
         selectedShockerId = creds.selectedShockerId || creds.shockerId || null;
         selectedShockerName = creds.selectedShockerName || null;
-        usingLegacySharecodeFallback = false;
+        usingLegacySharecodeFallback = Boolean(creds.sharecode && !creds.selectedShockerId);
         const generatedShareCodes = normalizeGeneratedShareCodes(creds.generatedShareCodes);
         generatedShareCodeCount = Object.keys(generatedShareCodes).length;
         hasGeneratedShareCodeForSelected = Boolean(getGeneratedShareCodeForShocker(generatedShareCodes, selectedShockerId));

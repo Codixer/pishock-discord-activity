@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { ACTIVITY_BATCH_KV_TTL_SECONDS } from './_shared/activity-batch-kv';
 
 interface Env {
   PISHOCK_KV: KVNamespace;
@@ -113,7 +114,7 @@ async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
       batchData.entries = batchData.entries.slice(0, 500);
     }
     
-    await kv.put(batchKey, JSON.stringify(batchData), { expirationTtl: 604800 });
+    await kv.put(batchKey, JSON.stringify(batchData), { expirationTtl: ACTIVITY_BATCH_KV_TTL_SECONDS });
   } catch (error) {
     console.error('Failed to update activity batch:', error);
   }

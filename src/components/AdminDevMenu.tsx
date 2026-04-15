@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Bug, RefreshCw, Trash2, X } from 'lucide-react';
 
 interface AdminDevMenuProps {
@@ -34,6 +34,14 @@ export function AdminDevMenu({ isOpen, onClose, auth, addNotification }: AdminDe
   const [purgeReason, setPurgeReason] = useState('');
   const [confirmUserIdInput, setConfirmUserIdInput] = useState('');
   const [purging, setPurging] = useState(false);
+  const lastFetchedDebugUserId = useRef('');
+
+  useEffect(() => {
+    setDebugPayload(null);
+    setConfirmUserIdInput('');
+    setPurgeReason('');
+    lastFetchedDebugUserId.current = '';
+  }, [debugUserId]);
 
   const entitlementSummary = useMemo(() => {
     if (!Array.isArray(entitlements)) return { total: 0 };
@@ -151,6 +159,7 @@ export function AdminDevMenu({ isOpen, onClose, auth, addNotification }: AdminDe
         throw new Error(data.error || 'Failed to load user debug data');
       }
       setDebugPayload(data.data);
+      lastFetchedDebugUserId.current = debugUserId.trim();
       addNotification('success', 'User Data Loaded', `Fetched debug payload for ${debugUserId.trim()}.`);
     } catch (error) {
       addNotification(
@@ -175,6 +184,14 @@ export function AdminDevMenu({ isOpen, onClose, auth, addNotification }: AdminDe
     }
     if (!purgeReason.trim()) {
       addNotification('warning', 'Reason Required', 'Provide a reason before purging.');
+      return;
+    }
+    if (lastFetchedDebugUserId.current !== trimmedUserId) {
+      addNotification(
+        'warning',
+        'Stale debug data',
+        'Fetch user data again for this user ID before purging.'
+      );
       return;
     }
 

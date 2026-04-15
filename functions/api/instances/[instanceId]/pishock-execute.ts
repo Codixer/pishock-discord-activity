@@ -6,6 +6,7 @@ import {
   normalizeGeneratedShareCodes,
   operatePiShockShareCode,
 } from '../../_shared/pishock-client';
+import { ACTIVITY_BATCH_KV_TTL_SECONDS } from '../../_shared/activity-batch-kv';
 
 interface Env {
   PISHOCK_KV: KVNamespace;
@@ -195,7 +196,7 @@ async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
       batchData.entries = batchData.entries.slice(0, 500);
     }
     
-    await kv.put(batchKey, JSON.stringify(batchData), { expirationTtl: 2592000 });
+    await kv.put(batchKey, JSON.stringify(batchData), { expirationTtl: ACTIVITY_BATCH_KV_TTL_SECONDS });
   } catch (error) {
     console.error('Failed to update activity batch:', error);
     throw error;
@@ -307,13 +308,22 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
 
       let generatedShareCodes = normalizeGeneratedShareCodes(creds.generatedShareCodes);
-      const hasAllOwnedShareCodes = ownedShockerIds.every((id) => Boolean(generatedShareCodes[id]));
-      if (!hasAllOwnedShareCodes) {
-        const generatedShareCodesResult = await generateLegacyShareCodesForOwnedShockers(pishockCredentials, ownedShockerIds);
-        if (!generatedShareCodesResult.ok || !generatedShareCodesResult.data) {
-          throw new Error(generatedShareCodesResult.error || 'Failed to generate sharecodes for owned shockers.');
+      if (!getGeneratedShareCodeForShocker(generatedShareCodes, String(selectedShockerId))) {
+        const generatedShareCodesResult = await generateLegacyShareCodesForOwnedShockers(pishockCredentials, [
+          String(selectedShockerId),
+        ]);
+        const merged = {
+          ...generatedShareCodes,
+          ...(generatedShareCodesResult.data
+            ? normalizeGeneratedShareCodes(generatedShareCodesResult.data)
+            : {}),
+        };
+        if (!getGeneratedShareCodeForShocker(merged, String(selectedShockerId))) {
+          throw new Error(
+            generatedShareCodesResult.error || 'Failed to generate sharecode for the selected shocker.'
+          );
         }
-        generatedShareCodes = normalizeGeneratedShareCodes(generatedShareCodesResult.data);
+        generatedShareCodes = merged;
         creds.generatedShareCodes = generatedShareCodes;
         creds.generatedShareCodesLastUpdated = new Date().toISOString();
         await env.PISHOCK_KV.put(`instance:${instanceId}:pishock`, btoa(JSON.stringify(creds)), { expirationTtl: 21600 });

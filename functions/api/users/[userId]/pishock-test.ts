@@ -230,15 +230,21 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         }
 
         let generatedShareCodes = normalizeGeneratedShareCodes(creds.generatedShareCodes);
-        const ownedIdList = Array.from(ownedShockerIds);
-        const hasAllOwnedShareCodes = ownedIdList.every((id) => Boolean(generatedShareCodes[id]));
         let shareCodeGenerationFailed = false;
-        if (!hasAllOwnedShareCodes) {
-          const generatedShareCodesResult = await generateLegacyShareCodesForOwnedShockers(credentials, ownedIdList);
-          if (!generatedShareCodesResult.ok || !generatedShareCodesResult.data) {
+        if (!getGeneratedShareCodeForShocker(generatedShareCodes, selectedShockerId)) {
+          const generatedShareCodesResult = await generateLegacyShareCodesForOwnedShockers(credentials, [
+            String(selectedShockerId),
+          ]);
+          const merged = {
+            ...generatedShareCodes,
+            ...(generatedShareCodesResult.data
+              ? normalizeGeneratedShareCodes(generatedShareCodesResult.data)
+              : {}),
+          };
+          if (!getGeneratedShareCodeForShocker(merged, selectedShockerId)) {
             shareCodeGenerationFailed = true;
           } else {
-            generatedShareCodes = normalizeGeneratedShareCodes(generatedShareCodesResult.data);
+            generatedShareCodes = merged;
             creds.generatedShareCodes = generatedShareCodes;
             creds.generatedShareCodesLastUpdated = new Date().toISOString();
             userData.credentials = btoa(JSON.stringify(creds));

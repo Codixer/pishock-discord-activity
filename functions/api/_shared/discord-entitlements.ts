@@ -47,8 +47,13 @@ function getDiscordApiBase(): string {
 
 function isEntitlementActive(entitlement: DiscordEntitlement): boolean {
   if (entitlement.deleted) return false;
+  if (entitlement.starts_at) {
+    const startMs = new Date(entitlement.starts_at).getTime();
+    if (!Number.isFinite(startMs) || startMs > Date.now()) return false;
+  }
   if (entitlement.ends_at) {
-    return new Date(entitlement.ends_at).getTime() > Date.now();
+    const endMs = new Date(entitlement.ends_at).getTime();
+    if (!Number.isFinite(endMs) || endMs <= Date.now()) return false;
   }
   return true;
 }

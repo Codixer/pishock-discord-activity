@@ -159,14 +159,18 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
 
       const generatedShareCodesResult = await generateLegacyShareCodesForOwnedShockers(credentials, ownedShockerIds);
-      if (!generatedShareCodesResult.ok || !generatedShareCodesResult.data) {
+      const generatedShareCodes = generatedShareCodesResult.data
+        ? normalizeGeneratedShareCodes(generatedShareCodesResult.data)
+        : {};
+      if (!getGeneratedShareCodeForShocker(generatedShareCodes, String(selectedShockerId))) {
         return jsonResponse({
           success: false,
           isConnected: false,
-          error: generatedShareCodesResult.error || 'Failed to generate sharecodes for owned shockers.',
+          error:
+            generatedShareCodesResult.error ||
+            'Failed to generate sharecode for the selected shocker.',
         }, 502);
       }
-      const generatedShareCodes = normalizeGeneratedShareCodes(generatedShareCodesResult.data);
       const selectedShareCode = getGeneratedShareCodeForShocker(generatedShareCodes, String(selectedShockerId));
       if (!selectedShareCode) {
         return jsonResponse({

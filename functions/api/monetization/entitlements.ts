@@ -41,18 +41,18 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
   }
 
   if (request.method !== 'GET') {
-    return new Response('Method not allowed', { status: 405 });
+    return jsonResponse({ error: 'Method not allowed' }, 405);
   }
 
   const token = requireAuth(request);
-  if (!token) return new Response('Unauthorized', { status: 401 });
+  if (!token) return jsonResponse({ error: 'Unauthorized' }, 401);
 
   const user = await validateDiscordTokenWithRefresh(token, env.PISHOCK_KV, {
     PISHOCK_KV: env.PISHOCK_KV,
     DISCORD_CLIENT_ID: env.DISCORD_CLIENT_ID || '',
     DISCORD_CLIENT_SECRET: env.DISCORD_CLIENT_SECRET || '',
   });
-  if (!user) return new Response('Invalid token', { status: 401 });
+  if (!user) return jsonResponse({ error: 'Invalid token' }, 401);
 
   try {
     const state = await getControllerPlusState(env, user.id);

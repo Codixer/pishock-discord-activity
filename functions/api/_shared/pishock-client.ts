@@ -496,9 +496,11 @@ export async function generateLegacyShareCodesForOwnedShockers(
 
   if (errors.length > 0) {
     const errorPrefix = `Failed generating ${errors.length} of ${candidateIds.length} sharecodes.`;
+    const hasPartial = Object.keys(mapping).length > 0;
     return {
       ok: false,
       status: 502,
+      ...(hasPartial ? { data: mapping } : {}),
       error: `${errorPrefix} ${errors.join(' ')}`.trim(),
       rawBody: JSON.stringify(failureDetails),
     };

@@ -281,21 +281,22 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         });
       }
     }    if (method === 'PUT') {
-      const { 
-        apiKey, 
-        username, 
-        sharecode, 
+      const body = await request.json();
+      const {
+        apiKey,
+        username,
+        sharecode,
         selectedShockerId,
         refreshShockersOnly = false,
         allowedShockerIds = [],
         allowOverLimitWithConsumable = false,
         commandsPaused,
         disableLegacySharecode = false,
-        hasOwnDevice, 
-        maxIntensity = 100, 
+        hasOwnDevice,
+        maxIntensity = 100,
         maxDuration = 15,
-        bannedExecutors = []
-      } = await request.json();
+      } = body;
+      const hasBannedExecutorsField = Object.prototype.hasOwnProperty.call(body, 'bannedExecutors');
 
       const existingUserDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
       const existingUserData = existingUserDataStr ? JSON.parse(existingUserDataStr) : null;
@@ -303,20 +304,24 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const isShockerRefreshOnly = Boolean(refreshShockersOnly);
       
       const isBanListOnlyUpdate = !apiKey && !username && !sharecode && !selectedShockerId &&
-                                 Array.isArray(bannedExecutors) && 
+                                 hasBannedExecutorsField &&
+                                 Array.isArray(body.bannedExecutors) &&
                                  isExistingUser;
       const isPauseOnlyUpdate = !apiKey && !username && !sharecode && !selectedShockerId &&
                                 typeof commandsPaused === 'boolean' &&
                                 isExistingUser;
       
       if (isBanListOnlyUpdate || isPauseOnlyUpdate) {
+        const nextBanned = hasBannedExecutorsField
+          ? (Array.isArray(body.bannedExecutors)
+              ? body.bannedExecutors
+              : Array.isArray(existingUserData?.bannedExecutors)
+                ? existingUserData.bannedExecutors
+                : [])
+          : (Array.isArray(existingUserData?.bannedExecutors) ? existingUserData.bannedExecutors : []);
         const updatedUserData = {
           ...existingUserData,
-          bannedExecutors: Array.isArray(bannedExecutors)
-            ? bannedExecutors
-            : Array.isArray(existingUserData?.bannedExecutors)
-              ? existingUserData.bannedExecutors
-              : [],
+          bannedExecutors: nextBanned,
           commandsPaused: typeof commandsPaused === 'boolean'
             ? commandsPaused
             : Boolean(existingUserData?.commandsPaused),
@@ -466,21 +471,23 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         },
         availableShockers.map((shocker) => String(shocker.id))
       );
-      const generatedShareCodes = generatedShareCodesResult.ok && generatedShareCodesResult.data
+      const generatedShareCodes = generatedShareCodesResult.data
         ? normalizeGeneratedShareCodes(generatedShareCodesResult.data)
         : {};
-      const shareCodeGenerationFailed = !generatedShareCodesResult.ok || !generatedShareCodesResult.data;
+      const shareCodeGenerationFailed = !generatedShareCodesResult.ok;
       const selectedShareCode = getGeneratedShareCodeForShocker(generatedShareCodes, finalSelectedShockerId);
-      if (!selectedShareCode && !shareCodeGenerationFailed) {
+      if (finalSelectedShockerId && !selectedShareCode) {
         return jsonResponse({
           success: false,
           isConnected: false,
-          error: 'Unable to generate a sharecode for the selected shocker.',
+          error:
+            generatedShareCodesResult.error ||
+            'Unable to generate a sharecode for the selected shocker.',
           debug: {
             step: 'selected_shocker_share_code',
             selectedShockerId: finalSelectedShockerId,
             generatedShareCodeCount: Object.keys(generatedShareCodes).length,
-          }
+          },
         }, 502);
       }
 

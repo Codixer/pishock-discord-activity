@@ -7,6 +7,7 @@ import {
   operatePiShockShareCode,
 } from '../../_shared/pishock-client';
 import { getControllerPlusState } from '../../_shared/discord-entitlements';
+import { ACTIVITY_BATCH_KV_TTL_SECONDS } from '../../_shared/activity-batch-kv';
 
 interface Env {
   PISHOCK_KV: KVNamespace;
@@ -27,6 +28,8 @@ interface ActivityLogEntry {
   intensity: number;
   duration: number;
 }
+
+type MultishockFailure = { targetUserId: string; error: string; shockerId?: string };
 
 function jsonResponse(body: any, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -73,7 +76,7 @@ async function addToActivityBatch(kv: KVNamespace, entry: ActivityLogEntry) {
   batchData.lastUpdated = entry.timestamp;
   batchData.totalCount++;
   if (batchData.entries.length > 500) batchData.entries = batchData.entries.slice(0, 500);
-  await kv.put(batchKey, JSON.stringify(batchData), { expirationTtl: 2592000 });
+  await kv.put(batchKey, JSON.stringify(batchData), { expirationTtl: ACTIVITY_BATCH_KV_TTL_SECONDS });
 }
 
 async function getCachedDisplayName(kv: KVNamespace, userId: string): Promise<string> {
@@ -129,6 +132,40 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
       return jsonResponse({ success: false, error: 'Controller+ entitlement is required for multishock.' }, 403);
     }
 
+    const instanceDataRaw = await env.PISHOCK_KV.get(`instance_data:${instanceId}`);
+    let instanceData: Record<string, unknown> = {};
+    try {
+      instanceData = instanceDataRaw ? (JSON.parse(instanceDataRaw) as Record<string, unknown>) : {};
+    } catch {
+      instanceData = {};
+    }
+    const participantIdsRaw = instanceData.activityParticipantIds;
+    const participantIds = new Set(
+      Array.isArray(participantIdsRaw) ? participantIdsRaw.map((id) => String(id)) : []
+    );
+    if (participantIds.size === 0) {
+      return jsonResponse(
+        {
+          success: false,
+          error: 'No activity participant snapshot; refresh participants in the app.',
+        },
+        403
+      );
+    }
+    if (!participantIds.has(String(executorUserId))) {
+      return jsonResponse({ success: false, error: 'Executor is not part of this activity session.' }, 403);
+    }
+    for (const target of targets) {
+      if (!participantIds.has(String(target.userId))) {
+        return jsonResponse(
+          { success: false, error: `User ${target.userId} is not in this activity session.` },
+          403
+        );
+      }
+    }
+
+    const prepFailures: MultishockFailure[] = [];
+
     const prepared: Array<{
       targetUserId: string;
       targetName: string;
@@ -140,20 +177,38 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
     for (const target of targets) {
       const targetUserDataStr = await env.PISHOCK_KV.get(`user:${target.userId}:data`);
       if (!targetUserDataStr) {
-        return jsonResponse({ success: false, error: `Target ${target.userId} has no configured PiShock settings.` }, 400);
+        prepFailures.push({
+          targetUserId: target.userId,
+          error: 'Target has no configured PiShock settings.',
+        });
+        continue;
       }
-      const targetUserData = JSON.parse(targetUserDataStr);
+      let targetUserData: { credentials: string; bannedExecutors?: string[]; commandsPaused?: boolean };
+      try {
+        targetUserData = JSON.parse(targetUserDataStr);
+      } catch {
+        prepFailures.push({ targetUserId: target.userId, error: 'Invalid stored user data.' });
+        continue;
+      }
       if ((targetUserData.bannedExecutors || []).includes(executorUserId)) {
-        return jsonResponse({ success: false, error: `Target ${target.userId} has blocked this executor.` }, 403);
+        prepFailures.push({ targetUserId: target.userId, error: 'Target has blocked this executor.' });
+        continue;
       }
       if (targetUserData.commandsPaused) {
-        return jsonResponse({ success: false, error: `Target ${target.userId} has paused incoming commands.` }, 423);
+        prepFailures.push({ targetUserId: target.userId, error: 'Target has paused incoming commands.' });
+        continue;
       }
-      const creds = await decrypt(targetUserData.credentials);
+      let creds: any;
+      try {
+        creds = await decrypt(targetUserData.credentials);
+      } catch {
+        prepFailures.push({ targetUserId: target.userId, error: 'Unable to decrypt PiShock credentials.' });
+        continue;
+      }
 
       const selectedShockerId = creds.selectedShockerId || creds.shockerId;
       const allowed = Array.isArray(creds.allowedShockerIds) ? creds.allowedShockerIds.map((id: any) => String(id)) : [];
-      const effectiveAllowed = allowed.length > 0 ? allowed : (selectedShockerId ? [String(selectedShockerId)] : []);
+      const effectiveAllowed = allowed.length > 0 ? allowed : selectedShockerId ? [String(selectedShockerId)] : [];
       const targetCredentials = {
         apiKey: creds.apiKey,
         username: creds.username,
@@ -161,7 +216,11 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
       };
       const shockersResult = await listPiShockShockers(targetCredentials);
       if (!shockersResult.ok || !Array.isArray(shockersResult.data)) {
-        return jsonResponse({ success: false, error: `Unable to verify owned shockers for target ${target.userId}.` }, 400);
+        prepFailures.push({
+          targetUserId: target.userId,
+          error: 'Unable to verify owned shockers for target.',
+        });
+        continue;
       }
       const ownedShockerIds = new Set(
         shockersResult.data
@@ -173,30 +232,66 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
           .filter((shocker: any) => shocker?.ShockerId !== undefined && shocker?.ShockerId !== null)
           .map((shocker: any) => [String(shocker.ShockerId), shocker])
       );
-      const requestedShockers = Array.isArray(target.shockerIds) && target.shockerIds.length > 0
-        ? target.shockerIds.map((id) => String(id))
-        : effectiveAllowed;
-      const normalizedShockers = requestedShockers.filter(
-        (id) => effectiveAllowed.includes(id) && ownedShockerIds.has(id)
-      );
+      const requestedShockers =
+        Array.isArray(target.shockerIds) && target.shockerIds.length > 0
+          ? target.shockerIds.map((id) => String(id))
+          : effectiveAllowed;
+      const invalidRequested = requestedShockers.filter((id) => !effectiveAllowed.includes(id));
+      if (invalidRequested.length > 0) {
+        prepFailures.push({
+          targetUserId: target.userId,
+          error: `Shocker IDs not allowed for this target: ${invalidRequested.join(', ')}.`,
+        });
+        continue;
+      }
+      const normalizedShockers = requestedShockers.filter((id) => effectiveAllowed.includes(id) && ownedShockerIds.has(id));
 
       if (normalizedShockers.length === 0) {
-        return jsonResponse({ success: false, error: `Target ${target.userId} has no allowed shockers for multishock.` }, 400);
+        prepFailures.push({
+          targetUserId: target.userId,
+          error: 'No allowed shockers for multishock.',
+        });
+        continue;
       }
 
+      let shockerValidationFailed = false;
       for (const shockerId of normalizedShockers) {
         const shocker = shockersById.get(shockerId);
         if (!shocker) {
-          return jsonResponse({ success: false, error: `Unable to load context for shocker ${shockerId} on target ${target.userId}.` }, 400);
+          prepFailures.push({
+            targetUserId: target.userId,
+            shockerId,
+            error: `Unable to load context for shocker ${shockerId}.`,
+          });
+          shockerValidationFailed = true;
+          break;
         }
         if (operation === 0 && !shocker.CanShock) {
-          return jsonResponse({ success: false, error: `Target ${target.userId} shocker ${shockerId} does not support shock.` }, 400);
+          prepFailures.push({
+            targetUserId: target.userId,
+            shockerId,
+            error: `Shocker ${shockerId} does not support shock.`,
+          });
+          shockerValidationFailed = true;
+          break;
         }
         if (operation === 1 && !shocker.CanVibrate) {
-          return jsonResponse({ success: false, error: `Target ${target.userId} shocker ${shockerId} does not support vibrate.` }, 400);
+          prepFailures.push({
+            targetUserId: target.userId,
+            shockerId,
+            error: `Shocker ${shockerId} does not support vibrate.`,
+          });
+          shockerValidationFailed = true;
+          break;
         }
         if (operation === 2 && !shocker.CanBeep) {
-          return jsonResponse({ success: false, error: `Target ${target.userId} shocker ${shockerId} does not support beep.` }, 400);
+          prepFailures.push({
+            targetUserId: target.userId,
+            shockerId,
+            error: `Shocker ${shockerId} does not support beep.`,
+          });
+          shockerValidationFailed = true;
+          break;
         }
 
         let effectiveMaxIntensity = Number(creds.maxIntensity) || 100;
@@ -212,27 +307,42 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
         }
 
         if (intensity > effectiveMaxIntensity || duration > effectiveMaxDuration) {
-          return jsonResponse({
-            success: false,
-            error: `Multishock cannot bypass limits (target ${target.userId} shocker ${shockerId} max ${effectiveMaxIntensity}%/${effectiveMaxDuration}s).`,
-          }, 400);
+          prepFailures.push({
+            targetUserId: target.userId,
+            shockerId,
+            error: `Exceeds limits for this shocker (max ${effectiveMaxIntensity}% / ${effectiveMaxDuration}s).`,
+          });
+          shockerValidationFailed = true;
+          break;
         }
       }
+      if (shockerValidationFailed) continue;
 
       let generatedShareCodes = normalizeGeneratedShareCodes(creds.generatedShareCodes);
-      const hasAllOwnedShareCodes = Array.from(ownedShockerIds).every((id) => Boolean(generatedShareCodes[id]));
-      if (!hasAllOwnedShareCodes) {
+      const missingCodeIds = normalizedShockers.filter((id) => !getGeneratedShareCodeForShocker(generatedShareCodes, id));
+      if (missingCodeIds.length > 0) {
         const generatedShareCodesResult = await generateLegacyShareCodesForOwnedShockers(
           targetCredentials,
-          Array.from(ownedShockerIds)
+          missingCodeIds
         );
-        if (!generatedShareCodesResult.ok || !generatedShareCodesResult.data) {
-          return jsonResponse({
-            success: false,
-            error: generatedShareCodesResult.error || `Unable to generate sharecodes for target ${target.userId}.`,
-          }, 502);
+        const merged = {
+          ...generatedShareCodes,
+          ...(generatedShareCodesResult.data
+            ? normalizeGeneratedShareCodes(generatedShareCodesResult.data)
+            : {}),
+        };
+        const stillMissing = normalizedShockers.find((id) => !getGeneratedShareCodeForShocker(merged, id));
+        if (stillMissing) {
+          prepFailures.push({
+            targetUserId: target.userId,
+            shockerId: stillMissing,
+            error:
+              generatedShareCodesResult.error ||
+              `Shocker ${stillMissing} has no generated sharecode.`,
+          });
+          continue;
         }
-        generatedShareCodes = normalizeGeneratedShareCodes(generatedShareCodesResult.data);
+        generatedShareCodes = merged;
         creds.generatedShareCodes = generatedShareCodes;
         creds.generatedShareCodesLastUpdated = new Date().toISOString();
         targetUserData.credentials = btoa(JSON.stringify(creds));
@@ -240,16 +350,21 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
       }
 
       const shareCodesByShockerId: Record<string, string> = {};
+      let shareCodesComplete = true;
       for (const shockerId of normalizedShockers) {
         const shareCode = getGeneratedShareCodeForShocker(generatedShareCodes, shockerId);
         if (!shareCode) {
-          return jsonResponse({
-            success: false,
-            error: `Target ${target.userId} shocker ${shockerId} has no generated sharecode.`,
-          }, 502);
+          prepFailures.push({
+            targetUserId: target.userId,
+            shockerId,
+            error: `Shocker ${shockerId} has no generated sharecode.`,
+          });
+          shareCodesComplete = false;
+          break;
         }
         shareCodesByShockerId[shockerId] = shareCode;
       }
+      if (!shareCodesComplete) continue;
 
       prepared.push({
         targetUserId: target.userId,
@@ -260,21 +375,42 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
       });
     }
 
-    const operationName = ['shock', 'vibrate', 'beep'][operation] as 'shock' | 'vibrate' | 'beep';
-    const executionResults = await Promise.all(prepared.map(async (target) => {
-      const operations = await Promise.all(target.shockerIds.map(async (shockerId) => {
-        const result = await operatePiShockShareCode(target.credentials, target.shareCodesByShockerId[shockerId], {
-          operation,
-          intensity,
-          durationSeconds: duration,
-          agentName: 'DiscordActivityMultishock',
-        });
-        return { shockerId, result };
-      }));
-      return { target, operations };
-    }));
+    if (prepared.length === 0) {
+      return jsonResponse(
+        {
+          success: false,
+          partialSuccess: false,
+          targetCount: 0,
+          failures: prepFailures,
+          overLimitAllowed: false,
+        },
+        400
+      );
+    }
 
-    const failures = executionResults.flatMap((entry) =>
+    const operationName = ['shock', 'vibrate', 'beep'][operation] as 'shock' | 'vibrate' | 'beep';
+    const executionResults = await Promise.all(
+      prepared.map(async (target) => {
+        const operations = await Promise.all(
+          target.shockerIds.map(async (shockerId) => {
+            const result = await operatePiShockShareCode(
+              target.credentials,
+              target.shareCodesByShockerId[shockerId],
+              {
+                operation,
+                intensity,
+                durationSeconds: duration,
+                agentName: 'DiscordActivityMultishock',
+              }
+            );
+            return { shockerId, result };
+          })
+        );
+        return { target, operations };
+      })
+    );
+
+    const execFailures: MultishockFailure[] = executionResults.flatMap((entry) =>
       entry.operations
         .filter((operationResult) => !operationResult.result.ok)
         .map((operationResult) => ({
@@ -285,33 +421,47 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
     );
 
     const executorName = await getCachedDisplayName(env.PISHOCK_KV, executorUserId);
-    await Promise.all(executionResults.map(async ({ target }) => {
-      await addToActivityBatch(env.PISHOCK_KV, {
-        id: uuidv4(),
-        timestamp: new Date().toISOString(),
-        instanceId,
-        executorUserId,
-        executorUsername: executorName,
-        targetUserId: target.targetUserId,
-        targetUsername: target.targetName,
-        action: operationName,
-        intensity,
-        duration,
-      });
-    }));
+    const successfulEntries = executionResults.filter((entry) =>
+      entry.operations.every((op) => op.result.ok)
+    );
+    await Promise.all(
+      successfulEntries.map(async ({ target }) => {
+        await addToActivityBatch(env.PISHOCK_KV, {
+          id: uuidv4(),
+          timestamp: new Date().toISOString(),
+          instanceId,
+          executorUserId,
+          executorUsername: executorName,
+          targetUserId: target.targetUserId,
+          targetUsername: target.targetName,
+          action: operationName,
+          intensity,
+          duration,
+        });
+      })
+    );
 
-    return jsonResponse({
-      success: failures.length === 0,
-      partialSuccess: failures.length > 0,
-      targetCount: prepared.length,
-      operationCount: executionResults.reduce((total, item) => total + item.operations.length, 0),
-      failures,
-      overLimitAllowed: false,
-    }, failures.length > 0 ? 207 : 200);
+    const allFailures = [...prepFailures, ...execFailures];
+    const status = allFailures.length > 0 ? 207 : 200;
+
+    return jsonResponse(
+      {
+        success: allFailures.length === 0,
+        partialSuccess: allFailures.length > 0,
+        targetCount: prepared.length,
+        operationCount: executionResults.reduce((total, item) => total + item.operations.length, 0),
+        failures: allFailures,
+        overLimitAllowed: false,
+      },
+      status
+    );
   } catch (error) {
-    return jsonResponse({
-      success: false,
-      error: error instanceof Error ? error.message : 'Internal server error',
-    }, 500);
+    return jsonResponse(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Internal server error',
+      },
+      500
+    );
   }
 };
