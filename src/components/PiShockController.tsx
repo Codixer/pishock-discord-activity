@@ -107,9 +107,6 @@ export function PiShockController({
     canVibrate: selectedUserStatus?.canVibrate !== false,
     canBeep: selectedUserStatus?.canBeep !== false,
   };
-  const limitsOverriddenByApi = Boolean(
-    selectedUserStatus?.maxIntensityOverriddenByApi || selectedUserStatus?.maxDurationOverriddenByApi
-  );
   const isSelectionOverLimit =
     intensity > effectiveLimits.maxIntensity || duration > effectiveLimits.maxDuration;
   const canArmBypassMode = Boolean(selectedUser && !multishockMode && targetAllowsBypass && hasOverlimitConsumable);
@@ -180,13 +177,23 @@ export function PiShockController({
         return true;
       }
 
-      const warningAccepted = window.confirm(
-        'Bypass Warning (one-time acknowledgement)\n\n' +
-        '- This application cannot guarantee people will have bypass enabled.\n' +
-        '- This application cannot guarantee the command will deliver; users can still limit their shocker itself.\n' +
-        '- Money used for this feature goes to the developer, not the shocked user.\n\n' +
-        'Do you understand and want to continue?'
-      );
+      let warningAccepted = true;
+      if (isEmbedded) {
+        // Browser modal APIs are blocked in Discord embedded sandbox, so surface warning non-blockingly.
+        addNotification(
+          'warning',
+          'Bypass Warning (First Use)',
+          'Conditions: target may disable bypass, command delivery is not guaranteed due to device/API constraints, and consumable purchases go to the developer (not the shocked user).'
+        );
+      } else {
+        warningAccepted = window.confirm(
+          'Bypass Warning (one-time acknowledgement)\n\n' +
+          '- This application cannot guarantee people will have bypass enabled.\n' +
+          '- This application cannot guarantee the command will deliver; users can still limit their shocker itself.\n' +
+          '- Money used for this feature goes to the developer, not the shocked user.\n\n' +
+          'Do you understand and want to continue?'
+        );
+      }
       if (!warningAccepted) {
         return false;
       }
@@ -243,7 +250,7 @@ export function PiShockController({
       // Silently handle credential check errors
     }
   };
-  
+
   useEffect(() => {
     checkCurrentUserCredentials();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -580,11 +587,6 @@ export function PiShockController({
                 {!selectedUserCapabilities.canBeep && (
                   <p className="text-xs text-orange-300 mt-1">Beep is disabled by the selected PiShock device.</p>
                 )}
-                {limitsOverriddenByApi && (
-                  <p className="text-xs text-yellow-300 mt-1">
-                    Limits shown here were overridden by the PiShock API for this device.
-                  </p>
-                )}
               </div>
             )}
             {!isPipMode && multishockMode && selectedUser && (
@@ -670,7 +672,7 @@ export function PiShockController({
                       <div className={`flex items-center space-x-1 text-sm ${limitTextColorClass}`}>
                         <Lock className="h-3 w-3" />
                         <span>
-                          Max: {effectiveLimits.maxIntensity}%{selectedUserStatus?.maxIntensityOverriddenByApi ? ' (PiShock API)' : ''}
+                          Max: {effectiveLimits.maxIntensity}%
                         </span>
                       </div>
                     )}
@@ -705,7 +707,7 @@ export function PiShockController({
                       <div className={`flex items-center space-x-1 text-sm ${limitTextColorClass}`}>
                         <Lock className="h-3 w-3" />
                         <span>
-                          Max: {effectiveLimits.maxDuration}s{selectedUserStatus?.maxDurationOverriddenByApi ? ' (PiShock API)' : ''}
+                          Max: {effectiveLimits.maxDuration}s
                         </span>
                       </div>
                     )}

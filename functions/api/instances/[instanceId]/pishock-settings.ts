@@ -1,4 +1,11 @@
-import { operatePiShockShocker, resolvePiShockShockerId } from '../../_shared/pishock-client';
+import {
+  generateLegacyShareCodesForOwnedShockers,
+  getGeneratedShareCodeForShocker,
+  getPiShockAccount,
+  listPiShockShockers,
+  normalizeGeneratedShareCodes,
+  operatePiShockShareCode,
+} from '../../_shared/pishock-client';
 
 interface Env {
   PISHOCK_KV: KVNamespace;
@@ -71,25 +78,16 @@ async function encrypt(data: any): Promise<string> {
   return btoa(JSON.stringify(data));
 }
 
-async function testPiShockConnection(apiKey: string, username: string, sharecode: string, shockerId?: string): Promise<{ ok: boolean; shockerId?: string }> {
-  const credentials = { apiKey, username, shockerId };
-  const shockerResult = await resolvePiShockShockerId(credentials, sharecode);
-  if (!shockerResult.ok || !shockerResult.data) {
-    return { ok: false };
+async function validatePiShockCredentials(apiKey: string, username: string): Promise<{ valid: boolean; userId?: string; error?: string }> {
+  const accountResult = await getPiShockAccount({ apiKey, username });
+  if (!accountResult.ok) {
+    return { valid: false, error: accountResult.error || 'Credential validation failed.' };
   }
-
-  const operateResult = await operatePiShockShocker(credentials, shockerResult.data, {
-    operation: 2,
-    intensity: 1,
-    durationSeconds: 1,
-    agentName: 'DiscordActivityConnectionTest',
-  });
-
-  if (!operateResult.ok) {
-    return { ok: false };
+  const userId = accountResult.data?.UserId;
+  if (userId === undefined || userId === null) {
+    return { valid: false, error: 'No PiShock user id returned.' };
   }
-
-  return { ok: true, shockerId: shockerResult.data };
+  return { valid: true, userId: String(userId) };
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {
@@ -118,31 +116,89 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   try {
     if (method === 'PUT') {
-      const { apiKey, username, sharecode } = await request.json();
+      const { apiKey, username, selectedShockerId, sharecode } = await request.json();
 
-      if (!apiKey || !username || !sharecode) {
+      if (!apiKey || !username || !selectedShockerId) {
         return jsonResponse({ 
           success: false, 
-          error: 'Missing required fields: apiKey, username, sharecode' 
+          error: 'Missing required fields: apiKey, username, selectedShockerId' 
         }, 400);
       }
 
-      const connectionResult = await testPiShockConnection(apiKey, username, sharecode);
-      const isConnected = connectionResult.ok;
-      
-      if (!isConnected) {
+      const credentialValidation = await validatePiShockCredentials(apiKey, username);
+      if (!credentialValidation.valid || !credentialValidation.userId) {
+        return jsonResponse({
+          success: false,
+          isConnected: false,
+          error: credentialValidation.error || 'Failed to validate PiShock credentials.',
+        }, 400);
+      }
+
+      const credentials = {
+        apiKey,
+        username,
+        piShockUserId: credentialValidation.userId,
+      };
+      const shockersResult = await listPiShockShockers(credentials);
+      if (!shockersResult.ok || !Array.isArray(shockersResult.data)) {
         return jsonResponse({ 
           success: false, 
           isConnected: false, 
-          error: 'Failed to connect to PiShock device. Please check your credentials.' 
-        });
+          error: shockersResult.error || 'Unable to list owned shockers.' 
+        }, 502);
+      }
+      const ownedShockerIds = shockersResult.data
+        .filter((shocker: any) => shocker?.ShockerId !== undefined && shocker?.ShockerId !== null)
+        .map((shocker: any) => String(shocker.ShockerId));
+      if (!ownedShockerIds.includes(String(selectedShockerId))) {
+        return jsonResponse({
+          success: false,
+          isConnected: false,
+          error: 'Selected shocker is not owned by this PiShock account.',
+        }, 400);
+      }
+
+      const generatedShareCodesResult = await generateLegacyShareCodesForOwnedShockers(credentials, ownedShockerIds);
+      if (!generatedShareCodesResult.ok || !generatedShareCodesResult.data) {
+        return jsonResponse({
+          success: false,
+          isConnected: false,
+          error: generatedShareCodesResult.error || 'Failed to generate sharecodes for owned shockers.',
+        }, 502);
+      }
+      const generatedShareCodes = normalizeGeneratedShareCodes(generatedShareCodesResult.data);
+      const selectedShareCode = getGeneratedShareCodeForShocker(generatedShareCodes, String(selectedShockerId));
+      if (!selectedShareCode) {
+        return jsonResponse({
+          success: false,
+          isConnected: false,
+          error: 'Selected shocker is missing a generated sharecode.',
+        }, 502);
+      }
+
+      const testResult = await operatePiShockShareCode(credentials, selectedShareCode, {
+        operation: 2,
+        intensity: 1,
+        durationSeconds: 1,
+        agentName: 'DiscordActivityConnectionTest',
+      });
+      if (!testResult.ok) {
+        return jsonResponse({
+          success: false,
+          isConnected: false,
+          error: testResult.error || 'Unable to verify generated sharecode with test operation.',
+        }, 502);
       }
 
       const encrypted = await encrypt({
         apiKey,
         username,
-        sharecode,
-        shockerId: connectionResult.shockerId,
+        sharecode: sharecode || '',
+        selectedShockerId: String(selectedShockerId),
+        shockerId: String(selectedShockerId),
+        generatedShareCodes,
+        generatedShareCodesLastUpdated: new Date().toISOString(),
+        piShockUserId: credentialValidation.userId,
       });
       await Promise.all([
         env.PISHOCK_KV.put(`instance:${instanceId}:pishock`, encrypted, { expirationTtl: 21600 }),
@@ -150,7 +206,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         env.PISHOCK_KV.put(`instance:${instanceId}:pishock:configuredBy`, user.id, { expirationTtl: 21600 })
       ]);
 
-      return jsonResponse({ success: true, isConnected: true });
+      return jsonResponse({
+        success: true,
+        isConnected: true,
+        selectedShockerId: String(selectedShockerId),
+        generatedShareCodeCount: Object.keys(generatedShareCodes).length,
+      });
     }
 
     if (method === 'DELETE') {

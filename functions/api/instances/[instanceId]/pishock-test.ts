@@ -1,4 +1,10 @@
-import { operatePiShockShocker, resolvePiShockShockerId } from '../../_shared/pishock-client';
+import {
+  generateLegacyShareCodesForOwnedShockers,
+  getGeneratedShareCodeForShocker,
+  listPiShockShockers,
+  normalizeGeneratedShareCodes,
+  operatePiShockShareCode,
+} from '../../_shared/pishock-client';
 
 interface Env {
   PISHOCK_KV: KVNamespace;
@@ -76,14 +82,48 @@ async function decrypt(encryptedData: string): Promise<any> {
   }
 }
 
-async function testPiShockConnection(apiKey: string, username: string, sharecode: string, shockerId?: string): Promise<{ ok: boolean; shockerId?: string }> {
-  const credentials = { apiKey, username, shockerId };
-  const shockerResult = await resolvePiShockShockerId(credentials, sharecode);
-  if (!shockerResult.ok || !shockerResult.data) {
-    return { ok: false };
+async function testPiShockConnection(
+  creds: any
+): Promise<{ ok: boolean; shockerId?: string; error?: string; generatedShareCodeCount?: number }> {
+  const credentials = {
+    apiKey: creds.apiKey,
+    username: creds.username,
+    piShockUserId: creds.piShockUserId,
+  };
+  const selectedShockerId = creds.selectedShockerId || creds.shockerId;
+  if (!selectedShockerId) {
+    return { ok: false, error: 'No selected shocker configured.' };
   }
 
-  const operateResult = await operatePiShockShocker(credentials, shockerResult.data, {
+  const shockersResult = await listPiShockShockers(credentials);
+  if (!shockersResult.ok || !Array.isArray(shockersResult.data)) {
+    return { ok: false, error: shockersResult.error || 'Unable to verify owned shockers.' };
+  }
+  const ownedShockerIds = shockersResult.data
+    .filter((shocker: any) => shocker?.ShockerId !== undefined && shocker?.ShockerId !== null)
+    .map((shocker: any) => String(shocker.ShockerId));
+  if (!ownedShockerIds.includes(String(selectedShockerId))) {
+    return { ok: false, error: 'Selected shocker is not owned by this account.' };
+  }
+
+  let generatedShareCodes = normalizeGeneratedShareCodes(creds.generatedShareCodes);
+  const hasAllOwnedShareCodes = ownedShockerIds.every((id) => Boolean(generatedShareCodes[id]));
+  if (!hasAllOwnedShareCodes) {
+    const generatedResult = await generateLegacyShareCodesForOwnedShockers(credentials, ownedShockerIds);
+    if (!generatedResult.ok || !generatedResult.data) {
+      return { ok: false, error: generatedResult.error || 'Failed generating sharecodes for owned shockers.' };
+    }
+    generatedShareCodes = normalizeGeneratedShareCodes(generatedResult.data);
+    creds.generatedShareCodes = generatedShareCodes;
+    creds.generatedShareCodesLastUpdated = new Date().toISOString();
+  }
+
+  const selectedShareCode = getGeneratedShareCodeForShocker(generatedShareCodes, String(selectedShockerId));
+  if (!selectedShareCode) {
+    return { ok: false, error: 'Selected shocker has no generated sharecode.' };
+  }
+
+  const operateResult = await operatePiShockShareCode(credentials, selectedShareCode, {
     operation: 2,
     intensity: 1,
     durationSeconds: 1,
@@ -91,10 +131,14 @@ async function testPiShockConnection(apiKey: string, username: string, sharecode
   });
 
   if (!operateResult.ok) {
-    return { ok: false };
+    return { ok: false, error: operateResult.error || 'Test operation failed.' };
   }
 
-  return { ok: true, shockerId: shockerResult.data };
+  return {
+    ok: true,
+    shockerId: String(selectedShockerId),
+    generatedShareCodeCount: Object.keys(generatedShareCodes).length,
+  };
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {
@@ -137,12 +181,16 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     try {
       const creds = await decrypt(encrypted);
-      const connectionResult = await testPiShockConnection(creds.apiKey, creds.username, creds.sharecode, creds.shockerId);
+      const connectionResult = await testPiShockConnection(creds);
       const isConnected = connectionResult.ok;
       const lastTested = new Date().toISOString();
       
       if (connectionResult.shockerId && connectionResult.shockerId !== creds.shockerId) {
+        creds.selectedShockerId = creds.selectedShockerId || connectionResult.shockerId;
         creds.shockerId = connectionResult.shockerId;
+        await env.PISHOCK_KV.put(`instance:${instanceId}:pishock`, btoa(JSON.stringify(creds)), { expirationTtl: 21600 });
+      }
+      if (creds.generatedShareCodes && typeof creds.generatedShareCodes === 'object') {
         await env.PISHOCK_KV.put(`instance:${instanceId}:pishock`, btoa(JSON.stringify(creds)), { expirationTtl: 21600 });
       }
       await env.PISHOCK_KV.put(`instance:${instanceId}:pishock:lastTested`, lastTested, { expirationTtl: 21600 });
@@ -150,7 +198,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return jsonResponse({ 
         success: isConnected, 
         isConnected, 
-        lastTested 
+        lastTested,
+        selectedShockerId: creds.selectedShockerId || creds.shockerId || null,
+        generatedShareCodeCount: connectionResult.generatedShareCodeCount || 0,
+        error: isConnected ? undefined : connectionResult.error,
       });
     } catch (error) {
       return jsonResponse({ 

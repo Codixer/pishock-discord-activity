@@ -1,9 +1,10 @@
 import {
   getPiShockAccount,
+  generateLegacyShareCodesForOwnedShockers,
+  getGeneratedShareCodeForShocker,
   listPiShockShockers,
   mapShockersToOptions,
-  resolvePiShockShockerId,
-  operatePiShockShocker,
+  normalizeGeneratedShareCodes,
 } from '../../_shared/pishock-client';
 
 interface Env {
@@ -22,8 +23,9 @@ function jsonResponse(body: any, status = 200) {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      // Match caching with status endpoint to prevent inconsistency
-      'Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
+      'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0',
       'Vary': 'Authorization',
     },
   });
@@ -137,41 +139,6 @@ async function checkUserDevices(userId: string, apiKey: string, username: string
   };
 }
 
-async function validateShareCode(username: string, apiKey: string, sharecode: string, piShockUserId?: string): Promise<{ valid: boolean; shockerId?: string; error?: string; debugInfo?: any }> {
-  const credentials = { apiKey, username, piShockUserId };
-  // Deprecated path: share code validation remains only for legacy records.
-  const shockerResult = await resolvePiShockShockerId(credentials, sharecode, { allowDefaultFallback: true });
-  if (!shockerResult.ok || !shockerResult.data) {
-    return {
-      valid: false,
-      error: shockerResult.error || 'Unable to resolve share code to a shocker.',
-      debugInfo: { status: shockerResult.status },
-    };
-  }
-
-  const operateResult = await operatePiShockShocker(credentials, shockerResult.data, {
-    operation: 2,
-    intensity: 1,
-    durationSeconds: 1,
-    agentName: 'DiscordActivityShareCodeValidation',
-  });
-
-  if (!operateResult.ok) {
-    return {
-      valid: false,
-      shockerId: shockerResult.data,
-      error: operateResult.error || 'Share code validation operation failed.',
-      debugInfo: { status: operateResult.status, rawBody: operateResult.rawBody },
-    };
-  }
-
-  return {
-    valid: true,
-    shockerId: shockerResult.data,
-    debugInfo: { status: operateResult.status },
-  };
-}
-
 function hasSettingsChanged(existing: any, newData: any): boolean {
   if (!existing) return true;
   
@@ -184,6 +151,7 @@ function hasSettingsChanged(existing: any, newData: any): boolean {
          existingCreds.username !== newCreds.username ||
          existingCreds.sharecode !== newCreds.sharecode ||
          existingCreds.selectedShockerId !== newCreds.selectedShockerId ||
+         JSON.stringify(normalizeGeneratedShareCodes(existingCreds.generatedShareCodes)) !== JSON.stringify(normalizeGeneratedShareCodes(newCreds.generatedShareCodes)) ||
          JSON.stringify(existingCreds.allowedShockerIds || []) !== JSON.stringify(newCreds.allowedShockerIds || []) ||
          Boolean(existingCreds.allowOverLimitWithConsumable) !== Boolean(newCreds.allowOverLimitWithConsumable);
 }
@@ -252,10 +220,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         const ownedShockerIds = new Set(availableShockers.map((shocker) => String(shocker.id)));
 
         const usingLegacySharecodeFallback = Boolean(creds.sharecode && !creds.selectedShockerId);
+        const generatedShareCodes = normalizeGeneratedShareCodes(creds.generatedShareCodes);
         const storedSelectedShockerId = creds.selectedShockerId || creds.shockerId || '';
         const resolvedSelectedShockerId = ownedShockerIds.has(String(storedSelectedShockerId))
           ? String(storedSelectedShockerId)
           : '';
+        const selectedShockerShareCode = getGeneratedShareCodeForShocker(generatedShareCodes, resolvedSelectedShockerId);
         const persistedAllowed = Array.isArray(creds.allowedShockerIds) ? creds.allowedShockerIds.map((id: any) => String(id)) : [];
         const filteredAllowed = persistedAllowed.filter((id) => ownedShockerIds.has(id));
         const allowedShockerIds = resolvedSelectedShockerId && !filteredAllowed.includes(resolvedSelectedShockerId)
@@ -268,6 +238,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           selectedShockerName: creds.selectedShockerName || '',
           availableShockers,
           allowedShockerIds,
+          hasGeneratedShareCodeForSelected: Boolean(selectedShockerShareCode),
+          generatedShareCodeCount: Object.keys(generatedShareCodes).length,
           allowOverLimitWithConsumable: Boolean(creds.allowOverLimitWithConsumable),
           usingLegacySharecodeFallback,
           hasOwnDevice: true,
@@ -296,6 +268,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           bannedExecutors: userData.bannedExecutors || [],
           deprecations: usingLegacySharecodeFallback ? [
             'Share code configuration is deprecated. Please select a shocker from your account.'
+          ] : resolvedSelectedShockerId && !selectedShockerShareCode ? [
+            'Selected shocker has no generated sharecode yet. Re-save settings to regenerate bridge sharecodes.'
           ] : []
         });
       } catch (error) {
@@ -312,6 +286,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         username, 
         sharecode, 
         selectedShockerId,
+        refreshShockersOnly = false,
         allowedShockerIds = [],
         allowOverLimitWithConsumable = false,
         commandsPaused,
@@ -325,6 +300,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const existingUserDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
       const existingUserData = existingUserDataStr ? JSON.parse(existingUserDataStr) : null;
       const isExistingUser = !!existingUserData?.credentials;
+      const isShockerRefreshOnly = Boolean(refreshShockersOnly);
       
       const isBanListOnlyUpdate = !apiKey && !username && !sharecode && !selectedShockerId &&
                                  Array.isArray(bannedExecutors) && 
@@ -361,18 +337,33 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           commandsPaused: Boolean(updatedUserData.commandsPaused),
         });
       } else {
-        if (!isExistingUser && (!apiKey || !username || (!selectedShockerId && !sharecode))) {
-          return jsonResponse({ 
-            success: false, 
-            error: 'Missing required fields: API Key, Username, and either Selected Shocker or legacy Share Code are required' 
-          }, 400);
-        }
-        
-        if (!username || (!selectedShockerId && !sharecode)) {
-          return jsonResponse({ 
-            success: false, 
-            error: 'Username and Selected Shocker are required (share code is deprecated)' 
-          }, 400);
+        if (isShockerRefreshOnly) {
+          if (!username) {
+            return jsonResponse({
+              success: false,
+              error: 'Username is required to refresh owned shockers.'
+            }, 400);
+          }
+          if (!isExistingUser && !apiKey) {
+            return jsonResponse({
+              success: false,
+              error: 'API Key and Username are required to refresh owned shockers for new accounts.'
+            }, 400);
+          }
+        } else {
+          if (!isExistingUser && (!apiKey || !username || (!selectedShockerId && !sharecode))) {
+            return jsonResponse({ 
+              success: false, 
+              error: 'Missing required fields: API Key, Username, and Selected Shocker are required.' 
+            }, 400);
+          }
+          
+          if (!username || !selectedShockerId) {
+            return jsonResponse({ 
+              success: false, 
+              error: 'Username and Selected Shocker are required.' 
+            }, 400);
+          }
         }
       }
       
@@ -430,11 +421,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const availableShockers = mapShockersToOptions(deviceCheck.devices || []);
       let finalSelectedShockerId = selectedShockerId || '';
       let selectedShockerName = '';
-      let shareCodeValid = true;
-      let shareCodeError: string | null = null;
-      let shareCodeDebug: any = null;
-      let shareCodeShockerId: string | null = null;
-      let usingLegacySharecodeFallback = false;
 
       if (finalSelectedShockerId) {
         const selected = availableShockers.find((shocker) => shocker.id === String(finalSelectedShockerId));
@@ -452,35 +438,50 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         }
         selectedShockerName = selected.name;
       }
-      
-      if (!finalSelectedShockerId && sharecode) {
-        // Deprecated: retain legacy share-code resolution for already configured users only.
-        usingLegacySharecodeFallback = true;
-        const shareCodeValidation = await validateShareCode(username, finalApiKey, sharecode, piShockUserId);
-        shareCodeValid = shareCodeValidation.valid;
-        shareCodeError = shareCodeValidation.error || null;
-        shareCodeDebug = shareCodeValidation.debugInfo;
-        shareCodeShockerId = shareCodeValidation.shockerId || null;
-        
-        if (!shareCodeValid) {
-          return jsonResponse({ 
-            success: false, 
-            isConnected: false, 
-            error: shareCodeError || 'Invalid share code. Please check your device share code.',
-            debug: {
-              step: 'share_code_validation',
-              ...shareCodeDebug
-            }
-          });
-        }
-        finalSelectedShockerId = shareCodeShockerId || '';
-      }
 
       const normalizedAllowedShockerIds = (Array.isArray(allowedShockerIds) ? allowedShockerIds : [])
         .map((id) => String(id))
         .filter((id) => availableShockers.some((shocker) => shocker.id === id));
       if (finalSelectedShockerId && !normalizedAllowedShockerIds.includes(finalSelectedShockerId)) {
         normalizedAllowedShockerIds.push(finalSelectedShockerId);
+      }
+
+      if (isShockerRefreshOnly) {
+        return jsonResponse({
+          success: true,
+          isConnected: true,
+          refreshOnly: true,
+          availableShockers,
+          selectedShockerId: finalSelectedShockerId || null,
+          allowedShockerIds: normalizedAllowedShockerIds,
+          piShockUserId,
+          deviceCount: deviceCheck.devices?.length || 0,
+        });
+      }
+      const generatedShareCodesResult = await generateLegacyShareCodesForOwnedShockers(
+        {
+          apiKey: finalApiKey,
+          username,
+          piShockUserId,
+        },
+        availableShockers.map((shocker) => String(shocker.id))
+      );
+      const generatedShareCodes = generatedShareCodesResult.ok && generatedShareCodesResult.data
+        ? normalizeGeneratedShareCodes(generatedShareCodesResult.data)
+        : {};
+      const shareCodeGenerationFailed = !generatedShareCodesResult.ok || !generatedShareCodesResult.data;
+      const selectedShareCode = getGeneratedShareCodeForShocker(generatedShareCodes, finalSelectedShockerId);
+      if (!selectedShareCode && !shareCodeGenerationFailed) {
+        return jsonResponse({
+          success: false,
+          isConnected: false,
+          error: 'Unable to generate a sharecode for the selected shocker.',
+          debug: {
+            step: 'selected_shocker_share_code',
+            selectedShockerId: finalSelectedShockerId,
+            generatedShareCodeCount: Object.keys(generatedShareCodes).length,
+          }
+        }, 502);
       }
 
       const finalSharecode = disableLegacySharecode ? '' : (sharecode || '');
@@ -494,9 +495,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         selectedShockerName: selectedShockerName || null,
         allowedShockerIds: normalizedAllowedShockerIds,
         allowOverLimitWithConsumable: Boolean(allowOverLimitWithConsumable),
+        generatedShareCodes,
+        generatedShareCodeGenerationFailed: shareCodeGenerationFailed,
+        generatedShareCodesLastUpdated: new Date().toISOString(),
         hasOwnDevice: actuallyHasDevice,
         piShockUserId,
-        shockerId: finalSelectedShockerId || shareCodeShockerId,
+        shockerId: finalSelectedShockerId,
         deviceCount: deviceCheck.devices?.length || 0,
         lastValidated: new Date().toISOString(),
         maxIntensity,
@@ -513,7 +517,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         maxDuration,
         hasOwnDevice: actuallyHasDevice,
         piShockUserId,
-        shockerId: finalSelectedShockerId || shareCodeShockerId,
+        shockerId: finalSelectedShockerId,
         deviceCount: deviceCheck.devices?.length || 0,
         lastUpdated: new Date().toISOString(),
         bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : [],
@@ -544,21 +548,26 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         deviceCount: deviceCheck.devices?.length || 0,
         piShockUserId,
         selectedShockerId: finalSelectedShockerId || null,
-        shockerId: finalSelectedShockerId || shareCodeShockerId,
+        shockerId: finalSelectedShockerId,
         selectedShockerName: selectedShockerName || null,
         allowedShockerIds: normalizedAllowedShockerIds,
         allowOverLimitWithConsumable: Boolean(allowOverLimitWithConsumable),
         commandsPaused: Boolean(userData.commandsPaused),
-        deprecations: usingLegacySharecodeFallback ? [
-          'Share code save path is deprecated. Please re-save with selected shocker.'
-        ] : disableLegacySharecode ? [
-          'Legacy share code fallback disabled. This account now uses selected shocker only.'
+        deprecations: shareCodeGenerationFailed ? [
+          'Legacy bridge sharecode generation failed. Commands will use direct shocker control fallback.'
         ] : [],
         debug: {
           credentialValidation: credentialValidation.debugInfo,
           deviceCheck: deviceCheck.debugInfo,
-          shareCodeValidation: shareCodeDebug,
-          usingLegacySharecodeFallback
+          shareCodeGeneration: {
+            generatedShareCodeCount: Object.keys(generatedShareCodes).length,
+            hasSelectedShareCode: Boolean(selectedShareCode),
+            failed: shareCodeGenerationFailed,
+            status: generatedShareCodesResult.status,
+            error: generatedShareCodesResult.error,
+            rawBody: generatedShareCodesResult.rawBody,
+          },
+          usingLegacySharecodeFallback: false
         }
       });
     }

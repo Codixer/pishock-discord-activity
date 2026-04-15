@@ -10,7 +10,7 @@ interface DiscordSku {
   flags: number;
 }
 
-interface DiscordEntitlement {
+export interface DiscordEntitlement {
   id: string;
   sku_id: string;
   application_id: string;
@@ -26,6 +26,12 @@ interface DiscordEntitlement {
 export interface DiscordCommerceEnv {
   DISCORD_CLIENT_ID?: string;
   DISCORD_BOT_TOKEN?: string;
+}
+
+interface ListEntitlementsOptions {
+  excludeEnded?: boolean;
+  excludeDeleted?: boolean;
+  limit?: number;
 }
 
 export interface ControllerPlusState {
@@ -90,11 +96,28 @@ export async function listUserEntitlements(
   env: DiscordCommerceEnv,
   userId: string
 ): Promise<DiscordEntitlement[]> {
+  return listDiscordEntitlementsForUser(env, userId, {
+    excludeEnded: true,
+    excludeDeleted: true,
+    limit: 100,
+  });
+}
+
+export async function listDiscordEntitlementsForUser(
+  env: DiscordCommerceEnv,
+  userId: string,
+  options: ListEntitlementsOptions = {}
+): Promise<DiscordEntitlement[]> {
+  const {
+    excludeEnded = false,
+    excludeDeleted = false,
+    limit = 100,
+  } = options;
   const params = new URLSearchParams({
     user_id: userId,
-    exclude_ended: 'true',
-    exclude_deleted: 'true',
-    limit: '100',
+    exclude_ended: excludeEnded ? 'true' : 'false',
+    exclude_deleted: excludeDeleted ? 'true' : 'false',
+    limit: String(Math.min(Math.max(limit, 1), 100)),
   });
   return discordRequest<DiscordEntitlement[]>(
     env,
@@ -132,5 +155,36 @@ export async function consumeOverlimitEntitlement(
     env,
     `/applications/${env.DISCORD_CLIENT_ID}/entitlements/${entitlementId}/consume`,
     { method: 'POST' }
+  );
+}
+
+export async function createDiscordTestEntitlement(
+  env: DiscordCommerceEnv,
+  skuId: string,
+  ownerId: string,
+  ownerType: 1 | 2
+): Promise<DiscordEntitlement> {
+  return discordRequest<DiscordEntitlement>(
+    env,
+    `/applications/${env.DISCORD_CLIENT_ID}/entitlements`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        sku_id: skuId,
+        owner_id: ownerId,
+        owner_type: ownerType,
+      }),
+    }
+  );
+}
+
+export async function deleteDiscordTestEntitlement(
+  env: DiscordCommerceEnv,
+  entitlementId: string
+): Promise<void> {
+  await discordRequest<void>(
+    env,
+    `/applications/${env.DISCORD_CLIENT_ID}/entitlements/${entitlementId}`,
+    { method: 'DELETE' }
   );
 }

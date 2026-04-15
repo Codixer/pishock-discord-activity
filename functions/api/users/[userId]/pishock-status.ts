@@ -1,4 +1,9 @@
-import { getPiShockAccount, listPiShockShockers } from '../../_shared/pishock-client';
+import {
+  getGeneratedShareCodeForShocker,
+  getPiShockAccount,
+  listPiShockShockers,
+  normalizeGeneratedShareCodes,
+} from '../../_shared/pishock-client';
 
 // Type declarations for Cloudflare Workers
 declare global {
@@ -227,7 +232,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     const cachedStatus = await getCachedUserStatus(env.PISHOCK_KV, userId);
     if (cachedStatus) {
       return jsonResponse(cachedStatus, 200, {
-        'Cache-Control': 'public, max-age=60, stale-while-revalidate=30',
+        'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
         'X-Cache-Status': 'HIT'
       });
     }
@@ -248,6 +255,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     let selectedShockerId: string | null = null;
     let selectedShockerName: string | null = null;
     let usingLegacySharecodeFallback = false;
+    let hasGeneratedShareCodeForSelected = false;
+    let generatedShareCodeCount = 0;
     let allowedShockerIds: string[] = [];
     let allowOverLimitWithConsumable = false;
     let commandsPaused = Boolean(userData?.commandsPaused);
@@ -255,8 +264,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     let canVibrate = true;
     let canBeep = true;
     let canPause = false;
-    let maxIntensityOverriddenByApi = false;
-    let maxDurationOverriddenByApi = false;
     
     if (encrypted) {
       try {
@@ -266,7 +273,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         maxDuration = creds.maxDuration || 15;
         selectedShockerId = creds.selectedShockerId || creds.shockerId || null;
         selectedShockerName = creds.selectedShockerName || null;
-        usingLegacySharecodeFallback = Boolean(creds.sharecode && !creds.selectedShockerId);
+        usingLegacySharecodeFallback = false;
+        const generatedShareCodes = normalizeGeneratedShareCodes(creds.generatedShareCodes);
+        generatedShareCodeCount = Object.keys(generatedShareCodes).length;
+        hasGeneratedShareCodeForSelected = Boolean(getGeneratedShareCodeForShocker(generatedShareCodes, selectedShockerId));
         allowedShockerIds = Array.isArray(creds.allowedShockerIds) ? creds.allowedShockerIds.map((id: any) => String(id)) : [];
         allowOverLimitWithConsumable = Boolean(creds.allowOverLimitWithConsumable);
         
@@ -301,21 +311,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
               canVibrate = Boolean(selectedShocker.CanVibrate);
               canBeep = Boolean(selectedShocker.CanBeep);
               canPause = Boolean(selectedShocker.CanPause);
-
-              const apiMaxIntensity = Number(selectedShocker.MaxIntensity);
-              if (Number.isFinite(apiMaxIntensity) && apiMaxIntensity > 0) {
-                const boundedIntensity = Math.min(maxIntensity, Math.floor(apiMaxIntensity));
-                maxIntensityOverriddenByApi = boundedIntensity < maxIntensity;
-                maxIntensity = boundedIntensity;
-              }
-
-              const apiMaxDurationMs = Number(selectedShocker.MaxDuration);
-              if (Number.isFinite(apiMaxDurationMs) && apiMaxDurationMs > 0) {
-                const apiMaxDurationSeconds = Math.max(1, Math.floor(apiMaxDurationMs / 1000));
-                const boundedDuration = Math.min(maxDuration, apiMaxDurationSeconds);
-                maxDurationOverriddenByApi = boundedDuration < maxDuration;
-                maxDuration = boundedDuration;
-              }
             }
           }
           
@@ -342,6 +337,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       selectedShockerId,
       selectedShockerName,
       allowedShockerIds,
+      hasGeneratedShareCodeForSelected,
+      generatedShareCodeCount,
       allowOverLimitWithConsumable,
       commandsPaused,
       canShock,
@@ -353,17 +350,17 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       isRelay: false,
       maxIntensity,
       maxDuration,
-      maxIntensityOverriddenByApi,
-      maxDurationOverriddenByApi,
-      deprecations: usingLegacySharecodeFallback ? [
-        'Legacy share code fallback in use. Re-save settings by selecting a shocker.'
+      deprecations: selectedShockerId && !hasGeneratedShareCodeForSelected ? [
+        'Selected shocker is missing a generated sharecode. Run Save or Test to regenerate.'
       ] : []
     };
     
     await setCachedUserStatus(env.PISHOCK_KV, userId, result);
     
     return jsonResponse(result, 200, {
-      'Cache-Control': 'public, max-age=30, stale-while-revalidate=15',
+      'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0',
     });
   } catch (error) {
     return jsonResponse({ 

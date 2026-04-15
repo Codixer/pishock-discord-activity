@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { DiscordSDK, Events, Common } from '@discord/embedded-app-sdk';
-import { Zap, Shield, AlertTriangle, FileText, Crown } from 'lucide-react';
+import { Zap, Shield, AlertTriangle, FileText, Crown, Bug } from 'lucide-react';
 import { PiShockController } from './components/PiShockController';
 import { SafetyWarning } from './components/SafetyWarning';
 import { UserSelector } from './components/UserSelector';
@@ -11,6 +11,7 @@ import { ActivityLog } from './components/ActivityLog';
 import { PrivacyPolicy } from './components/PrivacyPolicy';
 import { TermsOfService } from './components/TermsOfService';
 import { ControllerPlusShopModal } from './components/ControllerPlusShopModal';
+import { AdminDevMenu } from './components/AdminDevMenu';
 import { useNotifications } from './hooks/useNotifications';
 import { useInstanceData } from './hooks/useInstanceData';
 import { useParticipants } from './hooks/useParticipants';
@@ -84,6 +85,15 @@ function getApiBaseUrl(): string {
 }
 
 function MainApp() {
+  const OWNER_ADMIN_USER_ID = '173839105615069184';
+  interface EmbeddedSku {
+    id: string;
+    price?: {
+      amount?: number;
+      currency?: string;
+    };
+  }
+
   const CONTROLLER_PLUS_SKU_ID = '1387037988558606457';
   const OVERLIMIT_SKU_ID = '1418562984946569267';
   const [auth, setAuth] = useState<any>(null);
@@ -102,7 +112,13 @@ function MainApp() {
   const [hasOverlimitConsumable, setHasOverlimitConsumable] = useState(false);
   const [overlimitConsumableCount, setOverlimitConsumableCount] = useState(0);
   const [showControllerPlusShop, setShowControllerPlusShop] = useState(false);
+  const [showAdminMenu, setShowAdminMenu] = useState(false);
   const [multishockMode, setMultishockMode] = useState(false);
+  const [togglingEmergencyStop, setTogglingEmergencyStop] = useState(false);
+  const [warningAcksLoading, setWarningAcksLoading] = useState(false);
+  const [hasSeenFirstOverlimitPurchaseWarning, setHasSeenFirstOverlimitPurchaseWarning] = useState(false);
+  const [controllerPlusPriceLabel, setControllerPlusPriceLabel] = useState<string | null>(null);
+  const [shockPastLimitPriceLabel, setShockPastLimitPriceLabel] = useState<string | null>(null);
   const [multishockSelectionsByExecutor, setMultishockSelectionsByExecutor] = useState<Record<string, Record<string, string[]>>>({});
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
@@ -175,46 +191,54 @@ function MainApp() {
     }
   }, [auth?.access_token, addNotification]);
 
-  const purchaseSku = useCallback(async (skuId: string) => {
-    const showFirstOverlimitPurchaseWarningIfNeeded = async () => {
-      if (!auth?.access_token) return;
+  const formatSkuPrice = useCallback((amount?: number, currency?: string): string | null => {
+    if (typeof amount !== 'number' || amount < 0 || !currency) {
+      return null;
+    }
 
-      try {
-        const statusResponse = await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${auth.access_token}`,
-          },
-        });
-        if (!statusResponse.ok) {
-          throw new Error('Unable to verify purchase warning acknowledgement.');
-        }
+    try {
+      return new Intl.NumberFormat(undefined, {
+        style: 'currency',
+        currency: currency.toUpperCase(),
+      }).format(amount / 100);
+    } catch (error) {
+      return `${(amount / 100).toFixed(2)} ${currency.toUpperCase()}`;
+    }
+  }, []);
 
-        const status = await statusResponse.json();
-        if (status.hasSeenFirstOverlimitPurchaseWarning) {
-          return;
-        }
+  const refreshSkus = useCallback(async () => {
+    if (!isEmbedded || !discordSdk) {
+      setControllerPlusPriceLabel(null);
+      setShockPastLimitPriceLabel(null);
+      return;
+    }
 
-        window.alert(
-          'Over-limit purchase warning (one-time)\n\n' +
-          '- This application cannot guarantee people will have this feature enabled.\n' +
-          '- This application cannot guarantee the command will deliver because users can still limit their shocker itself.\n' +
-          '- Money used for this feature goes to the developer, not the shocked user.'
-        );
-
-        await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${auth.access_token}`,
-          },
-          body: JSON.stringify({ hasSeenFirstOverlimitPurchaseWarning: true }),
-        });
-      } catch (error) {
-        addNotification('warning', 'Purchase Notice', 'Could not persist one-time purchase warning acknowledgement.');
+    try {
+      const commands = discordSdk.commands as any;
+      if (typeof commands.getSkus !== 'function') {
+        setControllerPlusPriceLabel(null);
+        setShockPastLimitPriceLabel(null);
+        return;
       }
-    };
 
+      const response = await commands.getSkus();
+      const skus: EmbeddedSku[] = Array.isArray(response?.skus) ? response.skus : [];
+      const controllerPlusSku = skus.find((sku) => sku.id === CONTROLLER_PLUS_SKU_ID);
+      const overlimitSku = skus.find((sku) => sku.id === OVERLIMIT_SKU_ID);
+
+      setControllerPlusPriceLabel(
+        formatSkuPrice(controllerPlusSku?.price?.amount, controllerPlusSku?.price?.currency)
+      );
+      setShockPastLimitPriceLabel(
+        formatSkuPrice(overlimitSku?.price?.amount, overlimitSku?.price?.currency)
+      );
+    } catch (error) {
+      setControllerPlusPriceLabel(null);
+      setShockPastLimitPriceLabel(null);
+    }
+  }, [formatSkuPrice]);
+
+  const purchaseSku = useCallback(async (skuId: string) => {
     if (!isEmbedded || !discordSdk) {
       window.open('https://discord.com/channels/@me', '_blank');
       return;
@@ -228,9 +252,6 @@ function MainApp() {
         await commands.openExternalLink({ url: 'https://discord.com/channels/@me' });
       }
       await refreshEntitlements();
-      if (skuId === OVERLIMIT_SKU_ID) {
-        await showFirstOverlimitPurchaseWarningIfNeeded();
-      }
     } catch (error) {
       addNotification('warning', 'Purchase', 'Unable to open Discord purchase flow');
     }
@@ -240,17 +261,154 @@ function MainApp() {
     await purchaseSku(CONTROLLER_PLUS_SKU_ID);
   }, [purchaseSku]);
 
+  const manageControllerPlusSubscription = useCallback(async () => {
+    const billingUrl = 'https://discord.com/settings/billing';
+
+    if (!isEmbedded || !discordSdk) {
+      window.open(billingUrl, '_blank');
+      return;
+    }
+
+    try {
+      const commands = discordSdk.commands as any;
+      if (typeof commands.openExternalLink === 'function') {
+        await commands.openExternalLink({ url: billingUrl });
+      } else {
+        window.open(billingUrl, '_blank');
+      }
+    } catch (error) {
+      addNotification('warning', 'Subscription', 'Open Discord billing settings to manage or cancel your subscription.');
+    }
+  }, [addNotification]);
+
   const purchaseOverlimitConsumable = useCallback(async () => {
+    if (!hasSeenFirstOverlimitPurchaseWarning) {
+      addNotification('warning', 'Agreement Required', 'Please acknowledge and agree to the consumable conditions before buying.');
+      return;
+    }
     await purchaseSku(OVERLIMIT_SKU_ID);
-  }, [purchaseSku]);
+  }, [purchaseSku, hasSeenFirstOverlimitPurchaseWarning, addNotification]);
+
+  const refreshWarningAcks = useCallback(async () => {
+    if (!auth?.access_token) return;
+    setWarningAcksLoading(true);
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error('Failed to load warning acknowledgements');
+      }
+      const result = await response.json();
+      setHasSeenFirstOverlimitPurchaseWarning(Boolean(result.hasSeenFirstOverlimitPurchaseWarning));
+    } catch (error) {
+      addNotification('warning', 'Warnings', 'Unable to verify consumable warning acknowledgement status.');
+    } finally {
+      setWarningAcksLoading(false);
+    }
+  }, [auth?.access_token, addNotification]);
+
+  const acknowledgeOverlimitPurchaseWarning = useCallback(async (): Promise<boolean> => {
+    if (!auth?.access_token) return false;
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({ hasSeenFirstOverlimitPurchaseWarning: true }),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to persist acknowledgement');
+      }
+      setHasSeenFirstOverlimitPurchaseWarning(true);
+      return true;
+    } catch (error) {
+      addNotification('error', 'Agreement', 'Unable to persist your agreement. Please try again.');
+      return false;
+    }
+  }, [auth?.access_token, addNotification]);
+
+  const refreshShopData = useCallback(() => {
+    refreshEntitlements();
+    refreshWarningAcks();
+    refreshSkus();
+  }, [refreshEntitlements, refreshWarningAcks, refreshSkus]);
+
+  const openShop = useCallback(() => {
+    setShowControllerPlusShop(true);
+    refreshShopData();
+  }, [refreshShopData]);
 
   const handleMultishockToggle = useCallback((enabled: boolean) => {
     if (enabled && !hasControllerPlus) {
-      setShowControllerPlusShop(true);
+      openShop();
       return;
     }
     setMultishockMode(enabled);
-  }, [hasControllerPlus]);
+  }, [hasControllerPlus, openShop]);
+
+  const ownCommandsPaused = Boolean(auth?.user?.id && userPiShockStatus[auth.user.id]?.commandsPaused);
+  const isAdminUser = auth?.user?.id === OWNER_ADMIN_USER_ID;
+
+  useEffect(() => {
+    if (!isAdminUser && showAdminMenu) {
+      setShowAdminMenu(false);
+    }
+  }, [isAdminUser, showAdminMenu]);
+
+  const toggleEmergencyStop = useCallback(async () => {
+    if (!auth?.user?.id || !auth?.access_token || togglingEmergencyStop) return;
+    const nextPausedValue = !ownCommandsPaused;
+    setTogglingEmergencyStop(true);
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/users/${auth.user.id}/pishock-settings`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({
+          commandsPaused: nextPausedValue,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Unable to update emergency stop');
+      }
+
+      setUserPiShockStatus((previous) => ({
+        ...previous,
+        [auth.user.id]: {
+          ...(previous[auth.user.id] || {}),
+          commandsPaused: nextPausedValue,
+          lastChecked: Date.now(),
+        },
+      }));
+      addNotification(
+        'success',
+        nextPausedValue ? 'Emergency Stop Enabled' : 'Emergency Stop Disabled',
+        nextPausedValue
+          ? 'Incoming commands to your PiShock are now blocked.'
+          : 'Incoming commands to your PiShock are now allowed.'
+      );
+      if (window.refreshAllUserStatuses) {
+        window.refreshAllUserStatuses();
+      }
+    } catch (error) {
+      addNotification(
+        'error',
+        'Emergency Stop',
+        error instanceof Error ? error.message : 'Failed to update emergency stop'
+      );
+    } finally {
+      setTogglingEmergencyStop(false);
+    }
+  }, [auth?.user?.id, auth?.access_token, togglingEmergencyStop, ownCommandsPaused, addNotification]);
 
   const updateMultishockSelection = useCallback(async (targetUserId: string, shockerIds: string[]) => {
     if (!auth?.user?.id) return;
@@ -468,8 +626,10 @@ function MainApp() {
   useEffect(() => {
     if (auth?.access_token) {
       refreshEntitlements();
+      refreshWarningAcks();
+      refreshSkus();
     }
-  }, [auth?.access_token, refreshEntitlements]);
+  }, [auth?.access_token, refreshEntitlements, refreshWarningAcks, refreshSkus]);
   
   useEffect(() => {
     (window as any).userPiShockStatus = userPiShockStatus;
@@ -887,16 +1047,28 @@ function MainApp() {
           notifications={notifications} 
           onDismiss={dismissNotification} 
         />
+        <AdminDevMenu
+          isOpen={showAdminMenu}
+          onClose={() => setShowAdminMenu(false)}
+          auth={auth}
+          addNotification={addNotification}
+        />
         <ControllerPlusShopModal
           isOpen={showControllerPlusShop}
           onClose={() => setShowControllerPlusShop(false)}
           loading={entitlementsLoading}
+          warningAcksLoading={warningAcksLoading}
+          hasSeenFirstOverlimitPurchaseWarning={hasSeenFirstOverlimitPurchaseWarning}
           hasControllerPlus={hasControllerPlus}
           hasOverlimitConsumable={hasOverlimitConsumable}
           overlimitConsumableCount={overlimitConsumableCount}
-          onRefresh={refreshEntitlements}
+          onRefresh={refreshShopData}
+          onAcknowledgeOverlimitPurchaseWarning={acknowledgeOverlimitPurchaseWarning}
           onPurchaseControllerPlus={purchaseControllerPlus}
           onPurchaseConsumable={purchaseOverlimitConsumable}
+          onManageControllerPlusSubscription={manageControllerPlusSubscription}
+          controllerPlusPriceLabel={controllerPlusPriceLabel}
+          shockPastLimitPriceLabel={shockPastLimitPriceLabel}
         />
         
         <div className="w-full h-full max-w-sm mx-auto p-4 flex flex-col">
@@ -928,7 +1100,7 @@ function MainApp() {
               hasOverlimitConsumable={hasOverlimitConsumable}
               overlimitConsumableCount={overlimitConsumableCount}
               entitlementsLoading={entitlementsLoading}
-              onOpenShop={() => setShowControllerPlusShop(true)}
+              onOpenShop={openShop}
               onRefreshEntitlements={refreshEntitlements}
               multishockSelections={currentUserMultishockSelections}
               onUpdateMultishockSelection={updateMultishockSelection}
@@ -978,16 +1150,28 @@ function MainApp() {
         notifications={notifications} 
         onDismiss={dismissNotification} 
       />
+      <AdminDevMenu
+        isOpen={showAdminMenu}
+        onClose={() => setShowAdminMenu(false)}
+        auth={auth}
+        addNotification={addNotification}
+      />
       <ControllerPlusShopModal
         isOpen={showControllerPlusShop}
         onClose={() => setShowControllerPlusShop(false)}
         loading={entitlementsLoading}
+        warningAcksLoading={warningAcksLoading}
+        hasSeenFirstOverlimitPurchaseWarning={hasSeenFirstOverlimitPurchaseWarning}
         hasControllerPlus={hasControllerPlus}
         hasOverlimitConsumable={hasOverlimitConsumable}
         overlimitConsumableCount={overlimitConsumableCount}
-        onRefresh={refreshEntitlements}
+        onRefresh={refreshShopData}
+        onAcknowledgeOverlimitPurchaseWarning={acknowledgeOverlimitPurchaseWarning}
         onPurchaseControllerPlus={purchaseControllerPlus}
         onPurchaseConsumable={purchaseOverlimitConsumable}
+        onManageControllerPlusSubscription={manageControllerPlusSubscription}
+        controllerPlusPriceLabel={controllerPlusPriceLabel}
+        shockPastLimitPriceLabel={shockPastLimitPriceLabel}
       />
       
       <div className="bg-black/20 backdrop-blur-sm border-b border-white/10 flex-shrink-0">
@@ -1009,19 +1193,45 @@ function MainApp() {
               </div>
             </div>
             <div className="flex items-center space-x-4">
+              {auth?.user?.id && (
+                <button
+                  type="button"
+                  onClick={toggleEmergencyStop}
+                  disabled={togglingEmergencyStop}
+                  className={`px-2 py-1 rounded-md text-xs font-semibold transition-colors border ${
+                    ownCommandsPaused
+                      ? 'bg-red-600 hover:bg-red-700 border-red-400 text-white'
+                      : 'bg-emerald-700/40 hover:bg-emerald-700 border-emerald-500/70 text-emerald-100'
+                  } disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center space-x-1`}
+                  title="Emergency stop for incoming commands to your PiShock"
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                  <span>{togglingEmergencyStop ? 'Updating...' : ownCommandsPaused ? 'Emergency Stop ON' : 'Emergency Stop OFF'}</span>
+                </button>
+              )}
               {instanceId && (
                 <div className="text-xs text-gray-400">
                   Instance: {instanceId.slice(-8)}
                 </div>
               )}
               <button
-                onClick={() => setShowControllerPlusShop(true)}
+                onClick={openShop}
                 className="px-2 py-1 rounded-md bg-indigo-700 hover:bg-indigo-600 text-xs transition-colors flex items-center space-x-1"
                 title="Open Controller+ shop"
               >
                 <Crown className="h-3 w-3" />
                 <span className="hidden sm:inline">Shop ({overlimitConsumableCount})</span>
               </button>
+              {isAdminUser && (
+                <button
+                  onClick={() => setShowAdminMenu(true)}
+                  className="px-2 py-1 rounded-md bg-amber-700 hover:bg-amber-600 text-xs transition-colors flex items-center space-x-1"
+                  title="Open admin/dev tools"
+                >
+                  <Bug className="h-3 w-3" />
+                  <span className="hidden sm:inline">Admin</span>
+                </button>
+              )}
               <button
                 onClick={() => handleMultishockToggle(!multishockMode)}
                 className={`flex items-center gap-2 px-2 py-1 rounded-md text-xs border transition-colors ${
@@ -1109,7 +1319,7 @@ function MainApp() {
                 hasOverlimitConsumable={hasOverlimitConsumable}
                 overlimitConsumableCount={overlimitConsumableCount}
                 entitlementsLoading={entitlementsLoading}
-                onOpenShop={() => setShowControllerPlusShop(true)}
+                onOpenShop={openShop}
                 onRefreshEntitlements={refreshEntitlements}
                 multishockSelections={currentUserMultishockSelections}
                 onUpdateMultishockSelection={updateMultishockSelection}

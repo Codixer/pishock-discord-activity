@@ -1,5 +1,12 @@
 import { v4 as uuidv4 } from 'uuid';
-import { listPiShockShockers, operatePiShockShocker, resolvePiShockShockerId } from '../../_shared/pishock-client';
+import {
+  generateLegacyShareCodesForOwnedShockers,
+  getGeneratedShareCodeForShocker,
+  listPiShockShockers,
+  normalizeGeneratedShareCodes,
+  operatePiShockShocker,
+  operatePiShockShareCode,
+} from '../../_shared/pishock-client';
 import { consumeOverlimitEntitlement, getControllerPlusState } from '../../_shared/discord-entitlements';
 
 interface Env {
@@ -372,17 +379,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         apiKey: creds.apiKey,
         username: creds.username,
         piShockUserId: creds.piShockUserId,
-        shockerId: creds.selectedShockerId || creds.shockerId,
       };
-
-      const usingLegacySharecodeFallback = Boolean(!pishockCredentials.shockerId && creds.sharecode);
-      const shockerResult = await resolvePiShockShockerId(
-        pishockCredentials,
-        creds.sharecode,
-        { allowDefaultFallback: usingLegacySharecodeFallback }
-      );
-      if (!shockerResult.ok || !shockerResult.data) {
-        throw new Error(shockerResult.error || 'Unable to resolve PiShock shocker.');
+      const selectedShockerId = creds.selectedShockerId || creds.shockerId;
+      if (!selectedShockerId) {
+        throw new Error('No selected shocker configured for this user.');
       }
 
       const shockersResult = await listPiShockShockers(pishockCredentials);
@@ -392,15 +392,36 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const ownedShockerIds = shockersResult.data
         .filter((shocker: any) => shocker?.ShockerId !== undefined && shocker?.ShockerId !== null)
         .map((shocker: any) => String(shocker.ShockerId));
-      if (!ownedShockerIds.includes(shockerResult.data)) {
+      if (!ownedShockerIds.includes(String(selectedShockerId))) {
         throw new Error('Selected shocker is not owned by this PiShock account.');
       }
       const selectedShocker = shockersResult.data.find(
-        (shocker: any) => String(shocker?.ShockerId) === shockerResult.data
+        (shocker: any) => String(shocker?.ShockerId) === String(selectedShockerId)
       );
       if (!selectedShocker) {
         throw new Error('Selected shocker context is unavailable.');
       }
+
+      let generatedShareCodes = normalizeGeneratedShareCodes(creds.generatedShareCodes);
+      const hasAllOwnedShareCodes = ownedShockerIds.every((id) => Boolean(generatedShareCodes[id]));
+      let shareCodeGenerationFailed = false;
+      if (!hasAllOwnedShareCodes) {
+        const generatedShareCodesResult = await generateLegacyShareCodesForOwnedShockers(
+          pishockCredentials,
+          ownedShockerIds
+        );
+        if (!generatedShareCodesResult.ok || !generatedShareCodesResult.data) {
+          shareCodeGenerationFailed = true;
+        } else {
+          generatedShareCodes = normalizeGeneratedShareCodes(generatedShareCodesResult.data);
+          creds.generatedShareCodes = generatedShareCodes;
+          creds.generatedShareCodesLastUpdated = new Date().toISOString();
+          userData.credentials = btoa(JSON.stringify(creds));
+          await env.PISHOCK_KV.put(`user:${targetUserId}:data`, JSON.stringify(userData));
+        }
+      }
+      const selectedShareCode = getGeneratedShareCodeForShocker(generatedShareCodes, String(selectedShockerId));
+      const useDirectShockerOperation = !selectedShareCode;
 
       if (operation === 0 && !selectedShocker.CanShock) {
         return jsonResponse({
@@ -431,22 +452,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const configuredMaxDuration = Number(creds.maxDuration) || 15;
       let effectiveMaxIntensity = configuredMaxIntensity;
       let effectiveMaxDuration = configuredMaxDuration;
-      let maxIntensityOverriddenByApi = false;
-      let maxDurationOverriddenByApi = false;
-
-      const apiMaxIntensity = Number(selectedShocker.MaxIntensity);
-      if (Number.isFinite(apiMaxIntensity) && apiMaxIntensity > 0) {
-        const bounded = Math.min(effectiveMaxIntensity, Math.floor(apiMaxIntensity));
-        maxIntensityOverriddenByApi = bounded < effectiveMaxIntensity;
-        effectiveMaxIntensity = bounded;
-      }
-      const apiMaxDurationMs = Number(selectedShocker.MaxDuration);
-      if (Number.isFinite(apiMaxDurationMs) && apiMaxDurationMs > 0) {
-        const apiMaxDurationSeconds = Math.max(1, Math.floor(apiMaxDurationMs / 1000));
-        const bounded = Math.min(effectiveMaxDuration, apiMaxDurationSeconds);
-        maxDurationOverriddenByApi = bounded < effectiveMaxDuration;
-        effectiveMaxDuration = bounded;
-      }
 
       const overLimitAttempt = intensity > effectiveMaxIntensity || duration > effectiveMaxDuration;
       let consumedEntitlementId: string | undefined;
@@ -455,8 +460,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           return jsonResponse({
             success: false,
             error: `Command exceeds target limits (${effectiveMaxIntensity}% / ${effectiveMaxDuration}s) and over-limit consent is disabled.`,
-            maxIntensityOverriddenByApi,
-            maxDurationOverriddenByApi,
           });
         }
 
@@ -472,22 +475,22 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         consumedEntitlementId = entitlementState.overlimitEntitlementId;
       }
 
-      const operateResult = await operatePiShockShocker(pishockCredentials, shockerResult.data, {
-        operation,
-        intensity,
-        durationSeconds: duration,
-        agentName: 'DiscordActivity',
-      });
+      const operateResult = useDirectShockerOperation
+        ? await operatePiShockShocker(pishockCredentials, String(selectedShockerId), {
+            operation,
+            intensity,
+            durationSeconds: duration,
+            agentName: 'DiscordActivity',
+          })
+        : await operatePiShockShareCode(pishockCredentials, selectedShareCode, {
+            operation,
+            intensity,
+            durationSeconds: duration,
+            agentName: 'DiscordActivity',
+          });
 
       if (!operateResult.ok) {
         throw new Error(operateResult.error || 'PiShock operation failed.');
-      }
-
-      if (shockerResult.data !== creds.shockerId) {
-        creds.selectedShockerId = creds.selectedShockerId || shockerResult.data;
-        creds.shockerId = shockerResult.data;
-        userData.credentials = btoa(JSON.stringify(creds));
-        await env.PISHOCK_KV.put(`user:${targetUserId}:data`, JSON.stringify(userData));
       }
 
       const executorInfo = await getUserInfo(env.PISHOCK_KV, executorUserId, token);
@@ -518,17 +521,16 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         success: true, 
         logEntryId: logEntry.id,
         message: `${operationName} command executed successfully`,
-        selectedShockerId: shockerResult.data,
+        selectedShockerId: String(selectedShockerId),
         overLimitUsed: overLimitAttempt,
         consumedOverlimitEntitlementId: consumedEntitlementId || null,
         effectiveMaxIntensity,
         effectiveMaxDuration,
-        maxIntensityOverriddenByApi,
-        maxDurationOverriddenByApi,
-        usingLegacySharecodeFallback,
-        deprecations: usingLegacySharecodeFallback ? [
-          'Legacy share code fallback was used. Ask the user to re-save settings with selected shocker.'
-        ] : []
+        usingLegacySharecodeFallback: false,
+        deprecations: [],
+        hasGeneratedShareCodeForSelected: Boolean(selectedShareCode),
+        usedDirectShockerFallback: useDirectShockerOperation,
+        shareCodeGenerationFailed,
       });
 
     } catch (error) {

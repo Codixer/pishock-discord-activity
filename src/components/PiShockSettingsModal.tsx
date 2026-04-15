@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings, X, Save, Loader, ExternalLink, Wifi } from 'lucide-react';
+import { Settings, X, Save, Loader, ExternalLink, Wifi, RefreshCw } from 'lucide-react';
 import { DiscordSDK } from '@discord/embedded-app-sdk';
 
 interface PiShockSettingsModalProps {
@@ -52,8 +52,9 @@ export function PiShockSettingsModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
-  const [togglingPause, setTogglingPause] = useState(false);
+  const [refreshingShockers, setRefreshingShockers] = useState(false);
   const [hasStoredCredentials, setHasStoredCredentials] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<{
     connected: boolean;
     message: string;
@@ -230,15 +231,16 @@ export function PiShockSettingsModal({
     const isNewUser = !hasStoredCredentials;
     
     if (isNewUser && (!apiKey || !username || !selectedShockerId)) {
-      alert('Please fill in all required fields: API Key, Username, and Selected Shocker');
+      setFormError('Please fill in all required fields: API Key, Username, and Selected Shocker.');
       return;
     }
     
     if (!username || !selectedShockerId) {
-      alert('Please fill in Username and Selected Shocker');
+      setFormError('Please fill in Username and Selected Shocker.');
       return;
     }
 
+    setFormError(null);
     setSaving(true);
     try {
       const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
@@ -291,42 +293,20 @@ export function PiShockSettingsModal({
         onSettingsSaved();
         onClose();
       } else {
-        throw new Error(result.error || 'Failed to save settings');
+        const debugStep = result?.debug?.step ? ` (step: ${result.debug.step})` : '';
+        const debugRawBody = result?.debug?.rawBody ? ` Details: ${String(result.debug.rawBody).slice(0, 300)}` : '';
+        throw new Error(`${result.error || 'Failed to save settings'}${debugStep}${debugRawBody}`);
       }
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to save settings');
+      const message = error instanceof Error ? error.message : 'Failed to save settings';
+      setFormError(message);
+      setConnectionStatus({
+        connected: false,
+        message: message.slice(0, 120),
+        color: 'red'
+      });
     } finally {
       setSaving(false);
-    }
-  };
-
-  const toggleCommandPause = async () => {
-    if (!currentUser || !auth || togglingPause) return;
-    const nextValue = !commandsPaused;
-    setTogglingPause(true);
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${auth.access_token}`,
-        },
-        body: JSON.stringify({
-          commandsPaused: nextValue,
-        }),
-      });
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Unable to update pause state');
-      }
-      setCommandsPaused(nextValue);
-      if (window.refreshAllUserStatuses) {
-        window.refreshAllUserStatuses();
-      }
-    } catch (error) {
-      alert(error instanceof Error ? error.message : 'Unable to update pause state');
-    } finally {
-      setTogglingPause(false);
     }
   };
 
@@ -394,6 +374,63 @@ export function PiShockSettingsModal({
     });
   };
 
+  const refreshOwnedShockers = async () => {
+    if (!currentUser || !auth) return;
+
+    setFormError(null);
+    setRefreshingShockers(true);
+    try {
+      const hasCredentialsInput = Boolean(username.trim()) && (Boolean(apiKey.trim()) || hasStoredCredentials);
+      const response = hasCredentialsInput
+        ? await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${auth.access_token}`,
+            },
+            body: JSON.stringify({
+              refreshShockersOnly: true,
+              apiKey: apiKey.trim() || undefined,
+              username: username.trim(),
+              selectedShockerId: selectedShockerId || undefined,
+              allowedShockerIds,
+            }),
+          })
+        : await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${auth.access_token}`,
+            },
+          });
+      const result = await response.json();
+      if (!response.ok) {
+        const debugStep = result?.debug?.step ? ` (step: ${result.debug.step})` : '';
+        throw new Error(`${result?.error || 'Unable to refresh owned shockers'}${debugStep}`);
+      }
+      const settings = result?.settings || result;
+      const ownedShockers = Array.isArray(settings?.availableShockers) ? settings.availableShockers : [];
+      if (ownedShockers.length === 0) {
+        throw new Error('No owned shockers were found for this PiShock account.');
+      }
+      setAvailableShockers(ownedShockers);
+      if (settings?.selectedShockerId) {
+        setSelectedShockerId(settings.selectedShockerId);
+      } else if (!selectedShockerId) {
+        setSelectedShockerId(String(ownedShockers[0].id));
+      }
+      setAllowedShockerIds(Array.isArray(settings?.allowedShockerIds) ? settings.allowedShockerIds : []);
+      setDeprecationMessages(Array.isArray(result.deprecations) ? result.deprecations : []);
+
+      if (window.refreshAllUserStatuses) {
+        window.refreshAllUserStatuses();
+      }
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Failed to refresh owned shockers');
+    } finally {
+      setRefreshingShockers(false);
+    }
+  };
+
   const getDisplayName = (user: any) => {
     return user?.guildDisplayName || user?.displayName || user?.global_name || user?.username || 'Unknown User';
   };
@@ -447,42 +484,17 @@ export function PiShockSettingsModal({
             </div>
           </div>
 
-          <div className={`p-4 border rounded-lg ${commandsPaused ? 'bg-red-900/30 border-red-500/50' : 'bg-emerald-900/20 border-emerald-500/30'}`}>
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className={`font-semibold ${commandsPaused ? 'text-red-200' : 'text-emerald-200'}`}>
-                  Emergency Incoming Command Pause
-                </p>
-                <p className={`text-sm mt-1 ${commandsPaused ? 'text-red-300' : 'text-emerald-300'}`}>
-                  {commandsPaused
-                    ? 'All incoming commands to your shockers are currently blocked.'
-                    : 'Incoming commands are currently allowed. Toggle to block all incoming requests instantly.'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={toggleCommandPause}
-                disabled={togglingPause}
-                className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors disabled:opacity-50 ${
-                  commandsPaused ? 'bg-red-500' : 'bg-emerald-500'
-                }`}
-                aria-label="Toggle incoming command pause"
-              >
-                <span
-                  className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${
-                    commandsPaused ? 'translate-x-7' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
-
           {loadingData && (
             <div className="p-4 bg-blue-900/20 border border-blue-500/30 rounded-lg text-sm text-blue-200">
               <div className="flex items-center space-x-2">
                 <Loader className="h-4 w-4 animate-spin" />
                 <span>Loading your saved settings...</span>
               </div>
+            </div>
+          )}
+          {formError && (
+            <div className="p-4 bg-red-900/20 border border-red-500/30 rounded-lg text-sm text-red-200">
+              {formError}
             </div>
           )}
 
@@ -577,13 +589,25 @@ export function PiShockSettingsModal({
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Selected Shocker <span className="text-red-400">*</span>
-              </label>
+              <div className="flex items-center justify-between mb-2 gap-2">
+                <label className="block text-sm font-medium text-gray-300">
+                  Selected Shocker <span className="text-red-400">*</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={refreshOwnedShockers}
+                  disabled={loadingData || refreshingShockers}
+                  className="px-2 py-1 text-xs bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 rounded transition-colors inline-flex items-center gap-1"
+                  title="Refresh owned shockers from PiShock API"
+                >
+                  <RefreshCw className={`h-3 w-3 ${refreshingShockers ? 'animate-spin' : ''}`} />
+                  <span>{refreshingShockers ? 'Refreshing...' : 'Refresh'}</span>
+                </button>
+              </div>
               <select
                 value={selectedShockerId}
                 onChange={(e) => setSelectedShockerId(e.target.value)}
-                disabled={loadingData}
+                disabled={loadingData || refreshingShockers}
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
               >
                 <option value="">Select a shocker from your account</option>
@@ -594,7 +618,7 @@ export function PiShockSettingsModal({
                 ))}
               </select>
               <p className="text-xs text-gray-400 mt-1">
-                Select the device you want to share for receiving commands.
+                Enter API key + username, click Refresh, then select the device you want to share for receiving commands.
               </p>
             </div>
 

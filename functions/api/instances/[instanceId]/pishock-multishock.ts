@@ -1,5 +1,11 @@
 import { v4 as uuidv4 } from 'uuid';
-import { listPiShockShockers, operatePiShockShocker } from '../../_shared/pishock-client';
+import {
+  generateLegacyShareCodesForOwnedShockers,
+  getGeneratedShareCodeForShocker,
+  listPiShockShockers,
+  normalizeGeneratedShareCodes,
+  operatePiShockShareCode,
+} from '../../_shared/pishock-client';
 import { getControllerPlusState } from '../../_shared/discord-entitlements';
 
 interface Env {
@@ -128,6 +134,7 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
       targetName: string;
       credentials: { apiKey: string; username: string; piShockUserId?: string };
       shockerIds: string[];
+      shareCodesByShockerId: Record<string, string>;
     }> = [];
 
     for (const target of targets) {
@@ -212,18 +219,51 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
         }
       }
 
+      let generatedShareCodes = normalizeGeneratedShareCodes(creds.generatedShareCodes);
+      const hasAllOwnedShareCodes = Array.from(ownedShockerIds).every((id) => Boolean(generatedShareCodes[id]));
+      if (!hasAllOwnedShareCodes) {
+        const generatedShareCodesResult = await generateLegacyShareCodesForOwnedShockers(
+          targetCredentials,
+          Array.from(ownedShockerIds)
+        );
+        if (!generatedShareCodesResult.ok || !generatedShareCodesResult.data) {
+          return jsonResponse({
+            success: false,
+            error: generatedShareCodesResult.error || `Unable to generate sharecodes for target ${target.userId}.`,
+          }, 502);
+        }
+        generatedShareCodes = normalizeGeneratedShareCodes(generatedShareCodesResult.data);
+        creds.generatedShareCodes = generatedShareCodes;
+        creds.generatedShareCodesLastUpdated = new Date().toISOString();
+        targetUserData.credentials = btoa(JSON.stringify(creds));
+        await env.PISHOCK_KV.put(`user:${target.userId}:data`, JSON.stringify(targetUserData));
+      }
+
+      const shareCodesByShockerId: Record<string, string> = {};
+      for (const shockerId of normalizedShockers) {
+        const shareCode = getGeneratedShareCodeForShocker(generatedShareCodes, shockerId);
+        if (!shareCode) {
+          return jsonResponse({
+            success: false,
+            error: `Target ${target.userId} shocker ${shockerId} has no generated sharecode.`,
+          }, 502);
+        }
+        shareCodesByShockerId[shockerId] = shareCode;
+      }
+
       prepared.push({
         targetUserId: target.userId,
         targetName: await getCachedDisplayName(env.PISHOCK_KV, target.userId),
         credentials: targetCredentials,
         shockerIds: normalizedShockers,
+        shareCodesByShockerId,
       });
     }
 
     const operationName = ['shock', 'vibrate', 'beep'][operation] as 'shock' | 'vibrate' | 'beep';
     const executionResults = await Promise.all(prepared.map(async (target) => {
       const operations = await Promise.all(target.shockerIds.map(async (shockerId) => {
-        const result = await operatePiShockShocker(target.credentials, shockerId, {
+        const result = await operatePiShockShareCode(target.credentials, target.shareCodesByShockerId[shockerId], {
           operation,
           intensity,
           durationSeconds: duration,
