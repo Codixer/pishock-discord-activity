@@ -25,7 +25,11 @@ function getApiBaseUrl(): string {
   }
 }
 
-export function useParticipants(discordSdk: DiscordSDK, isEmbedded: boolean) {
+export function useParticipants(
+  discordSdk: DiscordSDK,
+  isEmbedded: boolean,
+  authenticatedFetch: typeof fetch = fetch
+) {
   const [participants, setParticipants] = useState<Participant[]>([]);
 
   const updateParticipants = useCallback((newParticipants: any[]) => {
@@ -45,7 +49,7 @@ export function useParticipants(discordSdk: DiscordSDK, isEmbedded: boolean) {
       const enrichedParticipants = await Promise.all(
         participants.map(async (participant) => {
           try {
-            const response = await fetch(`${getApiBaseUrl()}/discord/guilds/${discordSdk.guildId}/members/${participant.id}`, {
+            const response = await authenticatedFetch(`${getApiBaseUrl()}/discord/guilds/${discordSdk.guildId}/members/${participant.id}`, {
               headers: {
                 'Authorization': `Bearer ${auth.access_token}`,
               },
@@ -74,7 +78,7 @@ export function useParticipants(discordSdk: DiscordSDK, isEmbedded: boolean) {
     } catch (error) {
       // Silently handle enrichment errors
     }
-  }, [participants, isEmbedded, discordSdk.guildId]);
+  }, [participants, isEmbedded, discordSdk.guildId, authenticatedFetch]);
 
   return {
     participants,

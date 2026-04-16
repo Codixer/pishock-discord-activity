@@ -25,6 +25,8 @@ interface PiShockControllerProps {
   onRefreshEntitlements: () => void;
   multishockSelections: Record<string, string[]>;
   onUpdateMultishockSelection: (targetUserId: string, shockerIds: string[]) => void;
+  /** Defaults to global fetch; use App’s wrapped fetch for Discord token 401 retry. */
+  authFetch?: typeof fetch;
 }
 
 // Helper function to get the correct API base URL
@@ -63,6 +65,7 @@ export function PiShockController({
   onRefreshEntitlements,
   multishockSelections,
   onUpdateMultishockSelection,
+  authFetch = fetch,
 }: PiShockControllerProps) {
   const [intensity, setIntensity] = useState(1);
   const [duration, setDuration] = useState(1);
@@ -164,7 +167,7 @@ export function PiShockController({
     }
 
     try {
-      const statusResponse = await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
+      const statusResponse = await authFetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
@@ -204,7 +207,7 @@ export function PiShockController({
       }
 
       if (!isEmbedded) {
-        const ackResponse = await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
+        const ackResponse = await authFetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -233,7 +236,7 @@ export function PiShockController({
     if (!currentUser || !auth) return;
     
     try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-status`, {
+      const response = await authFetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-status`, {
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
         },
@@ -328,7 +331,7 @@ export function PiShockController({
     try {
       const endpoint = `${getApiBaseUrl()}/users/${selectedUser.id}/pishock-execute`;
 
-      const response = await fetch(endpoint, {
+      const response = await authFetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -430,7 +433,7 @@ export function PiShockController({
 
     setIsMultishocking(true);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/instances/${instanceId}/pishock-multishock`, {
+      const response = await authFetch(`${getApiBaseUrl()}/instances/${instanceId}/pishock-multishock`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -519,7 +522,7 @@ export function PiShockController({
                 className="px-3 py-2 rounded-lg bg-amber-600 text-sm text-white hover:bg-amber-500"
                 onClick={async () => {
                   try {
-                    const ackResponse = await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
+                    const ackResponse = await authFetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
                       method: 'POST',
                       headers: {
                         'Content-Type': 'application/json',
@@ -561,6 +564,7 @@ export function PiShockController({
         isEmbedded={isEmbedded}
         onSettingsSaved={handleSettingsSaved}
         participants={participants}
+        authFetch={authFetch}
       />
 
       <div className="h-full flex flex-col space-y-4 overflow-y-auto">

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { DiscordSDK, Events, Common } from '@discord/embedded-app-sdk';
 import { Zap, Shield, AlertTriangle, FileText, Crown, Bug } from 'lucide-react';
@@ -16,6 +16,14 @@ import { useNotifications } from './hooks/useNotifications';
 import { useInstanceData } from './hooks/useInstanceData';
 import { useParticipants } from './hooks/useParticipants';
 import { useUserStatusCache } from './hooks/useUserStatusCache';
+import {
+  readDiscordTokenCache,
+  writeDiscordTokenCache,
+  clearDiscordTokenCache,
+  isCacheEntryUsable,
+  authResultToCacheEntry,
+} from './lib/discordTokenCache';
+import { fetchWithDiscordAuthRetry } from './lib/discordAuthFetch';
 
 // Global function to refresh user statuses
 declare global {
@@ -108,6 +116,8 @@ function MainApp() {
   const CONTROLLER_PLUS_SKU_ID = '1387037988558606457';
   const OVERLIMIT_SKU_ID = '1418562984946569267';
   const [auth, setAuth] = useState<any>(null);
+  const authRef = useRef<any>(null);
+  authRef.current = auth;
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [piShockConnected, setPiShockConnected] = useState(false);
   const [safetyAccepted, setSafetyAccepted] = useState(false);
@@ -142,7 +152,6 @@ function MainApp() {
   
   // Custom hooks for managing instance data and participants
   const { instanceData, updateInstanceData } = useInstanceData(instanceId);
-  const { participants, updateParticipants } = useParticipants(discordSdk, isEmbedded);
 
   // Handle layout mode updates
   const handleLayoutModeUpdate = useCallback((update: { layout_mode: number }) => {
@@ -150,11 +159,55 @@ function MainApp() {
     setIsPipMode(update.layout_mode === Common.LayoutModeTypeObject.PIP);
   }, []);
 
+  const performTokenRefresh = useCallback(async (): Promise<string | null> => {
+    const token = authRef.current?.access_token;
+    if (!token) return null;
+    const clientId = import.meta.env.VITE_DISCORD_CLIENT_ID;
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/token/refresh`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data.access_token) return null;
+      const expiresIso =
+        typeof data.expires_at === 'number'
+          ? new Date(data.expires_at * 1000).toISOString()
+          : new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString();
+      const newToken: string = data.access_token;
+      setAuth((prev: any) => {
+        if (!prev?.user?.id) return prev;
+        writeDiscordTokenCache({
+          access_token: newToken,
+          expires: expiresIso,
+          userId: prev.user.id,
+          clientId,
+        });
+        return { ...prev, access_token: newToken, expires: expiresIso };
+      });
+      return newToken;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const authFetch = useCallback(
+    (input: RequestInfo | URL, init?: RequestInit) =>
+      fetchWithDiscordAuthRetry(input, init, {
+        getAccessToken: () => authRef.current?.access_token ?? null,
+        refreshAccessToken: performTokenRefresh,
+      }),
+    [performTokenRefresh]
+  );
+
+  const { participants, updateParticipants } = useParticipants(discordSdk, isEmbedded, authFetch);
+
   const persistInstanceDataPatch = useCallback(async (patch: Record<string, any>) => {
     if (!instanceId || !auth?.access_token) return;
 
     try {
-      const response = await fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
+      const response = await authFetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -186,14 +239,14 @@ function MainApp() {
     } catch (error) {
       addNotification('warning', 'Save Failed', 'Could not persist instance data');
     }
-  }, [instanceId, auth?.access_token, updateInstanceData, addNotification]);
+  }, [instanceId, auth?.access_token, updateInstanceData, addNotification, authFetch]);
 
   const refreshEntitlements = useCallback(async () => {
     if (!auth?.access_token) return;
 
     setEntitlementsLoading(true);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/monetization/entitlements`, {
+      const response = await authFetch(`${getApiBaseUrl()}/monetization/entitlements`, {
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
         },
@@ -217,7 +270,7 @@ function MainApp() {
     } finally {
       setEntitlementsLoading(false);
     }
-  }, [auth?.access_token, addNotification]);
+  }, [auth?.access_token, addNotification, authFetch]);
 
   const formatSkuPrice = useCallback((amount?: number, currency?: string): string | null => {
     if (typeof amount !== 'number' || amount < 0 || !currency) {
@@ -321,7 +374,7 @@ function MainApp() {
     if (!auth?.access_token) return;
     setWarningAcksLoading(true);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
+      const response = await authFetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
@@ -337,12 +390,12 @@ function MainApp() {
     } finally {
       setWarningAcksLoading(false);
     }
-  }, [auth?.access_token, addNotification]);
+  }, [auth?.access_token, addNotification, authFetch]);
 
   const acknowledgeOverlimitPurchaseWarning = useCallback(async (): Promise<boolean> => {
     if (!auth?.access_token) return false;
     try {
-      const response = await fetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
+      const response = await authFetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -359,7 +412,7 @@ function MainApp() {
       addNotification('error', 'Agreement', 'Unable to persist your agreement. Please try again.');
       return false;
     }
-  }, [auth?.access_token, addNotification]);
+  }, [auth?.access_token, addNotification, authFetch]);
 
   const refreshShopData = useCallback(() => {
     refreshEntitlements();
@@ -394,7 +447,7 @@ function MainApp() {
     const nextPausedValue = !ownCommandsPaused;
     setTogglingEmergencyStop(true);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${auth.user.id}/pishock-settings`, {
+      const response = await authFetch(`${getApiBaseUrl()}/users/${auth.user.id}/pishock-settings`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -436,7 +489,7 @@ function MainApp() {
     } finally {
       setTogglingEmergencyStop(false);
     }
-  }, [auth?.user?.id, auth?.access_token, togglingEmergencyStop, ownCommandsPaused, addNotification]);
+  }, [auth?.user?.id, auth?.access_token, togglingEmergencyStop, ownCommandsPaused, addNotification, authFetch]);
 
   const updateMultishockSelection = useCallback(async (targetUserId: string, shockerIds: string[]) => {
     if (!auth?.user?.id) return;
@@ -489,7 +542,7 @@ function MainApp() {
             return { userId: participant.id, status: cachedStatus };
           }
           
-          const response = await fetch(`${getApiBaseUrl()}/users/${participant.id}/pishock-status`, {
+          const response = await authFetch(`${getApiBaseUrl()}/users/${participant.id}/pishock-status`, {
             headers: {
               'Authorization': `Bearer ${auth.access_token}`,
             },
@@ -583,7 +636,7 @@ function MainApp() {
     } catch (error) {
       // Silently handle status check errors
     }
-  }, [instanceId, auth, participants, userStatusCache]);
+  }, [instanceId, auth, participants, userStatusCache, authFetch]);
 
   // Load ban lists for current user (who can be banned from shocking them)
   const loadCurrentUserBanList = useCallback(async () => {
@@ -592,7 +645,7 @@ function MainApp() {
     if (!auth?.user?.id) return;
 
     try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${auth.user.id}/pishock-settings`, {
+      const response = await authFetch(`${getApiBaseUrl()}/users/${auth.user.id}/pishock-settings`, {
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
         },
@@ -613,7 +666,7 @@ function MainApp() {
     } catch (error) {
       // Silently handle ban list errors
     }
-  }, [auth]);
+  }, [auth, authFetch]);
 
   const refreshParticipants = useCallback(async () => {
     if (!isEmbedded || !discordSdk || !auth) {
@@ -665,6 +718,23 @@ function MainApp() {
       refreshSkus();
     }
   }, [auth?.access_token, refreshEntitlements, refreshWarningAcks, refreshSkus]);
+
+  useEffect(() => {
+    if (!isEmbedded || !auth?.access_token || !auth?.expires) return;
+
+    const exp = new Date(auth.expires).getTime();
+    if (Number.isNaN(exp)) return;
+
+    const skewMs = 10 * 60 * 1000;
+    const msUntilRefresh = exp - Date.now() - skewMs;
+    const delay = Math.max(5_000, msUntilRefresh);
+
+    const timer = window.setTimeout(() => {
+      void performTokenRefresh();
+    }, delay);
+
+    return () => window.clearTimeout(timer);
+  }, [isEmbedded, auth?.access_token, auth?.expires, performTokenRefresh]);
   
   useEffect(() => {
     (window as any).userPiShockStatus = userPiShockStatus;
@@ -726,53 +796,86 @@ function MainApp() {
             return;
           }
 
-          const { code } = await discordSdk.commands.authorize({
-            client_id: import.meta.env.VITE_DISCORD_CLIENT_ID,
-            response_type: 'code',
-            state: '',
-            prompt: 'none',
-            scope: [
-              'identify',
-              'guilds',
-              'guilds.members.read',
-              'rpc.activities.write',
-            ],
-          });
+          const discordClientId = import.meta.env.VITE_DISCORD_CLIENT_ID;
 
-          const response = await fetch(`${getApiBaseUrl()}/auth/discord`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              code,
-              instanceId: currentInstanceId,
-            }),
-          });
+          const completeEmbeddedConnection = async (authResult: any, showSuccessToast: boolean) => {
+            setAuth(authResult);
+            writeDiscordTokenCache(authResultToCacheEntry(discordClientId, authResult));
 
-          const { access_token } = await response.json();
-          
-          const authResult = await discordSdk.commands.authenticate({
-            access_token,
-          });
+            discordSdk.subscribe(
+              Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE,
+              (data: any) => {
+                updateParticipants(data.participants);
+                (window as any).discordParticipants = data.participants;
+              }
+            );
 
-          setAuth(authResult);
+            const initialParticipants = await discordSdk.commands.getInstanceConnectedParticipants();
+            updateParticipants(initialParticipants.participants);
 
-          discordSdk.subscribe(
-            Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE,
-            (data: any) => {
-              updateParticipants(data.participants);
-              (window as any).discordParticipants = data.participants;
+            (window as any).discordParticipants = initialParticipants.participants;
+
+            if (showSuccessToast) {
+              addNotification('success', 'Connected', 'Successfully connected to Discord');
             }
-          );
+          };
 
-          // Get initial participants
-          const initialParticipants = await discordSdk.commands.getInstanceConnectedParticipants();
-          updateParticipants(initialParticipants.participants);
+          let usedFastPath = false;
+          const cached = readDiscordTokenCache(discordClientId);
+          if (cached && isCacheEntryUsable(cached)) {
+            try {
+              const authResult = await discordSdk.commands.authenticate({
+                access_token: cached.access_token,
+              });
+              await completeEmbeddedConnection(authResult, false);
+              usedFastPath = true;
+            } catch {
+              clearDiscordTokenCache(discordClientId);
+            }
+          }
 
-          (window as any).discordParticipants = initialParticipants.participants;
+          if (!usedFastPath) {
+            const { code } = await discordSdk.commands.authorize({
+              client_id: discordClientId,
+              response_type: 'code',
+              state: '',
+              prompt: 'none',
+              scope: [
+                'identify',
+                'guilds',
+                'guilds.members.read',
+                'rpc.activities.write',
+              ],
+            });
 
-          addNotification('success', 'Connected', 'Successfully connected to Discord');
+            const response = await fetch(`${getApiBaseUrl()}/auth/discord`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                code,
+                instanceId: currentInstanceId,
+              }),
+            });
+
+            const authPayload = await response.json();
+            if (!response.ok || !authPayload.access_token) {
+              addNotification(
+                'error',
+                'Connection Failed',
+                authPayload.error || 'Failed to complete Discord sign-in.'
+              );
+              setLoading(false);
+              return;
+            }
+
+            const authResult = await discordSdk.commands.authenticate({
+              access_token: authPayload.access_token,
+            });
+
+            await completeEmbeddedConnection(authResult, true);
+          }
         } else {
           const mockInstanceId = 'dev_instance_123';
           setInstanceId(mockInstanceId);
@@ -838,7 +941,7 @@ function MainApp() {
 
   useEffect(() => {
     if (instanceId && auth) {
-      fetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
+      authFetch(`${getApiBaseUrl()}/instances/${instanceId}/data`, {
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
         },
@@ -882,7 +985,7 @@ function MainApp() {
           }
         });
     }
-  }, [instanceId, auth, participants, updateInstanceData, addNotification]);
+  }, [instanceId, auth, participants, updateInstanceData, addNotification, authFetch]);
 
   // Event-driven status check: Run when participants change (join/leave)
   useEffect(() => {
@@ -912,7 +1015,7 @@ function MainApp() {
 
     const checkInstanceStatus = async () => {
       try {
-        const response = await fetch(`${getApiBaseUrl()}/instances/${instanceId}/status`, {
+        const response = await authFetch(`${getApiBaseUrl()}/instances/${instanceId}/status`, {
           headers: {
             'Authorization': `Bearer ${auth.access_token}`,
           },
@@ -936,7 +1039,7 @@ function MainApp() {
     const interval = setInterval(checkInstanceStatus, 3600000);
 
     return () => clearInterval(interval);
-  }, [instanceId, auth, addNotification]);
+  }, [instanceId, auth, addNotification, authFetch]);
 
   useEffect(() => {
     if (selectedUser) {
@@ -1139,6 +1242,7 @@ function MainApp() {
               onRefreshEntitlements={refreshEntitlements}
               multishockSelections={currentUserMultishockSelections}
               onUpdateMultishockSelection={updateMultishockSelection}
+              authFetch={authFetch}
             />
           </div>
 
@@ -1358,6 +1462,7 @@ function MainApp() {
                 onRefreshEntitlements={refreshEntitlements}
                 multishockSelections={currentUserMultishockSelections}
                 onUpdateMultishockSelection={updateMultishockSelection}
+                authFetch={authFetch}
               />
             </div>
 
@@ -1367,6 +1472,7 @@ function MainApp() {
                   instanceId={instanceId}
                   auth={auth}
                   addNotification={addNotification}
+                  authFetch={authFetch}
                 />
               </div>
             )}

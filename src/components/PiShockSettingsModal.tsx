@@ -11,6 +11,7 @@ interface PiShockSettingsModalProps {
   isEmbedded: boolean;
   onSettingsSaved: () => void;
   participants?: any[];
+  authFetch?: typeof fetch;
 }
 
 // Helper function to get the correct API base URL
@@ -33,7 +34,8 @@ export function PiShockSettingsModal({
   discordSdk, 
   isEmbedded,
   onSettingsSaved,
-  participants = []
+  participants = [],
+  authFetch = fetch,
 }: PiShockSettingsModalProps) {
   const [apiKey, setApiKey] = useState('');
   const [username, setUsername] = useState('');
@@ -74,7 +76,7 @@ export function PiShockSettingsModal({
     if (isOpen && currentUser && auth && bannedExecutors.length >= 0) {
       const saveTimeout = setTimeout(async () => {
         try {
-          await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+          await authFetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
@@ -103,7 +105,7 @@ export function PiShockSettingsModal({
     if (!currentUser || !auth) return;
 
     try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-status`, {
+      const response = await authFetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-status`, {
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
         },
@@ -149,7 +151,7 @@ export function PiShockSettingsModal({
 
     setLoadingData(true);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+      const response = await authFetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
@@ -188,7 +190,7 @@ export function PiShockSettingsModal({
 
     setLoading(true);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-test`, {
+      const response = await authFetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-test`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
@@ -243,7 +245,7 @@ export function PiShockSettingsModal({
     setFormError(null);
     setSaving(true);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+      const response = await authFetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -316,7 +318,7 @@ export function PiShockSettingsModal({
     if (!confirm('Are you sure you want to remove your PiShock credentials?')) return;
 
     try {
-      const response = await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+      const response = await authFetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
@@ -382,7 +384,7 @@ export function PiShockSettingsModal({
     try {
       const hasCredentialsInput = Boolean(username.trim()) && (Boolean(apiKey.trim()) || hasStoredCredentials);
       const response = hasCredentialsInput
-        ? await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+        ? await authFetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
@@ -396,7 +398,7 @@ export function PiShockSettingsModal({
               allowedShockerIds,
             }),
           })
-        : await fetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+        : await authFetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
             method: 'GET',
             headers: {
               'Authorization': `Bearer ${auth.access_token}`,

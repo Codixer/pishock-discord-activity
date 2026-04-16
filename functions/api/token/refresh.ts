@@ -29,7 +29,11 @@ async function requireAuth(request: Request): Promise<string | null> {
   return auth.slice(7);
 }
 
-async function refreshDiscordToken(userId: string, kv: KVNamespace, env: Env): Promise<{success: boolean; access_token?: string; error?: string}> {
+async function refreshDiscordToken(
+  userId: string,
+  kv: KVNamespace,
+  env: Env
+): Promise<{ success: boolean; access_token?: string; expires_at?: number; error?: string }> {
   try {
     const metadataStr = await kv.get(`discord_token_metadata:${userId}`);
     if (!metadataStr) {
@@ -92,9 +96,10 @@ async function refreshDiscordToken(userId: string, kv: KVNamespace, env: Env): P
 
     console.log(`[Token Refresh] Success for user ${userId}, new token expires at ${new Date(expiresAt * 1000).toISOString()}`);
     
-    return { 
-      success: true, 
+    return {
+      success: true,
       access_token,
+      expires_at: expiresAt,
     };
   } catch (error) {
     console.error(`[Token Refresh] Error for user ${userId}:`, error);
@@ -147,6 +152,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return jsonResponse({
         success: true,
         access_token: result.access_token,
+        expires_at: result.expires_at,
         message: 'Token refreshed successfully'
       });
     } else {

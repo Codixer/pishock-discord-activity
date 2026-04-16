@@ -22,6 +22,7 @@ interface ActivityLogProps {
   instanceId: string;
   auth: any;
   addNotification: (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string) => void;
+  authFetch?: typeof fetch;
 }
 
 // Helper function to get the correct API base URL
@@ -38,7 +39,7 @@ function getApiBaseUrl(): string {
   }
 }
 
-export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogProps) {
+export function ActivityLog({ instanceId, auth, addNotification, authFetch = fetch }: ActivityLogProps) {
   const [entries, setEntries] = useState<ActivityLogEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
@@ -83,7 +84,7 @@ export function ActivityLog({ instanceId, auth, addNotification }: ActivityLogPr
     if (!silent) setLoading(true);
     
     try {
-      const response = await fetch(`${getApiBaseUrl()}/activity-log`, {
+      const response = await authFetch(`${getApiBaseUrl()}/activity-log`, {
         headers: {
           'Authorization': `Bearer ${auth.access_token}`,
         },
