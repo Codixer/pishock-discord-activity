@@ -58,6 +58,18 @@ function isEntitlementActive(entitlement: DiscordEntitlement): boolean {
   return true;
 }
 
+export class DiscordApiRequestError extends Error {
+  readonly status: number;
+  readonly body: string;
+
+  constructor(status: number, body: string) {
+    super(`Discord API request failed (${status}): ${body}`);
+    this.name = 'DiscordApiRequestError';
+    this.status = status;
+    this.body = body;
+  }
+}
+
 function getAuthHeaders(env: DiscordCommerceEnv): Record<string, string> {
   if (!env.DISCORD_BOT_TOKEN) {
     throw new Error('Missing DISCORD_BOT_TOKEN');
@@ -83,7 +95,7 @@ async function discordRequest<T>(env: DiscordCommerceEnv, path: string, init: Re
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Discord API request failed (${response.status}): ${text}`);
+    throw new DiscordApiRequestError(response.status, text);
   }
 
   if (response.status === 204) {
@@ -169,6 +181,15 @@ export async function createDiscordTestEntitlement(
   ownerId: string,
   ownerType: 1 | 2
 ): Promise<DiscordEntitlement> {
+  console.log(
+    '[discord-entitlements] createDiscordTestEntitlement request',
+    JSON.stringify({
+      discordApplicationId: env.DISCORD_CLIENT_ID ?? null,
+      path: `/applications/${env.DISCORD_CLIENT_ID ?? '?'}/entitlements`,
+      body: { sku_id: skuId, owner_id: ownerId, owner_type: ownerType },
+    })
+  );
+
   return discordRequest<DiscordEntitlement>(
     env,
     `/applications/${env.DISCORD_CLIENT_ID}/entitlements`,

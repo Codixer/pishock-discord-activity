@@ -1,5 +1,6 @@
 import {
   CONTROLLER_PLUS_SKU_ID,
+  DiscordApiRequestError,
   OVERLIMIT_CONSUMABLE_SKU_ID,
   createDiscordTestEntitlement,
   deleteDiscordTestEntitlement,
@@ -94,6 +95,17 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
         return jsonResponse({ success: false, error: 'Unsupported skuKey' }, 400);
       }
 
+      console.log(
+        '[admin/entitlements] create test entitlement',
+        JSON.stringify({
+          discordApplicationId: env.DISCORD_CLIENT_ID ?? null,
+          managedSkus: MANAGED_SKUS,
+          skuKey,
+          resolvedSkuId: skuId,
+          targetUserId: userId,
+        })
+      );
+
       const entitlement = await createDiscordTestEntitlement(env, skuId, userId, 2);
       return jsonResponse({
         success: true,
@@ -119,6 +131,17 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
 
     return new Response('Method not allowed', { status: 405 });
   } catch (error) {
+    if (error instanceof DiscordApiRequestError) {
+      const status = error.status >= 500 ? 502 : error.status;
+      return jsonResponse(
+        {
+          success: false,
+          error: error.message,
+          discordStatus: error.status,
+        },
+        status
+      );
+    }
     return jsonResponse(
       {
         success: false,
