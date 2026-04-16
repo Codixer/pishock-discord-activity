@@ -211,12 +211,22 @@ async function requestLegacy<T>(
   init: RequestInit = {}
 ): Promise<PiShockApiResult<T>> {
   try {
+    const method = String(init.method || 'GET').toUpperCase();
+    // ps.pishock.com binds JSON from the body when Content-Type is application/json.
+    // GET endpoints (e.g. GetUserDevices) use query params only — sending JSON Content-Type
+    // with an empty body causes 400 "The input does not contain any JSON tokens".
+    const defaultHeaders: Record<string, string> = {
+      Accept: 'application/json',
+    };
+    if (method !== 'GET' && method !== 'HEAD') {
+      defaultHeaders['Content-Type'] = 'application/json';
+    }
+
     const response = await fetch(`${LEGACY_PISHOCK_API_BASE_URL}${path}`, {
       ...init,
       headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        ...(init.headers || {}),
+        ...defaultHeaders,
+        ...(init.headers as Record<string, string> | undefined),
       },
     });
 
