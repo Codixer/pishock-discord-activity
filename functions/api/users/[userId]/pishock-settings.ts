@@ -2,7 +2,7 @@ import {
   getPiShockAccount,
   generateLegacyShareCodesForOwnedShockers,
   getGeneratedShareCodeForShocker,
-  listPiShockShockers,
+  getAllowedShockersForController,
   mapShockersToOptions,
   normalizeGeneratedShareCodes,
 } from '../../_shared/pishock-client';
@@ -116,26 +116,31 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
   };
 }
 
-async function checkUserDevices(userId: string, apiKey: string, username: string): Promise<{ hasDevices: boolean; devices?: any[]; error?: string; debugInfo?: any }> {
-  const shockersResult = await listPiShockShockers({
-    apiKey,
-    username,
-    piShockUserId: userId,
-  });
-
-  if (!shockersResult.ok) {
+async function checkUserDevices(apiKey: string, username: string, piShockUserId?: string): Promise<{
+  hasDevices: boolean;
+  devices?: any[];
+  error?: string;
+  debugInfo?: any;
+  shockerIdsHiddenNotOnDevices?: number;
+}> {
+  const allowed = await getAllowedShockersForController({ apiKey, username, piShockUserId });
+  if (!allowed.ok || !allowed.data) {
     return {
       hasDevices: false,
-      error: shockersResult.error || 'Device check failed',
-      debugInfo: { status: shockersResult.status, rawBody: shockersResult.rawBody },
+      error: allowed.error || 'Device check failed',
+      debugInfo: { status: allowed.status, rawBody: allowed.rawBody },
     };
   }
 
-  const devices = Array.isArray(shockersResult.data) ? shockersResult.data : [];
+  const devices = allowed.data.allowedShockers;
   return {
     hasDevices: devices.length > 0,
     devices,
-    debugInfo: { deviceCount: devices.length },
+    shockerIdsHiddenNotOnDevices: allowed.data.shockerIdsHiddenNotOnDevices,
+    debugInfo: {
+      deviceCount: devices.length,
+      shockerIdsHiddenNotOnDevices: allowed.data.shockerIdsHiddenNotOnDevices,
+    },
   };
 }
 
@@ -202,19 +207,21 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         const creds = await decrypt(userData.credentials);
         
         let availableShockers: any[] = [];
+        let shockerIdsHiddenNotOnDevices = 0;
         let resolvedPiShockUserId = creds.piShockUserId;
         if (creds.apiKey && creds.username) {
           const validation = await validatePiShockCredentials(creds.apiKey, creds.username);
           if (validation.valid && validation.userId) {
             resolvedPiShockUserId = validation.userId;
           }
-          const shockersResult = await listPiShockShockers({
+          const allowedResult = await getAllowedShockersForController({
             apiKey: creds.apiKey,
             username: creds.username,
             piShockUserId: resolvedPiShockUserId,
           });
-          if (shockersResult.ok && Array.isArray(shockersResult.data)) {
-            availableShockers = mapShockersToOptions(shockersResult.data);
+          if (allowedResult.ok && allowedResult.data) {
+            availableShockers = mapShockersToOptions(allowedResult.data.allowedShockers);
+            shockerIdsHiddenNotOnDevices = allowedResult.data.shockerIdsHiddenNotOnDevices;
           }
         }
         const ownedShockerIds = new Set(availableShockers.map((shocker) => String(shocker.id)));
@@ -249,6 +256,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           piShockUserId: resolvedPiShockUserId,
           bannedExecutors: userData.bannedExecutors || [],
           commandsPaused: Boolean(userData.commandsPaused),
+          shockerIdsHiddenNotOnDevices,
         };
 
         if (resolvedPiShockUserId && resolvedPiShockUserId !== creds.piShockUserId) {
@@ -280,7 +288,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           bannedExecutors: []
         });
       }
-    }    if (method === 'PUT') {
+    }
+
+    if (method === 'PUT') {
       const body = await request.json();
       const {
         apiKey,
@@ -422,7 +432,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       const piShockUserId = credentialValidation.userId!;
       
-      const deviceCheck = await checkUserDevices(piShockUserId, finalApiKey, username);
+      const deviceCheck = await checkUserDevices(finalApiKey, username, piShockUserId);
       const availableShockers = mapShockersToOptions(deviceCheck.devices || []);
       let finalSelectedShockerId = selectedShockerId || '';
       let selectedShockerName = '';
@@ -566,6 +576,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         debug: {
           credentialValidation: credentialValidation.debugInfo,
           deviceCheck: deviceCheck.debugInfo,
+          shockerIdsHiddenNotOnDevices: deviceCheck.shockerIdsHiddenNotOnDevices,
           shareCodeGeneration: {
             generatedShareCodeCount: Object.keys(generatedShareCodes).length,
             hasSelectedShareCode: Boolean(selectedShareCode),

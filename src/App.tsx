@@ -574,6 +574,8 @@ function MainApp() {
                 canVibrate: status.canVibrate !== false,
                 canBeep: status.canBeep !== false,
                 canPause: Boolean(status.canPause),
+                shockerIdsHiddenNotOnDevices:
+                  typeof status.shockerIdsHiddenNotOnDevices === 'number' ? status.shockerIdsHiddenNotOnDevices : 0,
                 bannedExecutors: [],
                 lastChecked: Date.now(),
               }

@@ -665,6 +665,13 @@ export function PiShockController({
                     Legacy share code fallback is active for this user.
                   </p>
                 )}
+                {typeof (window as any).userPiShockStatus?.[selectedUser.id]?.shockerIdsHiddenNotOnDevices === 'number' &&
+                  (window as any).userPiShockStatus[selectedUser.id].shockerIdsHiddenNotOnDevices > 0 && (
+                  <p className="text-xs text-slate-300 mt-1">
+                    Some shockers on this user&apos;s PiShock account are not listed here because they are not active on
+                    their linked devices list (paused or offline). Only listed shockers can receive commands.
+                  </p>
+                )}
                 {selectedUserCommandsPaused && (
                   <p className="text-xs text-red-300 mt-1">
                     This user has paused all incoming commands.

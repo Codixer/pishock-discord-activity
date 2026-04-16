@@ -1,7 +1,7 @@
 import {
   generateLegacyShareCodesForOwnedShockers,
+  getAllowedShockersForController,
   getGeneratedShareCodeForShocker,
-  listPiShockShockers,
   normalizeGeneratedShareCodes,
   operatePiShockShareCode,
 } from '../../_shared/pishock-client';
@@ -95,15 +95,15 @@ async function testPiShockConnection(
     return { ok: false, error: 'No selected shocker configured.' };
   }
 
-  const shockersResult = await listPiShockShockers(credentials);
-  if (!shockersResult.ok || !Array.isArray(shockersResult.data)) {
-    return { ok: false, error: shockersResult.error || 'Unable to verify owned shockers.' };
+  const allowedResult = await getAllowedShockersForController(credentials);
+  if (!allowedResult.ok || !allowedResult.data) {
+    return { ok: false, error: allowedResult.error || 'Unable to verify allowed shockers for this account.' };
   }
-  const ownedShockerIds = shockersResult.data
+  const ownedShockerIds = allowedResult.data.allowedShockers
     .filter((shocker: any) => shocker?.ShockerId !== undefined && shocker?.ShockerId !== null)
     .map((shocker: any) => String(shocker.ShockerId));
   if (!ownedShockerIds.includes(String(selectedShockerId))) {
-    return { ok: false, error: 'Selected shocker is not owned by this account.' };
+    return { ok: false, error: 'Selected shocker is not an active owned device for this account.' };
   }
 
   let generatedShareCodes = normalizeGeneratedShareCodes(creds.generatedShareCodes);

@@ -57,6 +57,7 @@ export function PiShockSettingsModal({
   const [refreshingShockers, setRefreshingShockers] = useState(false);
   const [hasStoredCredentials, setHasStoredCredentials] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [shockerIdsHiddenNotOnDevices, setShockerIdsHiddenNotOnDevices] = useState(0);
   const [connectionStatus, setConnectionStatus] = useState<{
     connected: boolean;
     message: string;
@@ -140,6 +141,9 @@ export function PiShockSettingsModal({
           setUserMaxDuration(status.maxDuration);
         }
         setCommandsPaused(Boolean(status.commandsPaused));
+        if (typeof status.shockerIdsHiddenNotOnDevices === 'number') {
+          setShockerIdsHiddenNotOnDevices(status.shockerIdsHiddenNotOnDevices);
+        }
       }
     } catch (error) {
       console.error('Failed to check connection status:', error);
@@ -176,6 +180,9 @@ export function PiShockSettingsModal({
           setUserMaxDuration(settings.maxDuration || 15);
           setBannedExecutors(settings.bannedExecutors || []);
           setCommandsPaused(Boolean(settings.commandsPaused));
+          setShockerIdsHiddenNotOnDevices(
+            typeof settings.shockerIdsHiddenNotOnDevices === 'number' ? settings.shockerIdsHiddenNotOnDevices : 0
+          );
         }
       }
     } catch (error) {
@@ -422,6 +429,9 @@ export function PiShockSettingsModal({
       }
       setAllowedShockerIds(Array.isArray(settings?.allowedShockerIds) ? settings.allowedShockerIds : []);
       setDeprecationMessages(Array.isArray(result.deprecations) ? result.deprecations : []);
+      setShockerIdsHiddenNotOnDevices(
+        typeof settings?.shockerIdsHiddenNotOnDevices === 'number' ? settings.shockerIdsHiddenNotOnDevices : 0
+      );
 
       if (window.refreshAllUserStatuses) {
         window.refreshAllUserStatuses();
@@ -511,6 +521,25 @@ export function PiShockSettingsModal({
                   : "Configure your PiShock device to participate. You'll need your API key, username, and to select a shocker."
                 }
               </p>
+            </div>
+
+            <div className="p-4 bg-slate-800/80 border border-slate-500/40 rounded-lg text-sm text-slate-200">
+              <p className="font-semibold mb-1 text-slate-100">Owned and active shockers only</p>
+              <p className="mb-2">
+                Only shockers that belong to your PiShock account, appear on your linked devices as active (not paused),
+                and are returned by the PiShock API can be used here. This activity cannot control someone else&apos;s
+                hardware or shockers that are paused or not reported on your device list.
+              </p>
+              <p className="text-slate-300">
+                If you think a shocker is missing, check that it is online, not paused in PiShock, and linked to your
+                account before refreshing the list.
+              </p>
+              {shockerIdsHiddenNotOnDevices > 0 && (
+                <p className="mt-2 text-xs text-amber-200">
+                  {shockerIdsHiddenNotOnDevices} shocker{shockerIdsHiddenNotOnDevices === 1 ? '' : 's'} from your PiShock
+                  API response {shockerIdsHiddenNotOnDevices === 1 ? 'is' : 'are'} hidden here because {shockerIdsHiddenNotOnDevices === 1 ? 'it is' : 'they are'} not on your active devices list.
+                </p>
+              )}
             </div>
 
             {(usingLegacySharecodeFallback || deprecationMessages.length > 0) && (

@@ -1,8 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import {
   generateLegacyShareCodesForOwnedShockers,
+  getAllowedShockersForController,
   getGeneratedShareCodeForShocker,
-  listPiShockShockers,
   normalizeGeneratedShareCodes,
   operatePiShockShareCode,
 } from '../../_shared/pishock-client';
@@ -214,21 +214,21 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
         username: creds.username,
         piShockUserId: creds.piShockUserId,
       };
-      const shockersResult = await listPiShockShockers(targetCredentials);
-      if (!shockersResult.ok || !Array.isArray(shockersResult.data)) {
+      const allowedResult = await getAllowedShockersForController(targetCredentials);
+      if (!allowedResult.ok || !allowedResult.data) {
         prepFailures.push({
           targetUserId: target.userId,
-          error: 'Unable to verify owned shockers for target.',
+          error: allowedResult.error || 'Unable to verify allowed shockers for target.',
         });
         continue;
       }
       const ownedShockerIds = new Set(
-        shockersResult.data
+        allowedResult.data.allowedShockers
           .filter((shocker: any) => shocker?.ShockerId !== undefined && shocker?.ShockerId !== null)
           .map((shocker: any) => String(shocker.ShockerId))
       );
       const shockersById = new Map(
-        shockersResult.data
+        allowedResult.data.allowedShockers
           .filter((shocker: any) => shocker?.ShockerId !== undefined && shocker?.ShockerId !== null)
           .map((shocker: any) => [String(shocker.ShockerId), shocker])
       );

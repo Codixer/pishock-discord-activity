@@ -44,6 +44,13 @@ export interface PiShockShockerOption {
 
 export type PiShockGeneratedShareCodeMap = Record<string, string>;
 
+/** Shockers the controller may use: active on GetUserDevices for the Account userId, and present on GET /Shockers. */
+export interface AllowedShockersForControllerResult {
+  allowedShockers: PiShockShocker[];
+  /** Shockers returned by GET /Shockers but not on the active owned-devices list (hidden from picker). */
+  shockerIdsHiddenNotOnDevices: number;
+}
+
 interface LegacyReducedShockerModel {
   shockerId?: number;
   name?: string;
@@ -243,23 +250,114 @@ async function requestLegacy<T>(
   }
 }
 
-function parseLegacyUserId(credentials: PiShockCredentials): number | null {
-  if (credentials.piShockUserId === undefined || credentials.piShockUserId === null) {
-    return null;
-  }
-  const parsed = Number(credentials.piShockUserId);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return null;
-  }
-  return Math.floor(parsed);
-}
-
 export async function getPiShockAccount(credentials: PiShockCredentials): Promise<PiShockApiResult<PiShockAccount>> {
   return request<PiShockAccount>('/Account', credentials, { method: 'GET' });
 }
 
 export async function listPiShockShockers(credentials: PiShockCredentials): Promise<PiShockApiResult<PiShockShocker[]>> {
   return request<PiShockShocker[]>('/Shockers', credentials, { method: 'GET' });
+}
+
+/**
+ * Shockers allowed in this app: must appear on GET /Shockers and on GetUserDevices as an active
+ * (not paused) shocker under a client owned by the Account UserId.
+ */
+export async function getAllowedShockersForController(
+  credentials: PiShockCredentials
+): Promise<PiShockApiResult<AllowedShockersForControllerResult>> {
+  const accountResult = await getPiShockAccount(credentials);
+  if (!accountResult.ok) {
+    return {
+      ok: false,
+      status: accountResult.status,
+      error: accountResult.error || 'Unable to load PiShock account.',
+      rawBody: accountResult.rawBody,
+    };
+  }
+
+  const rawUserId = accountResult.data?.UserId;
+  if (rawUserId === undefined || rawUserId === null || !Number.isFinite(Number(rawUserId)) || Number(rawUserId) <= 0) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'No UserId found in PiShock Account response.',
+      rawBody: accountResult.rawBody,
+    };
+  }
+
+  const accountUserId = Math.floor(Number(rawUserId));
+  const credsWithUser: PiShockCredentials = {
+    ...credentials,
+    piShockUserId: String(accountUserId),
+  };
+
+  const query = new URLSearchParams({
+    userId: String(accountUserId),
+    token: credentials.apiKey,
+    api: 'true',
+  });
+  const [shockersResult, devicesResult] = await Promise.all([
+    listPiShockShockers(credsWithUser),
+    requestLegacy<LegacyReducedClientModel[]>(`/PiShock/GetUserDevices?${query.toString()}`, { method: 'GET' }),
+  ]);
+
+  if (!shockersResult.ok || !Array.isArray(shockersResult.data)) {
+    return {
+      ok: false,
+      status: shockersResult.status,
+      error: shockersResult.error || 'Unable to retrieve shockers.',
+      rawBody: shockersResult.rawBody,
+    };
+  }
+
+  if (!devicesResult.ok || !Array.isArray(devicesResult.data)) {
+    return {
+      ok: false,
+      status: devicesResult.status,
+      error: devicesResult.error || 'Failed to fetch PiShock devices for ownership check.',
+      rawBody: devicesResult.rawBody,
+    };
+  }
+
+  const activeOwnedIds = new Set<string>();
+  for (const client of devicesResult.data) {
+    if (!client || Number(client.userId) !== accountUserId) {
+      continue;
+    }
+    const clientShockers = Array.isArray(client.shockers) ? client.shockers : [];
+    for (const shocker of clientShockers) {
+      if (shocker?.shockerId === undefined || shocker?.shockerId === null) {
+        continue;
+      }
+      if (shocker.isPaused === true) {
+        continue;
+      }
+      activeOwnedIds.add(String(shocker.shockerId));
+    }
+  }
+
+  const allowedShockers = shockersResult.data.filter(
+    (shocker) =>
+      shocker.ShockerId !== undefined &&
+      shocker.ShockerId !== null &&
+      activeOwnedIds.has(String(shocker.ShockerId))
+  );
+
+  const shockerIdsHiddenNotOnDevices = shockersResult.data.filter(
+    (shocker) =>
+      shocker.ShockerId !== undefined &&
+      shocker.ShockerId !== null &&
+      !activeOwnedIds.has(String(shocker.ShockerId))
+  ).length;
+
+  return {
+    ok: true,
+    status: 200,
+    data: {
+      allowedShockers,
+      shockerIdsHiddenNotOnDevices,
+    },
+  };
 }
 
 export async function listOwnedPiShockShockerIds(credentials: PiShockCredentials): Promise<PiShockApiResult<string[]>> {
@@ -315,20 +413,32 @@ export async function listPiShockLinks(credentials: PiShockCredentials): Promise
   return request<PiShockLink[]>('/Links', credentials, { method: 'GET' });
 }
 
+/** Active (not paused) shockers under clients owned by GET /Account UserId, from GetUserDevices. */
 export async function listLegacyOwnedShockers(
   credentials: PiShockCredentials
 ): Promise<PiShockApiResult<LegacyOwnedShocker[]>> {
-  const legacyUserId = parseLegacyUserId(credentials);
-  if (!legacyUserId) {
+  const accountResult = await getPiShockAccount(credentials);
+  if (!accountResult.ok) {
     return {
       ok: false,
-      status: 400,
-      error: 'Legacy ownership lookup requires a valid PiShock user id.',
+      status: accountResult.status,
+      error: accountResult.error || 'Unable to load PiShock account for device lookup.',
+      rawBody: accountResult.rawBody,
     };
   }
 
+  const rawUserId = accountResult.data?.UserId;
+  if (rawUserId === undefined || rawUserId === null || !Number.isFinite(Number(rawUserId)) || Number(rawUserId) <= 0) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'Device ownership lookup requires a valid PiShock Account UserId.',
+    };
+  }
+
+  const accountUserId = Math.floor(Number(rawUserId));
   const query = new URLSearchParams({
-    userId: String(legacyUserId),
+    userId: String(accountUserId),
     token: credentials.apiKey,
     api: 'true',
   });
@@ -341,19 +451,22 @@ export async function listLegacyOwnedShockers(
     return {
       ok: false,
       status: devicesResult.status,
-      error: devicesResult.error || 'Failed to fetch legacy PiShock devices.',
+      error: devicesResult.error || 'Failed to fetch PiShock devices.',
       rawBody: devicesResult.rawBody,
     };
   }
 
   const ownedShockers: LegacyOwnedShocker[] = [];
   for (const client of devicesResult.data) {
-    if (!client || Number(client.userId) !== legacyUserId) {
+    if (!client || Number(client.userId) !== accountUserId) {
       continue;
     }
     const clientShockers = Array.isArray(client.shockers) ? client.shockers : [];
     for (const shocker of clientShockers) {
       if (shocker?.shockerId === undefined || shocker?.shockerId === null) {
+        continue;
+      }
+      if (shocker.isPaused === true) {
         continue;
       }
       ownedShockers.push({
@@ -379,45 +492,43 @@ export async function listLegacyOwnedShockers(
   };
 }
 
-export async function createLegacyShareCodeForShocker(
+function normalizeShareCodeFromApiResponse(data: unknown, rawBody: string | undefined): string {
+  if (typeof data === 'string') {
+    const t = data.trim();
+    if (t) return t.replace(/^["']|["']$/g, '').trim();
+  }
+  if (typeof data === 'object' && data !== null) {
+    const code = (data as Record<string, unknown>).Code ?? (data as Record<string, unknown>).code;
+    if (typeof code === 'string' && code.trim()) {
+      return code.trim();
+    }
+  }
+  const raw = String(rawBody || '').trim();
+  return raw ? raw.replace(/^["']|["']$/g, '').trim() : '';
+}
+
+/** POST /Share — create a share code for a shocker (api.pishock.com). */
+export async function createPiShockShareCodeForShocker(
   credentials: PiShockCredentials,
   shockerId: string
 ): Promise<PiShockApiResult<string>> {
-  const legacyUserId = parseLegacyUserId(credentials);
   const shockerIdNumber = Number(shockerId);
-  if (!legacyUserId || !Number.isFinite(shockerIdNumber) || shockerIdNumber <= 0) {
+  if (!Number.isFinite(shockerIdNumber) || shockerIdNumber <= 0) {
     return {
       ok: false,
       status: 400,
-      error: 'Sharecode creation requires valid user and shocker identifiers.',
+      error: 'Share code creation requires a valid shocker id.',
     };
   }
 
-  const query = new URLSearchParams({
-    UserId: String(legacyUserId),
-    Token: credentials.apiKey,
-    ShockerId: String(Math.floor(shockerIdNumber)),
-    api: 'true',
-  });
-  const createResult = await requestLegacy<unknown>(`/PiShock/CreateShare?${query.toString()}`, {
+  const createResult = await request<unknown>('/Share', credentials, {
     method: 'POST',
+    body: JSON.stringify({ ShockerId: Math.floor(shockerIdNumber) }),
   });
-  const shareCodeFromData = typeof createResult.data === 'string'
-    ? createResult.data.trim()
-    : typeof createResult.data === 'object' && createResult.data !== null
-      ? String(
-        (createResult.data as Record<string, unknown>).Code
-        || (createResult.data as Record<string, unknown>).code
-        || ''
-      ).trim()
-      : '';
-  const rawBody = String(createResult.rawBody || '').trim();
-  const shareCodeFromRawBody = rawBody
-    ? rawBody.replace(/^["']|["']$/g, '').trim()
-    : '';
-  const normalizedShareCode = shareCodeFromData || shareCodeFromRawBody;
 
-  if ((!createResult.ok && createResult.status >= 200 && createResult.status < 300 && normalizedShareCode) || (createResult.ok && normalizedShareCode)) {
+  const normalizedShareCode = normalizeShareCodeFromApiResponse(createResult.data, createResult.rawBody);
+
+  if (createResult.ok && normalizedShareCode) {
     return {
       ok: true,
       status: createResult.status,
@@ -425,57 +536,94 @@ export async function createLegacyShareCodeForShocker(
     };
   }
 
-  if (!normalizedShareCode) {
+  if (!createResult.ok && normalizedShareCode && createResult.status >= 200 && createResult.status < 300) {
     return {
-      ok: false,
+      ok: true,
       status: createResult.status,
-      error: createResult.error || `Failed to create sharecode for shocker ${shockerId}.`,
-      rawBody: createResult.rawBody,
+      data: normalizedShareCode,
     };
   }
 
   return {
-    ok: true,
+    ok: false,
     status: createResult.status,
-    data: normalizedShareCode,
+    error: createResult.error || `Failed to create share code for shocker ${shockerId}.`,
+    rawBody: createResult.rawBody,
   };
+}
+
+/** PUT /Share — claim share codes into the authenticated PiShock account. */
+export async function claimPiShockShareCodes(
+  credentials: PiShockCredentials,
+  codes: string[]
+): Promise<PiShockApiResult<null>> {
+  const trimmed = (Array.isArray(codes) ? codes : [])
+    .map((c) => String(c || '').trim())
+    .filter((c) => c.length > 0)
+    .slice(0, 20);
+  if (trimmed.length === 0) {
+    return {
+      ok: false,
+      status: 412,
+      error: 'At least one share code is required to claim.',
+    };
+  }
+
+  return request<null>('/Share', credentials, {
+    method: 'PUT',
+    body: JSON.stringify({ Shares: trimmed }),
+  });
 }
 
 export async function generateLegacyShareCodesForOwnedShockers(
   credentials: PiShockCredentials,
   allowedOwnedShockerIds: string[]
 ): Promise<PiShockApiResult<PiShockGeneratedShareCodeMap>> {
-  const legacyOwnedResult = await listLegacyOwnedShockers(credentials);
-  if (!legacyOwnedResult.ok || !Array.isArray(legacyOwnedResult.data)) {
+  const allowedResult = await getAllowedShockersForController(credentials);
+  if (!allowedResult.ok || !allowedResult.data) {
     return {
       ok: false,
-      status: legacyOwnedResult.status,
-      error: legacyOwnedResult.error || 'Unable to list legacy owned shockers.',
-      rawBody: legacyOwnedResult.rawBody,
+      status: allowedResult.status,
+      error: allowedResult.error || 'Unable to resolve allowed shockers for share code generation.',
+      rawBody: allowedResult.rawBody,
     };
   }
+
+  const allowedIdSet = new Set(
+    allowedResult.data.allowedShockers
+      .filter((s) => s.ShockerId !== undefined && s.ShockerId !== null)
+      .map((s) => String(s.ShockerId))
+  );
 
   const normalizedAllowed = new Set((Array.isArray(allowedOwnedShockerIds) ? allowedOwnedShockerIds : [])
     .map((id) => String(id))
     .filter((id) => id.length > 0));
-  const legacyOwnedIds = new Set(legacyOwnedResult.data.map((shocker) => String(shocker.shockerId)));
-  const candidateIds = Array.from(normalizedAllowed).filter((id) => legacyOwnedIds.has(id));
+  const candidateIds = Array.from(normalizedAllowed).filter((id) => allowedIdSet.has(id));
 
   if (candidateIds.length === 0) {
     return {
       ok: false,
       status: 404,
-      error: 'No account-owned legacy shockers were available for sharecode generation.',
+      error: 'No allowed shockers were available for share code generation.',
     };
   }
+
+  const accountResult = await getPiShockAccount(credentials);
+  const resolvedUserId =
+    accountResult.ok && accountResult.data?.UserId !== undefined && accountResult.data?.UserId !== null
+      ? String(Math.floor(Number(accountResult.data.UserId)))
+      : credentials.piShockUserId;
+  const credsForShare: PiShockCredentials = resolvedUserId
+    ? { ...credentials, piShockUserId: resolvedUserId }
+    : credentials;
 
   const mapping: PiShockGeneratedShareCodeMap = {};
   const errors: string[] = [];
   const failureDetails: LegacyShareCodeFailureDetail[] = [];
   for (const shockerId of candidateIds) {
-    const shareResult = await createLegacyShareCodeForShocker(credentials, shockerId);
+    const shareResult = await createPiShockShareCodeForShocker(credsForShare, shockerId);
     if (!shareResult.ok || !shareResult.data) {
-      const message = shareResult.error || `Failed to create sharecode for shocker ${shockerId}.`;
+      const message = shareResult.error || `Failed to create share code for shocker ${shockerId}.`;
       const diagnostic = [
         `shockerId=${shockerId}`,
         `status=${shareResult.status}`,
@@ -491,6 +639,26 @@ export async function generateLegacyShareCodesForOwnedShockers(
       });
       continue;
     }
+
+    const claimResult = await claimPiShockShareCodes(credsForShare, [shareResult.data]);
+    if (!claimResult.ok) {
+      const message = claimResult.error || `Failed to claim share code for shocker ${shockerId}.`;
+      const diagnostic = [
+        `shockerId=${shockerId}`,
+        `status=${claimResult.status}`,
+        `error=${message}`,
+        claimResult.rawBody ? `rawBody=${claimResult.rawBody.slice(0, 300)}` : '',
+      ].filter(Boolean).join(' | ');
+      errors.push(diagnostic);
+      failureDetails.push({
+        shockerId,
+        status: claimResult.status,
+        error: message,
+        rawBody: claimResult.rawBody,
+      });
+      continue;
+    }
+
     mapping[shockerId] = shareResult.data;
   }
 

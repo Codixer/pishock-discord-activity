@@ -1,8 +1,8 @@
 import {
   generateLegacyShareCodesForOwnedShockers,
+  getAllowedShockersForController,
   getGeneratedShareCodeForShocker,
   getPiShockAccount,
-  listPiShockShockers,
   normalizeGeneratedShareCodes,
   operatePiShockShareCode,
 } from '../../_shared/pishock-client';
@@ -139,22 +139,22 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         username,
         piShockUserId: credentialValidation.userId,
       };
-      const shockersResult = await listPiShockShockers(credentials);
-      if (!shockersResult.ok || !Array.isArray(shockersResult.data)) {
-        return jsonResponse({ 
-          success: false, 
-          isConnected: false, 
-          error: shockersResult.error || 'Unable to list owned shockers.' 
+      const allowedResult = await getAllowedShockersForController(credentials);
+      if (!allowedResult.ok || !allowedResult.data) {
+        return jsonResponse({
+          success: false,
+          isConnected: false,
+          error: allowedResult.error || 'Unable to list allowed shockers for this account.',
         }, 502);
       }
-      const ownedShockerIds = shockersResult.data
+      const ownedShockerIds = allowedResult.data.allowedShockers
         .filter((shocker: any) => shocker?.ShockerId !== undefined && shocker?.ShockerId !== null)
         .map((shocker: any) => String(shocker.ShockerId));
       if (!ownedShockerIds.includes(String(selectedShockerId))) {
         return jsonResponse({
           success: false,
           isConnected: false,
-          error: 'Selected shocker is not owned by this PiShock account.',
+          error: 'Selected shocker is not an active owned device for this PiShock account.',
         }, 400);
       }
 

@@ -1,8 +1,8 @@
 import {
   generateLegacyShareCodesForOwnedShockers,
+  getAllowedShockersForController,
   getGeneratedShareCodeForShocker,
   getPiShockAccount,
-  listPiShockShockers,
   normalizeGeneratedShareCodes,
   operatePiShockShocker,
   operatePiShockShareCode,
@@ -110,26 +110,31 @@ async function validatePiShockCredentials(apiKey: string, username: string): Pro
   };
 }
 
-async function checkUserDevices(userId: string, apiKey: string, username: string): Promise<{ hasDevices: boolean; devices?: any[]; error?: string; debugInfo?: any }> {
-  const shockersResult = await listPiShockShockers({
-    apiKey,
-    username,
-    piShockUserId: userId,
-  });
-
-  if (!shockersResult.ok) {
+async function checkUserDevices(apiKey: string, username: string, piShockUserId?: string): Promise<{
+  hasDevices: boolean;
+  devices?: any[];
+  error?: string;
+  debugInfo?: any;
+  shockerIdsHiddenNotOnDevices?: number;
+}> {
+  const allowed = await getAllowedShockersForController({ apiKey, username, piShockUserId });
+  if (!allowed.ok || !allowed.data) {
     return {
       hasDevices: false,
-      error: shockersResult.error || 'Device check failed',
-      debugInfo: { status: shockersResult.status, rawBody: shockersResult.rawBody },
+      error: allowed.error || 'Device check failed',
+      debugInfo: { status: allowed.status, rawBody: allowed.rawBody },
     };
   }
 
-  const devices = Array.isArray(shockersResult.data) ? shockersResult.data : [];
+  const devices = allowed.data.allowedShockers;
   return {
     hasDevices: devices.length > 0,
     devices,
-    debugInfo: { deviceCount: devices.length },
+    shockerIdsHiddenNotOnDevices: allowed.data.shockerIdsHiddenNotOnDevices,
+    debugInfo: {
+      deviceCount: devices.length,
+      shockerIdsHiddenNotOnDevices: allowed.data.shockerIdsHiddenNotOnDevices,
+    },
   };
 }
 
@@ -196,7 +201,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const allowOverLimitWithConsumable = Boolean(creds.allowOverLimitWithConsumable);
       
       if (credentialValidation.valid && credentialValidation.userId) {
-        const deviceCheck = await checkUserDevices(credentialValidation.userId, creds.apiKey, creds.username);
+        const deviceCheck = await checkUserDevices(creds.apiKey, creds.username, credentialValidation.userId);
         hasDevice = deviceCheck.hasDevices;
         deviceCount = deviceCheck.devices?.length || 0;
         deviceDebugInfo = deviceCheck.debugInfo;

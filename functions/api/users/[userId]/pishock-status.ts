@@ -1,7 +1,7 @@
 import {
+  getAllowedShockersForController,
   getGeneratedShareCodeForShocker,
   getPiShockAccount,
-  listPiShockShockers,
   normalizeGeneratedShareCodes,
 } from '../../_shared/pishock-client';
 
@@ -152,7 +152,8 @@ async function setCachedUserStatus(kv: KVNamespace, userId: string, newStatus: a
                         existingData.status?.commandsPaused !== newStatus.commandsPaused ||
                         existingData.status?.canShock !== newStatus.canShock ||
                         existingData.status?.canVibrate !== newStatus.canVibrate ||
-                        existingData.status?.canBeep !== newStatus.canBeep;
+                        existingData.status?.canBeep !== newStatus.canBeep ||
+                        existingData.status?.shockerIdsHiddenNotOnDevices !== newStatus.shockerIdsHiddenNotOnDevices;
       
       if (!hasChanges) {
         return; // No changes, don't update cache
@@ -184,19 +185,22 @@ async function clearUserStatusCache(kv: KVNamespace, userId: string) {
   }
 }
 
-async function checkUserDevices(userId: string, apiKey: string, username: string): Promise<{ hasDevices: boolean; devices?: any[] }> {
-  const shockersResult = await listPiShockShockers({
-    apiKey,
-    username,
-    piShockUserId: userId,
-  });
-
-  if (!shockersResult.ok) {
+async function checkUserDevices(
+  apiKey: string,
+  username: string,
+  piShockUserId?: string
+): Promise<{ hasDevices: boolean; devices?: any[]; shockerIdsHiddenNotOnDevices?: number }> {
+  const allowed = await getAllowedShockersForController({ apiKey, username, piShockUserId });
+  if (!allowed.ok || !allowed.data) {
     return { hasDevices: false };
   }
 
-  const devices = Array.isArray(shockersResult.data) ? shockersResult.data : [];
-  return { hasDevices: devices.length > 0, devices };
+  const devices = allowed.data.allowedShockers;
+  return {
+    hasDevices: devices.length > 0,
+    devices,
+    shockerIdsHiddenNotOnDevices: allowed.data.shockerIdsHiddenNotOnDevices,
+  };
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {
@@ -264,6 +268,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     let canVibrate = true;
     let canBeep = true;
     let canPause = false;
+    let shockerIdsHiddenNotOnDevices = 0;
     
     if (encrypted) {
       try {
@@ -286,9 +291,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         if (isConnected && credentialValidation.userId) {
           piShockUserId = credentialValidation.userId;
           
-          const deviceCheck = await checkUserDevices(credentialValidation.userId, creds.apiKey, creds.username);
+          const deviceCheck = await checkUserDevices(creds.apiKey, creds.username, credentialValidation.userId);
           hasDevice = deviceCheck.hasDevices;
           deviceCount = deviceCheck.devices?.length || 0;
+          shockerIdsHiddenNotOnDevices = deviceCheck.shockerIdsHiddenNotOnDevices ?? 0;
           const ownedShockerIds = new Set(
             Array.isArray(deviceCheck.devices)
               ? deviceCheck.devices
@@ -310,7 +316,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
               canShock = Boolean(selectedShocker.CanShock);
               canVibrate = Boolean(selectedShocker.CanVibrate);
               canBeep = Boolean(selectedShocker.CanBeep);
-              canPause = Boolean(selectedShocker.CanPause);
+              canPause = Boolean((selectedShocker as { CanPause?: boolean }).CanPause);
             }
           }
           
@@ -350,6 +356,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       isRelay: false,
       maxIntensity,
       maxDuration,
+      shockerIdsHiddenNotOnDevices,
       deprecations: selectedShockerId && !hasGeneratedShareCodeForSelected ? [
         'Selected shocker is missing a generated sharecode. Run Save or Test to regenerate.'
       ] : []
