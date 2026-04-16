@@ -1,6 +1,17 @@
 const PISHOCK_API_BASE_URL = 'https://api.pishock.com';
 const LEGACY_PISHOCK_API_BASE_URL = 'https://ps.pishock.com';
 
+const DBG = '[PiShock:allowedShockers]';
+
+function previewIds(ids: Iterable<string>, max = 12): string[] {
+  const out: string[] = [];
+  for (const id of ids) {
+    out.push(id);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
 export interface PiShockCredentials {
   apiKey: string;
   username: string;
@@ -265,8 +276,12 @@ export async function listPiShockShockers(credentials: PiShockCredentials): Prom
 export async function getAllowedShockersForController(
   credentials: PiShockCredentials
 ): Promise<PiShockApiResult<AllowedShockersForControllerResult>> {
+  const usernameLog = String(credentials.username || '').trim() || '(no username)';
+  console.log(`${DBG} start username=${usernameLog} storedPiShockUserId=${credentials.piShockUserId ?? '(none)'}`);
+
   const accountResult = await getPiShockAccount(credentials);
   if (!accountResult.ok) {
+    console.log(`${DBG} GET /Account failed status=${accountResult.status} error=${accountResult.error?.slice(0, 200)}`);
     return {
       ok: false,
       status: accountResult.status,
@@ -277,6 +292,7 @@ export async function getAllowedShockersForController(
 
   const rawUserId = accountResult.data?.UserId;
   if (rawUserId === undefined || rawUserId === null || !Number.isFinite(Number(rawUserId)) || Number(rawUserId) <= 0) {
+    console.log(`${DBG} Account response missing UserId data=${JSON.stringify(accountResult.data)}`);
     return {
       ok: false,
       status: 400,
@@ -286,6 +302,7 @@ export async function getAllowedShockersForController(
   }
 
   const accountUserId = Math.floor(Number(rawUserId));
+  console.log(`${DBG} Account UserId=${accountUserId}`);
   const credsWithUser: PiShockCredentials = {
     ...credentials,
     piShockUserId: String(accountUserId),
@@ -302,6 +319,9 @@ export async function getAllowedShockersForController(
   ]);
 
   if (!shockersResult.ok || !Array.isArray(shockersResult.data)) {
+    console.log(
+      `${DBG} GET /Shockers failed status=${shockersResult.status} ok=${shockersResult.ok} isArray=${Array.isArray(shockersResult.data)} error=${shockersResult.error?.slice(0, 200)}`
+    );
     return {
       ok: false,
       status: shockersResult.status,
@@ -310,7 +330,15 @@ export async function getAllowedShockersForController(
     };
   }
 
+  const apiShockerIds = shockersResult.data
+    .filter((s) => s.ShockerId !== undefined && s.ShockerId !== null)
+    .map((s) => String(s.ShockerId));
+  console.log(`${DBG} GET /Shockers ok count=${shockersResult.data.length} idsPreview=${JSON.stringify(previewIds(apiShockerIds))}`);
+
   if (!devicesResult.ok || !Array.isArray(devicesResult.data)) {
+    console.log(
+      `${DBG} GetUserDevices failed status=${devicesResult.status} ok=${devicesResult.ok} isArray=${Array.isArray(devicesResult.data)} error=${devicesResult.error?.slice(0, 200)}`
+    );
     return {
       ok: false,
       status: devicesResult.status,
@@ -319,22 +347,49 @@ export async function getAllowedShockersForController(
     };
   }
 
+  const clients = devicesResult.data;
+  let clientsMatchingAccount = 0;
+  let clientsForeignUser = 0;
+  let shockersSkippedWrongUser = 0;
+  let shockersSkippedPaused = 0;
+  let shockersSkippedNoId = 0;
+  const foreignClientSamples: Array<{ clientUserId: number | undefined; clientId: number | undefined }> = [];
+
   const activeOwnedIds = new Set<string>();
-  for (const client of devicesResult.data) {
-    if (!client || Number(client.userId) !== accountUserId) {
+  for (const client of clients) {
+    if (!client) {
       continue;
     }
+    if (Number(client.userId) !== accountUserId) {
+      clientsForeignUser += 1;
+      shockersSkippedWrongUser += Array.isArray(client.shockers) ? client.shockers.length : 0;
+      if (foreignClientSamples.length < 5) {
+        foreignClientSamples.push({ clientUserId: client.userId, clientId: client.clientId });
+      }
+      continue;
+    }
+    clientsMatchingAccount += 1;
     const clientShockers = Array.isArray(client.shockers) ? client.shockers : [];
     for (const shocker of clientShockers) {
       if (shocker?.shockerId === undefined || shocker?.shockerId === null) {
+        shockersSkippedNoId += 1;
         continue;
       }
       if (shocker.isPaused === true) {
+        shockersSkippedPaused += 1;
         continue;
       }
       activeOwnedIds.add(String(shocker.shockerId));
     }
   }
+
+  console.log(
+    `${DBG} GetUserDevices clientsTotal=${clients.length} clientsMatchingAccountUserId=${clientsMatchingAccount} ` +
+      `clientsWithOtherUserId=${clientsForeignUser} activeOwnedShockerCount=${activeOwnedIds.size} ` +
+      `activeOwnedIdsPreview=${JSON.stringify(previewIds(activeOwnedIds))} ` +
+      `foreignClientUserIdSamples=${foreignClientSamples.length ? JSON.stringify(foreignClientSamples) : 'none'} ` +
+      `shockersUnderForeignClients=${shockersSkippedWrongUser} skippedPaused=${shockersSkippedPaused} skippedNoId=${shockersSkippedNoId}`
+  );
 
   const allowedShockers = shockersResult.data.filter(
     (shocker) =>
@@ -349,6 +404,20 @@ export async function getAllowedShockersForController(
       shocker.ShockerId !== null &&
       !activeOwnedIds.has(String(shocker.ShockerId))
   ).length;
+
+  const apiOnly = apiShockerIds.filter((id) => !activeOwnedIds.has(id));
+  const deviceOnly = Array.from(activeOwnedIds).filter((id) => !apiShockerIds.includes(id));
+  console.log(
+    `${DBG} intersection allowedCount=${allowedShockers.length} hiddenFromApiNotOnDevices=${shockerIdsHiddenNotOnDevices} ` +
+      `inApiNotOnDeviceListPreview=${JSON.stringify(previewIds(apiOnly))} onDeviceListNotInApiPreview=${JSON.stringify(previewIds(deviceOnly))}`
+  );
+
+  if (allowedShockers.length === 0) {
+    console.log(
+      `${DBG} EMPTY allowed list — typical causes: GetUserDevices [] or wrong userId on clients; all shockers paused; ` +
+        `or /Shockers ids do not overlap GetUserDevices active ids. clientsRawLength=${clients.length}`
+    );
+  }
 
   return {
     ok: true,

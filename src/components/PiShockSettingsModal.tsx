@@ -183,6 +183,15 @@ export function PiShockSettingsModal({
           setShockerIdsHiddenNotOnDevices(
             typeof settings.shockerIdsHiddenNotOnDevices === 'number' ? settings.shockerIdsHiddenNotOnDevices : 0
           );
+          const loaded = Array.isArray(settings.availableShockers) ? settings.availableShockers : [];
+          if (loaded.length === 0 && (settings.username || settings.piShockUserId)) {
+            console.warn(
+              '[PiShock:settings UI] availableShockers is empty after GET settings. ' +
+                'Worker logs [PiShock:allowedShockers] show why (Account vs GetUserDevices vs /Shockers intersection). ' +
+                'Tail: wrangler pages deployment tail --project-name <name> (or your host logs).',
+              { shockerIdsHiddenNotOnDevices: settings.shockerIdsHiddenNotOnDevices }
+            );
+          }
         }
       }
     } catch (error) {
@@ -419,6 +428,10 @@ export function PiShockSettingsModal({
       const settings = result?.settings || result;
       const ownedShockers = Array.isArray(settings?.availableShockers) ? settings.availableShockers : [];
       if (ownedShockers.length === 0) {
+        console.warn(
+          '[PiShock:settings UI] refresh returned zero availableShockers. See worker [PiShock:allowedShockers] logs.',
+          { shockerIdsHiddenNotOnDevices: settings?.shockerIdsHiddenNotOnDevices, debug: result?.debug }
+        );
         throw new Error('No owned shockers were found for this PiShock account.');
       }
       setAvailableShockers(ownedShockers);

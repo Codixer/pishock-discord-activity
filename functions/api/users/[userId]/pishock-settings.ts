@@ -125,6 +125,10 @@ async function checkUserDevices(apiKey: string, username: string, piShockUserId?
 }> {
   const allowed = await getAllowedShockersForController({ apiKey, username, piShockUserId });
   if (!allowed.ok || !allowed.data) {
+    console.log(
+      `[PiShock:pishock-settings:checkUserDevices] failed username=${String(username || '').trim() || '(empty)'} ` +
+        `status=${allowed.status} error=${(allowed.error || '').slice(0, 300)}`
+    );
     return {
       hasDevices: false,
       error: allowed.error || 'Device check failed',
@@ -133,6 +137,12 @@ async function checkUserDevices(apiKey: string, username: string, piShockUserId?
   }
 
   const devices = allowed.data.allowedShockers;
+  if (devices.length === 0) {
+    console.log(
+      `[PiShock:pishock-settings:checkUserDevices] zero allowed shockers username=${String(username || '').trim() || '(empty)'} ` +
+        `hiddenNotOnDevices=${allowed.data.shockerIdsHiddenNotOnDevices}`
+    );
+  }
   return {
     hasDevices: devices.length > 0,
     devices,
