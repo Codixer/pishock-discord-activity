@@ -141,6 +141,8 @@ function MainApp() {
   const [controllerPlusPriceLabel, setControllerPlusPriceLabel] = useState<string | null>(null);
   const [shockPastLimitPriceLabel, setShockPastLimitPriceLabel] = useState<string | null>(null);
   const [multishockSelectionsByExecutor, setMultishockSelectionsByExecutor] = useState<Record<string, Record<string, string[]>>>({});
+  const userPiShockStatusRef = useRef<Record<string, any>>({});
+  const lastStatusFetchByUserRef = useRef<Record<string, number>>({});
   const { notifications, addNotification, dismissNotification } = useNotifications();
   const navigate = useNavigate();
   
@@ -529,7 +531,7 @@ function MainApp() {
   }, [isEmbedded, updateParticipants, handleLayoutModeUpdate]);
 
   // Function to check PiShock status for all participants
-  const checkAllUserPiShockStatus = useCallback(async () => {
+  const checkAllUserPiShockStatus = useCallback(async (forceRefresh = false) => {
     if (!isEmbedded) return;
     
     if (!instanceId || !auth || participants.length === 0) return;
@@ -537,10 +539,31 @@ function MainApp() {
     try {
       const statusPromises = participants.map(async (participant) => {
         try {
-          const cachedStatus = userStatusCache.getCachedStatus(participant.id);
-          if (cachedStatus) {
-            return { userId: participant.id, status: cachedStatus };
+          const nowMs = Date.now();
+
+          if (!forceRefresh) {
+            const cachedStatus = userStatusCache.getCachedStatus(participant.id);
+            if (cachedStatus) {
+              return { userId: participant.id, status: cachedStatus };
+            }
           }
+
+          if (!forceRefresh) {
+            const lastFetchMs = lastStatusFetchByUserRef.current[participant.id] || 0;
+            const minRefetchIntervalMs = 30_000;
+            if (nowMs - lastFetchMs < minRefetchIntervalMs) {
+              const existingStatus = userPiShockStatusRef.current[participant.id];
+              if (existingStatus) {
+                return { userId: participant.id, status: existingStatus };
+              }
+            }
+          }
+
+          const requestJitterMs = forceRefresh ? 0 : Math.floor(Math.random() * 1_000);
+          if (requestJitterMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, requestJitterMs));
+          }
+          lastStatusFetchByUserRef.current[participant.id] = Date.now();
           
           const response = await authFetch(`${getApiBaseUrl()}/users/${participant.id}/pishock-status`, {
             headers: {
@@ -698,7 +721,7 @@ function MainApp() {
 
     addNotification('info', 'Refreshing...', 'Checking PiShock status for all participants');
     userStatusCache.clearCache();
-    await checkAllUserPiShockStatus();
+    await checkAllUserPiShockStatus(true);
     addNotification('success', 'Status Refreshed', 'All participant statuses have been updated');
   }, [instanceId, auth, participants, checkAllUserPiShockStatus, addNotification, userStatusCache]);
 
@@ -712,6 +735,13 @@ function MainApp() {
       loadCurrentUserBanList();
     }
   }, [auth?.user?.id, loadCurrentUserBanList]);
+
+  useEffect(() => {
+    const activeIds = new Set(participants.map((participant) => participant.id));
+    lastStatusFetchByUserRef.current = Object.fromEntries(
+      Object.entries(lastStatusFetchByUserRef.current).filter(([userId]) => activeIds.has(userId))
+    );
+  }, [participants]);
 
   useEffect(() => {
     if (auth?.access_token) {
@@ -739,6 +769,7 @@ function MainApp() {
   }, [isEmbedded, auth?.access_token, auth?.expires, performTokenRefresh]);
   
   useEffect(() => {
+    userPiShockStatusRef.current = userPiShockStatus;
     (window as any).userPiShockStatus = userPiShockStatus;
   }, [userPiShockStatus]);
 

@@ -4,6 +4,7 @@ import {
   getPiShockAccount,
   normalizeGeneratedShareCodes,
 } from '../../_shared/pishock-client';
+import { validateDiscordTokenWithRefresh } from '../../_shared/token-utils';
 
 // Type declarations for Cloudflare Workers
 declare global {
@@ -37,59 +38,33 @@ function jsonResponse(body: any, status = 200, additionalHeaders: Record<string,
   });
 }
 
+function createPerformanceHeaders(
+  startedAtMs: number,
+  kvReads: number,
+  kvWrites: number,
+  stageDurationMs: number
+): Record<string, string> {
+  const totalMs = Math.max(0, Date.now() - startedAtMs);
+  return {
+    'X-Response-Time-Ms': String(totalMs),
+    'X-KV-Reads-Estimate': String(kvReads),
+    'X-KV-Writes-Estimate': String(kvWrites),
+    'Server-Timing': `app;dur=${totalMs},status;dur=${Math.max(0, stageDurationMs)}`,
+  };
+}
+
 async function requireAuth(request: Request): Promise<string | null> {
   const auth = request.headers.get('authorization');
   if (!auth || !auth.startsWith('Bearer ')) return null;
   return auth.slice(7);
 }
 
-// Optimized token validation with user-ID based caching
 async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
-  try {
-    const cacheKey = `discord_token_validation:${token.slice(-8)}`; // Use last 8 chars to avoid storing full token
-    const cached = await kv.get(cacheKey);
-    if (cached) {
-      const cachedData = JSON.parse(cached);
-      return cachedData;
-    }
-    
-    const response = await fetch('https://discord.com/api/users/@me', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    
-    if (!response.ok) {
-      console.log('TOKEN_VALIDATION: Token validation failed:', response.status);
-      throw new Error('Invalid Discord token');
-    }
-      const userData = await response.json();
-    console.log('TOKEN_VALIDATION: ✓ Token validation successful for user:', userData.id);
-    
-    // Try to get expiry info from metadata
-    let expiresAt = 0;
-    let cacheTtl = 10800; // Default 3 hours if no metadata
-    const metadataStr = await kv.get(`discord_token_metadata:${userData.id}`);
-    if (metadataStr) {
-      const metadata = JSON.parse(metadataStr);
-      expiresAt = metadata.expires_at;
-      // Use remaining token lifetime for cache TTL
-      const now = Math.floor(Date.now() / 1000);
-      const remainingTime = expiresAt - now;
-      cacheTtl = Math.max(60, remainingTime - 60); // At least 1 minute
-    }
-    
-    // Cache the parsed userData, not the response
-    await kv.put(cacheKey, JSON.stringify({
-      ...userData,
-      token_expires_at: expiresAt
-    }), {
-      expirationTtl: cacheTtl // Match token expiry
-    });
-    
-    return userData;
-  } catch (error) {
-    console.error('TOKEN_VALIDATION: Error validating token:', error);
-    return null;
-  }
+  return validateDiscordTokenWithRefresh(token, kv, {
+    PISHOCK_KV: kv,
+    DISCORD_CLIENT_ID: '',
+    DISCORD_CLIENT_SECRET: '',
+  });
 }
 
 async function decrypt(encryptedData: string): Promise<any> {
@@ -207,6 +182,36 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env, params } = context;
   const method = request.method;
   const userId = params.userId as string;
+  const startedAtMs = Date.now();
+  let kvReads = 0;
+  let kvWrites = 0;
+  let statusStageStartedAtMs = 0;
+
+  const trackedKv: KVNamespace = {
+    get: async (key: string) => {
+      kvReads += 1;
+      return env.PISHOCK_KV.get(key);
+    },
+    put: async (key: string, value: string, options?: { expirationTtl?: number }) => {
+      kvWrites += 1;
+      return env.PISHOCK_KV.put(key, value, options);
+    },
+    delete: async (key: string) => {
+      kvWrites += 1;
+      return env.PISHOCK_KV.delete(key);
+    },
+  };
+
+  const respond = (body: any, status = 200, headers: Record<string, string> = {}) =>
+    jsonResponse(body, status, {
+      ...headers,
+      ...createPerformanceHeaders(
+        startedAtMs,
+        kvReads,
+        kvWrites,
+        statusStageStartedAtMs > 0 ? Date.now() - statusStageStartedAtMs : 0
+      ),
+    });
 
   // Handle CORS preflight requests
   if (method === 'OPTIONS') {
@@ -229,13 +234,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
   if (!token) return new Response('Unauthorized', { status: 401 });
 
-  const user = await validateDiscordToken(token, env.PISHOCK_KV);
+  const user = await validateDiscordToken(token, trackedKv);
   if (!user) return new Response('Invalid token', { status: 401 });
   
   try {
-    const cachedStatus = await getCachedUserStatus(env.PISHOCK_KV, userId);
+    statusStageStartedAtMs = Date.now();
+    const cachedStatus = await getCachedUserStatus(trackedKv, userId);
     if (cachedStatus) {
-      return jsonResponse(cachedStatus, 200, {
+      return respond(cachedStatus, 200, {
         'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
         'Pragma': 'no-cache',
         'Expires': '0',
@@ -243,7 +249,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
     }
     
-    const userDataStr = await env.PISHOCK_KV.get(`user:${userId}:data`);
+    const userDataStr = await trackedKv.get(`user:${userId}:data`);
     const userData = userDataStr ? JSON.parse(userDataStr) : null;
     
     let isConnected = false;
@@ -320,12 +326,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
             }
           }
           
-          // Only write to KV if piShockUserId has changed
-          if (piShockUserId !== userData?.piShockUserId) {
-            userData.piShockUserId = piShockUserId;
-            userData.lastTested = new Date().toISOString();
-            await env.PISHOCK_KV.put(`user:${userId}:data`, JSON.stringify(userData));
-          }
+          // Avoid write-on-read in status endpoint; persistence happens on explicit save/test flows.
         }
       } catch (error) {
         isConnected = false;
@@ -362,15 +363,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       ] : []
     };
     
-    await setCachedUserStatus(env.PISHOCK_KV, userId, result);
+    await setCachedUserStatus(trackedKv, userId, result);
     
-    return jsonResponse(result, 200, {
+    return respond(result, 200, {
       'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
       'Pragma': 'no-cache',
       'Expires': '0',
     });
   } catch (error) {
-    return jsonResponse({ 
+    return respond({ 
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error'
     }, 500);

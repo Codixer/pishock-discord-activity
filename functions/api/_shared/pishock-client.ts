@@ -1,5 +1,8 @@
 const PISHOCK_API_BASE_URL = 'https://api.pishock.com';
 const LEGACY_PISHOCK_API_BASE_URL = 'https://ps.pishock.com';
+const DEFAULT_PISHOCK_TIMEOUT_MS = 4500;
+const OPERATE_TIMEOUT_MS = 6000;
+const MAX_UPSTREAM_RETRIES = 1;
 
 const DBG = '[PiShock:allowedShockers]';
 
@@ -150,69 +153,118 @@ function mapStatusError(status: number): string {
   }
 }
 
+function getRequestTimeoutMs(path: string, init: RequestInit): number {
+  const method = String(init.method || 'GET').toUpperCase();
+  const isOperate = method === 'POST' && (path.startsWith('/Shockers/') || path.startsWith('/Shares/'));
+  return isOperate ? OPERATE_TIMEOUT_MS : DEFAULT_PISHOCK_TIMEOUT_MS;
+}
+
+function shouldRetryStatus(status: number): boolean {
+  return status >= 500 && status <= 599;
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function request<T>(
   path: string,
   credentials: PiShockCredentials,
   init: RequestInit = {}
 ): Promise<PiShockApiResult<T>> {
-  try {
-    const response = await fetch(`${PISHOCK_API_BASE_URL}${path}`, {
-      ...init,
-      headers: {
-        ...createHeaders(credentials),
-        ...(init.headers || {}),
-      },
-    });
+  const timeoutMs = getRequestTimeoutMs(path, init);
+  const requestInit: RequestInit = {
+    ...init,
+    headers: {
+      ...createHeaders(credentials),
+      ...(init.headers || {}),
+    },
+  };
 
-    if (response.status === 204) {
-      return { ok: true, status: response.status };
-    }
-
-    const text = await response.text();
-
-    if (!response.ok) {
-      const bodyMessage = text.trim();
-      const mapped = mapStatusError(response.status);
-      return {
-        ok: false,
-        status: response.status,
-        error: bodyMessage ? `${mapped} ${bodyMessage}` : mapped,
-        rawBody: text,
-      };
-    }
-
-    if (!text) {
-      return { ok: true, status: response.status } as PiShockApiResult<T>;
-    }
-
+  for (let attempt = 0; attempt <= MAX_UPSTREAM_RETRIES; attempt += 1) {
     try {
-      return {
-        ok: true,
-        status: response.status,
-        data: JSON.parse(text) as T,
-      };
-    } catch {
+      const response = await fetchWithTimeout(`${PISHOCK_API_BASE_URL}${path}`, requestInit, timeoutMs);
+
+      if (response.status === 204) {
+        return { ok: true, status: response.status };
+      }
+
+      const text = await response.text();
+
+      if (!response.ok) {
+        if (shouldRetryStatus(response.status) && attempt < MAX_UPSTREAM_RETRIES) {
+          await sleep(125 + Math.floor(Math.random() * 125));
+          continue;
+        }
+        const bodyMessage = text.trim();
+        const mapped = mapStatusError(response.status);
+        return {
+          ok: false,
+          status: response.status,
+          error: bodyMessage ? `${mapped} ${bodyMessage}` : mapped,
+          rawBody: text,
+        };
+      }
+
+      if (!text) {
+        return { ok: true, status: response.status } as PiShockApiResult<T>;
+      }
+
+      try {
+        return {
+          ok: true,
+          status: response.status,
+          data: JSON.parse(text) as T,
+        };
+      } catch {
+        return {
+          ok: false,
+          status: response.status,
+          error: 'PiShock API returned invalid JSON.',
+          rawBody: text,
+        };
+      }
+    } catch (error) {
+      if (attempt < MAX_UPSTREAM_RETRIES) {
+        await sleep(100 + Math.floor(Math.random() * 100));
+        continue;
+      }
+      const isTimeout = error instanceof Error && error.name === 'AbortError';
       return {
         ok: false,
-        status: response.status,
-        error: 'PiShock API returned invalid JSON.',
-        rawBody: text,
+        status: 0,
+        error: isTimeout
+          ? `Network timeout after ${timeoutMs}ms.`
+          : `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       };
     }
-  } catch (error) {
-    return {
-      ok: false,
-      status: 0,
-      error: `Network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-    };
   }
+
+  return {
+    ok: false,
+    status: 0,
+    error: 'Network error: exhausted retry attempts.',
+  };
 }
 
 async function requestLegacy<T>(
   path: string,
   init: RequestInit = {}
 ): Promise<PiShockApiResult<T>> {
-  try {
+  for (let attempt = 0; attempt <= MAX_UPSTREAM_RETRIES; attempt += 1) {
     const method = String(init.method || 'GET').toUpperCase();
     // ps.pishock.com binds JSON from the body when Content-Type is application/json.
     // GET endpoints (e.g. GetUserDevices) use query params only — sending JSON Content-Type
@@ -229,53 +281,76 @@ async function requestLegacy<T>(
       defaultHeaders['Content-Type'] = 'application/json';
     }
 
-    const response = await fetch(`${LEGACY_PISHOCK_API_BASE_URL}${path}`, {
-      ...init,
-      headers: {
-        ...defaultHeaders,
-        ...(init.headers as Record<string, string> | undefined),
-      },
-    });
-
-    if (response.status === 204) {
-      return { ok: true, status: response.status };
-    }
-
-    const text = await response.text();
-    if (!response.ok) {
-      return {
-        ok: false,
-        status: response.status,
-        error: text.trim() || `Legacy PiShock API request failed with status ${response.status}.`,
-        rawBody: text,
-      };
-    }
-
-    if (!text) {
-      return { ok: true, status: response.status } as PiShockApiResult<T>;
-    }
-
     try {
-      return {
-        ok: true,
-        status: response.status,
-        data: JSON.parse(text) as T,
-      };
-    } catch {
+      const response = await fetchWithTimeout(
+        `${LEGACY_PISHOCK_API_BASE_URL}${path}`,
+        {
+          ...init,
+          headers: {
+            ...defaultHeaders,
+            ...(init.headers as Record<string, string> | undefined),
+          },
+        },
+        DEFAULT_PISHOCK_TIMEOUT_MS
+      );
+
+      if (response.status === 204) {
+        return { ok: true, status: response.status };
+      }
+
+      const text = await response.text();
+      if (!response.ok) {
+        if (shouldRetryStatus(response.status) && attempt < MAX_UPSTREAM_RETRIES) {
+          await sleep(125 + Math.floor(Math.random() * 125));
+          continue;
+        }
+        return {
+          ok: false,
+          status: response.status,
+          error: text.trim() || `Legacy PiShock API request failed with status ${response.status}.`,
+          rawBody: text,
+        };
+      }
+
+      if (!text) {
+        return { ok: true, status: response.status } as PiShockApiResult<T>;
+      }
+
+      try {
+        return {
+          ok: true,
+          status: response.status,
+          data: JSON.parse(text) as T,
+        };
+      } catch {
+        return {
+          ok: false,
+          status: response.status,
+          error: 'Legacy PiShock API returned invalid JSON.',
+          rawBody: text,
+        };
+      }
+    } catch (error) {
+      if (attempt < MAX_UPSTREAM_RETRIES) {
+        await sleep(100 + Math.floor(Math.random() * 100));
+        continue;
+      }
+      const isTimeout = error instanceof Error && error.name === 'AbortError';
       return {
         ok: false,
-        status: response.status,
-        error: 'Legacy PiShock API returned invalid JSON.',
-        rawBody: text,
+        status: 0,
+        error: isTimeout
+          ? `Legacy PiShock timeout after ${DEFAULT_PISHOCK_TIMEOUT_MS}ms.`
+          : `Legacy PiShock network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       };
     }
-  } catch (error) {
-    return {
-      ok: false,
-      status: 0,
-      error: `Legacy PiShock network error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-    };
   }
+
+  return {
+    ok: false,
+    status: 0,
+    error: 'Legacy PiShock network error: exhausted retry attempts.',
+  };
 }
 
 export async function getPiShockAccount(credentials: PiShockCredentials): Promise<PiShockApiResult<PiShockAccount>> {

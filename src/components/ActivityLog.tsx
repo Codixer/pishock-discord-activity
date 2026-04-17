@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Clock, Zap, Play, Square, Users, Eye, EyeOff, RefreshCw } from 'lucide-react';
 
 interface ActivityLogEntry {
@@ -39,14 +39,14 @@ function getApiBaseUrl(): string {
   }
 }
 
-export function ActivityLog({ instanceId, auth, addNotification, authFetch = fetch }: ActivityLogProps) {
+export function ActivityLog({ instanceId: _instanceId, auth, addNotification, authFetch = fetch }: ActivityLogProps) {
   const [entries, setEntries] = useState<ActivityLogEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
-  const intervalRef = useRef<NodeJS.Timeout>();
-  const autoDisableTimeoutRef = useRef<NodeJS.Timeout>();
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoDisableTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
 
   // Load initial activity log only when visible
@@ -61,13 +61,13 @@ export function ActivityLog({ instanceId, auth, addNotification, authFetch = fet
     if (autoRefresh && auth) {
       intervalRef.current = setInterval(() => {
         loadActivityLog(true);
-      }, 60000); // Refresh every 60 seconds to minimize KV reads
+      }, 120000); // Refresh every 120 seconds to minimize KV reads
 
-      // Auto-disable after 5 minutes (300000ms)
+      // Auto-disable after 3 minutes (180000ms)
       autoDisableTimeoutRef.current = setTimeout(() => {
         setAutoRefresh(false);
-        addNotification('info', 'Auto-Refresh Disabled', 'Activity log auto-refresh has been automatically disabled after 5 minutes to reduce KV read operations.');
-      }, 300000);
+        addNotification('info', 'Auto-Refresh Disabled', 'Activity log auto-refresh has been automatically disabled after 3 minutes to reduce KV read operations.');
+      }, 180000);
 
       return () => {
         if (intervalRef.current) {
@@ -220,10 +220,10 @@ export function ActivityLog({ instanceId, auth, addNotification, authFetch = fet
                 ? 'bg-green-600 hover:bg-green-700 text-white' 
                 : 'bg-gray-600 hover:bg-gray-700 text-gray-300'
             }`}
-            title={autoRefresh ? 'Auto-refresh enabled (auto-disables after 5min)' : 'Enable auto-refresh (1min intervals)'}
+            title={autoRefresh ? 'Auto-refresh enabled (auto-disables after 3min)' : 'Enable auto-refresh (2min intervals)'}
           >
             <RefreshCw className={`h-3 w-3 ${autoRefresh ? 'animate-spin' : ''}`} />
-            <span>{autoRefresh ? 'Auto On (5min)' : 'Auto Off'}</span>
+            <span>{autoRefresh ? 'Auto On (3min)' : 'Auto Off'}</span>
           </button>
           <button
             onClick={() => loadActivityLog()}

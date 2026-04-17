@@ -6,6 +6,7 @@ import {
   mapShockersToOptions,
   normalizeGeneratedShareCodes,
 } from '../../_shared/pishock-client';
+import { validateDiscordTokenWithRefresh } from '../../_shared/token-utils';
 
 interface Env {
   PISHOCK_KV: KVNamespace;
@@ -38,48 +39,11 @@ async function requireAuth(request: Request): Promise<string | null> {
 }
 
 async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
-  try {
-    const cacheKey = `discord_token_validation:${token.slice(-8)}`; // Use last 8 chars to avoid storing full token
-    const cached = await kv.get(cacheKey);
-    if (cached) {
-      const cachedData = JSON.parse(cached);
-      return cachedData;
-    }
-    
-    const response = await fetch('https://discord.com/api/users/@me', {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    
-    if (!response.ok) {
-      throw new Error('Invalid Discord token');
-    }
-    
-    const userData = await response.json();
-    
-    // Try to get expiry info from metadata
-    let expiresAt = 0;
-    let cacheTtl = 10800; // Default 3 hours if no metadata
-    const metadataStr = await kv.get(`discord_token_metadata:${userData.id}`);
-    if (metadataStr) {
-      const metadata = JSON.parse(metadataStr);
-      expiresAt = metadata.expires_at;
-      // Use remaining token lifetime for cache TTL
-      const now = Math.floor(Date.now() / 1000);
-      const remainingTime = expiresAt - now;
-      cacheTtl = Math.max(60, remainingTime - 60); // At least 1 minute
-    }
-    
-    await kv.put(cacheKey, JSON.stringify({
-      ...userData,
-      token_expires_at: expiresAt
-    }), {
-      expirationTtl: cacheTtl // Match token expiry
-    });
-    
-    return userData;
-  } catch (error) {
-    return null;
-  }
+  return validateDiscordTokenWithRefresh(token, kv, {
+    PISHOCK_KV: kv,
+    DISCORD_CLIENT_ID: '',
+    DISCORD_CLIENT_SECRET: '',
+  });
 }
 
 async function encrypt(data: any): Promise<string> {

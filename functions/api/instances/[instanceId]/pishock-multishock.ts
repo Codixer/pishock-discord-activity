@@ -8,6 +8,7 @@ import {
 } from '../../_shared/pishock-client';
 import { getControllerPlusState } from '../../_shared/discord-entitlements';
 import { ACTIVITY_BATCH_KV_TTL_SECONDS } from '../../_shared/activity-batch-kv';
+import { validateDiscordTokenWithRefresh } from '../../_shared/token-utils';
 
 interface Env {
   PISHOCK_KV: KVNamespace;
@@ -31,7 +32,7 @@ interface ActivityLogEntry {
 
 type MultishockFailure = { targetUserId: string; error: string; shockerId?: string };
 
-function jsonResponse(body: any, status = 200) {
+function jsonResponse(body: any, status = 200, additionalHeaders: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
@@ -39,8 +40,24 @@ function jsonResponse(body: any, status = 200) {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      ...additionalHeaders,
     },
   });
+}
+
+function createPerformanceHeaders(
+  startedAtMs: number,
+  kvReads: number,
+  kvWrites: number,
+  stageDurationMs: number
+): Record<string, string> {
+  const totalMs = Math.max(0, Date.now() - startedAtMs);
+  return {
+    'X-Response-Time-Ms': String(totalMs),
+    'X-KV-Reads-Estimate': String(kvReads),
+    'X-KV-Writes-Estimate': String(kvWrites),
+    'Server-Timing': `app;dur=${totalMs},multishock;dur=${Math.max(0, stageDurationMs)}`,
+  };
 }
 
 function requireAuth(request: Request): string | null {
@@ -50,17 +67,11 @@ function requireAuth(request: Request): string | null {
 }
 
 async function validateDiscordToken(token: string, kv: KVNamespace): Promise<any> {
-  const cacheKey = `discord_token_validation:${token.slice(-8)}`;
-  const cached = await kv.get(cacheKey);
-  if (cached) return JSON.parse(cached);
-
-  const response = await fetch('https://discord.com/api/users/@me', {
-    headers: { Authorization: `Bearer ${token}` },
+  return validateDiscordTokenWithRefresh(token, kv, {
+    PISHOCK_KV: kv,
+    DISCORD_CLIENT_ID: '',
+    DISCORD_CLIENT_SECRET: '',
   });
-  if (!response.ok) return null;
-  const userData = await response.json();
-  await kv.put(cacheKey, JSON.stringify(userData), { expirationTtl: 3600 });
-  return userData;
 }
 
 async function decrypt(encryptedData: string): Promise<any> {
@@ -86,9 +97,56 @@ async function getCachedDisplayName(kv: KVNamespace, userId: string): Promise<st
   return user.global_name || user.username || 'Unknown User';
 }
 
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+  const queue = [...items];
+  const workers = Array.from({ length: Math.max(1, concurrency) }, async () => {
+    while (queue.length > 0) {
+      const item = queue.shift();
+      if (!item) break;
+      results.push(await worker(item));
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 export const onRequest = async (context: { request: Request; env: Env; params: Record<string, string> }): Promise<Response> => {
   const { request, env, params } = context;
   const instanceId = params.instanceId;
+  const startedAtMs = Date.now();
+  let stageStartedAtMs = 0;
+  let kvReads = 0;
+  let kvWrites = 0;
+  const trackedKv: KVNamespace = {
+    get: async (key: string) => {
+      kvReads += 1;
+      return env.PISHOCK_KV.get(key);
+    },
+    put: async (key: string, value: string, options?: { expirationTtl?: number }) => {
+      kvWrites += 1;
+      return env.PISHOCK_KV.put(key, value, options);
+    },
+    delete: async (key: string) => {
+      kvWrites += 1;
+      return env.PISHOCK_KV.delete(key);
+    },
+  };
+
+  const respond = (body: any, status = 200, headers: Record<string, string> = {}) =>
+    jsonResponse(body, status, {
+      ...headers,
+      ...createPerformanceHeaders(
+        startedAtMs,
+        kvReads,
+        kvWrites,
+        stageStartedAtMs > 0 ? Date.now() - stageStartedAtMs : 0
+      ),
+    });
 
   if (request.method === 'OPTIONS') {
     return new Response(null, {
@@ -105,10 +163,11 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
 
   const token = requireAuth(request);
   if (!token) return new Response('Unauthorized', { status: 401 });
-  const user = await validateDiscordToken(token, env.PISHOCK_KV);
+  const user = await validateDiscordToken(token, trackedKv);
   if (!user) return new Response('Invalid token', { status: 401 });
 
   try {
+    stageStartedAtMs = Date.now();
     const { executorUserId, targets, intensity, duration, operation } = await request.json() as {
       executorUserId: string;
       targets: Array<{ userId: string; shockerIds?: string[] }>;
@@ -118,21 +177,21 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
     };
 
     if (!executorUserId || user.id !== executorUserId) {
-      return jsonResponse({ success: false, error: 'Executor mismatch.' }, 403);
+      return respond({ success: false, error: 'Executor mismatch.' }, 403);
     }
     if (!Array.isArray(targets) || targets.length === 0) {
-      return jsonResponse({ success: false, error: 'At least one target is required.' }, 400);
+      return respond({ success: false, error: 'At least one target is required.' }, 400);
     }
     if (intensity < 1 || intensity > 100 || duration < 1 || duration > 15 || ![0, 1, 2].includes(operation)) {
-      return jsonResponse({ success: false, error: 'Invalid parameters.' }, 400);
+      return respond({ success: false, error: 'Invalid parameters.' }, 400);
     }
 
     const entitlementState = await getControllerPlusState(env, executorUserId);
     if (!entitlementState.hasControllerPlus) {
-      return jsonResponse({ success: false, error: 'Controller+ entitlement is required for multishock.' }, 403);
+      return respond({ success: false, error: 'Controller+ entitlement is required for multishock.' }, 403);
     }
 
-    const instanceDataRaw = await env.PISHOCK_KV.get(`instance_data:${instanceId}`);
+    const instanceDataRaw = await trackedKv.get(`instance_data:${instanceId}`);
     let instanceData: Record<string, unknown> = {};
     try {
       instanceData = instanceDataRaw ? (JSON.parse(instanceDataRaw) as Record<string, unknown>) : {};
@@ -144,7 +203,7 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
       Array.isArray(participantIdsRaw) ? participantIdsRaw.map((id) => String(id)) : []
     );
     if (participantIds.size === 0) {
-      return jsonResponse(
+      return respond(
         {
           success: false,
           error: 'No activity participant snapshot; refresh participants in the app.',
@@ -153,57 +212,50 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
       );
     }
     if (!participantIds.has(String(executorUserId))) {
-      return jsonResponse({ success: false, error: 'Executor is not part of this activity session.' }, 403);
+      return respond({ success: false, error: 'Executor is not part of this activity session.' }, 403);
     }
     for (const target of targets) {
       if (!participantIds.has(String(target.userId))) {
-        return jsonResponse(
+        return respond(
           { success: false, error: `User ${target.userId} is not in this activity session.` },
           403
         );
       }
     }
 
-    const prepFailures: MultishockFailure[] = [];
-
-    const prepared: Array<{
-      targetUserId: string;
-      targetName: string;
-      credentials: { apiKey: string; username: string; piShockUserId?: string };
-      shockerIds: string[];
-      shareCodesByShockerId: Record<string, string>;
-    }> = [];
-
-    for (const target of targets) {
-      const targetUserDataStr = await env.PISHOCK_KV.get(`user:${target.userId}:data`);
+    const prepResults = await mapWithConcurrency(targets, 4, async (target) => {
+      const failures: MultishockFailure[] = [];
+      const targetUserDataStr = await trackedKv.get(`user:${target.userId}:data`);
       if (!targetUserDataStr) {
-        prepFailures.push({
+        failures.push({
           targetUserId: target.userId,
           error: 'Target has no configured PiShock settings.',
         });
-        continue;
+        return { failures };
       }
+
       let targetUserData: { credentials: string; bannedExecutors?: string[]; commandsPaused?: boolean };
       try {
         targetUserData = JSON.parse(targetUserDataStr);
       } catch {
-        prepFailures.push({ targetUserId: target.userId, error: 'Invalid stored user data.' });
-        continue;
+        failures.push({ targetUserId: target.userId, error: 'Invalid stored user data.' });
+        return { failures };
       }
       if ((targetUserData.bannedExecutors || []).includes(executorUserId)) {
-        prepFailures.push({ targetUserId: target.userId, error: 'Target has blocked this executor.' });
-        continue;
+        failures.push({ targetUserId: target.userId, error: 'Target has blocked this executor.' });
+        return { failures };
       }
       if (targetUserData.commandsPaused) {
-        prepFailures.push({ targetUserId: target.userId, error: 'Target has paused incoming commands.' });
-        continue;
+        failures.push({ targetUserId: target.userId, error: 'Target has paused incoming commands.' });
+        return { failures };
       }
+
       let creds: any;
       try {
         creds = await decrypt(targetUserData.credentials);
       } catch {
-        prepFailures.push({ targetUserId: target.userId, error: 'Unable to decrypt PiShock credentials.' });
-        continue;
+        failures.push({ targetUserId: target.userId, error: 'Unable to decrypt PiShock credentials.' });
+        return { failures };
       }
 
       const selectedShockerId = creds.selectedShockerId || creds.shockerId;
@@ -216,12 +268,13 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
       };
       const allowedResult = await getAllowedShockersForController(targetCredentials);
       if (!allowedResult.ok || !allowedResult.data) {
-        prepFailures.push({
+        failures.push({
           targetUserId: target.userId,
           error: allowedResult.error || 'Unable to verify allowed shockers for target.',
         });
-        continue;
+        return { failures };
       }
+
       const ownedShockerIds = new Set(
         allowedResult.data.allowedShockers
           .filter((shocker: any) => shocker?.ShockerId !== undefined && shocker?.ShockerId !== null)
@@ -238,60 +291,42 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
           : effectiveAllowed;
       const invalidRequested = requestedShockers.filter((id) => !effectiveAllowed.includes(id));
       if (invalidRequested.length > 0) {
-        prepFailures.push({
+        failures.push({
           targetUserId: target.userId,
           error: `Shocker IDs not allowed for this target: ${invalidRequested.join(', ')}.`,
         });
-        continue;
+        return { failures };
       }
       const normalizedShockers = requestedShockers.filter((id) => effectiveAllowed.includes(id) && ownedShockerIds.has(id));
-
       if (normalizedShockers.length === 0) {
-        prepFailures.push({
+        failures.push({
           targetUserId: target.userId,
           error: 'No allowed shockers for multishock.',
         });
-        continue;
+        return { failures };
       }
 
-      let shockerValidationFailed = false;
       for (const shockerId of normalizedShockers) {
         const shocker = shockersById.get(shockerId);
         if (!shocker) {
-          prepFailures.push({
+          failures.push({
             targetUserId: target.userId,
             shockerId,
             error: `Unable to load context for shocker ${shockerId}.`,
           });
-          shockerValidationFailed = true;
-          break;
+          return { failures };
         }
         if (operation === 0 && !shocker.CanShock) {
-          prepFailures.push({
-            targetUserId: target.userId,
-            shockerId,
-            error: `Shocker ${shockerId} does not support shock.`,
-          });
-          shockerValidationFailed = true;
-          break;
+          failures.push({ targetUserId: target.userId, shockerId, error: `Shocker ${shockerId} does not support shock.` });
+          return { failures };
         }
         if (operation === 1 && !shocker.CanVibrate) {
-          prepFailures.push({
-            targetUserId: target.userId,
-            shockerId,
-            error: `Shocker ${shockerId} does not support vibrate.`,
-          });
-          shockerValidationFailed = true;
-          break;
+          failures.push({ targetUserId: target.userId, shockerId, error: `Shocker ${shockerId} does not support vibrate.` });
+          return { failures };
         }
         if (operation === 2 && !shocker.CanBeep) {
-          prepFailures.push({
-            targetUserId: target.userId,
-            shockerId,
-            error: `Shocker ${shockerId} does not support beep.`,
-          });
-          shockerValidationFailed = true;
-          break;
+          failures.push({ targetUserId: target.userId, shockerId, error: `Shocker ${shockerId} does not support beep.` });
+          return { failures };
         }
 
         let effectiveMaxIntensity = Number(creds.maxIntensity) || 100;
@@ -307,16 +342,14 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
         }
 
         if (intensity > effectiveMaxIntensity || duration > effectiveMaxDuration) {
-          prepFailures.push({
+          failures.push({
             targetUserId: target.userId,
             shockerId,
             error: `Exceeds limits for this shocker (max ${effectiveMaxIntensity}% / ${effectiveMaxDuration}s).`,
           });
-          shockerValidationFailed = true;
-          break;
+          return { failures };
         }
       }
-      if (shockerValidationFailed) continue;
 
       let generatedShareCodes = normalizeGeneratedShareCodes(creds.generatedShareCodes);
       const missingCodeIds = normalizedShockers.filter((id) => !getGeneratedShareCodeForShocker(generatedShareCodes, id));
@@ -333,50 +366,51 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
         };
         const stillMissing = normalizedShockers.find((id) => !getGeneratedShareCodeForShocker(merged, id));
         if (stillMissing) {
-          prepFailures.push({
+          failures.push({
             targetUserId: target.userId,
             shockerId: stillMissing,
-            error:
-              generatedShareCodesResult.error ||
-              `Shocker ${stillMissing} has no generated sharecode.`,
+            error: generatedShareCodesResult.error || `Shocker ${stillMissing} has no generated sharecode.`,
           });
-          continue;
+          return { failures };
         }
         generatedShareCodes = merged;
         creds.generatedShareCodes = generatedShareCodes;
         creds.generatedShareCodesLastUpdated = new Date().toISOString();
         targetUserData.credentials = btoa(JSON.stringify(creds));
-        await env.PISHOCK_KV.put(`user:${target.userId}:data`, JSON.stringify(targetUserData));
+        await trackedKv.put(`user:${target.userId}:data`, JSON.stringify(targetUserData));
       }
 
       const shareCodesByShockerId: Record<string, string> = {};
-      let shareCodesComplete = true;
       for (const shockerId of normalizedShockers) {
         const shareCode = getGeneratedShareCodeForShocker(generatedShareCodes, shockerId);
         if (!shareCode) {
-          prepFailures.push({
+          failures.push({
             targetUserId: target.userId,
             shockerId,
             error: `Shocker ${shockerId} has no generated sharecode.`,
           });
-          shareCodesComplete = false;
-          break;
+          return { failures };
         }
         shareCodesByShockerId[shockerId] = shareCode;
       }
-      if (!shareCodesComplete) continue;
 
-      prepared.push({
-        targetUserId: target.userId,
-        targetName: await getCachedDisplayName(env.PISHOCK_KV, target.userId),
-        credentials: targetCredentials,
-        shockerIds: normalizedShockers,
-        shareCodesByShockerId,
-      });
-    }
+      return {
+        failures,
+        prepared: {
+          targetUserId: target.userId,
+          targetName: await getCachedDisplayName(trackedKv, target.userId),
+          credentials: targetCredentials,
+          shockerIds: normalizedShockers,
+          shareCodesByShockerId,
+        },
+      };
+    });
+
+    const prepFailures = prepResults.flatMap((result) => result.failures);
+    const prepared = prepResults.flatMap((result) => (result.prepared ? [result.prepared] : []));
 
     if (prepared.length === 0) {
-      return jsonResponse(
+      return respond(
         {
           success: false,
           partialSuccess: false,
@@ -420,13 +454,13 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
         }))
     );
 
-    const executorName = await getCachedDisplayName(env.PISHOCK_KV, executorUserId);
+    const executorName = await getCachedDisplayName(trackedKv, executorUserId);
     const successfulEntries = executionResults.filter((entry) =>
       entry.operations.every((op) => op.result.ok)
     );
     await Promise.all(
       successfulEntries.map(async ({ target }) => {
-        await addToActivityBatch(env.PISHOCK_KV, {
+        await addToActivityBatch(trackedKv, {
           id: uuidv4(),
           timestamp: new Date().toISOString(),
           instanceId,
@@ -444,7 +478,7 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
     const allFailures = [...prepFailures, ...execFailures];
     const status = allFailures.length > 0 ? 207 : 200;
 
-    return jsonResponse(
+    return respond(
       {
         success: allFailures.length === 0,
         partialSuccess: allFailures.length > 0,
@@ -456,7 +490,7 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
       status
     );
   } catch (error) {
-    return jsonResponse(
+    return respond(
       {
         success: false,
         error: error instanceof Error ? error.message : 'Internal server error',

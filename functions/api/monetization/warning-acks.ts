@@ -12,7 +12,7 @@ interface WarningAckState {
   updatedAt?: string;
 }
 
-function jsonResponse(body: any, status = 200) {
+function jsonResponse(body: any, status = 200, additionalHeaders: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
@@ -20,8 +20,23 @@ function jsonResponse(body: any, status = 200) {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      ...additionalHeaders,
     },
   });
+}
+
+function createPerformanceHeaders(
+  startedAtMs: number,
+  kvReads: number,
+  kvWrites: number
+): Record<string, string> {
+  const totalMs = Math.max(0, Date.now() - startedAtMs);
+  return {
+    'X-Response-Time-Ms': String(totalMs),
+    'X-KV-Reads-Estimate': String(kvReads),
+    'X-KV-Writes-Estimate': String(kvWrites),
+    'Server-Timing': `app;dur=${totalMs},warningAcks;dur=${totalMs}`,
+  };
 }
 
 function requireAuth(request: Request): string | null {
@@ -53,6 +68,29 @@ function parseStoredWarningState(raw: string | null): WarningAckState {
 
 export const onRequest = async (context: { request: Request; env: Env }): Promise<Response> => {
   const { request, env } = context;
+  const startedAtMs = Date.now();
+  let kvReads = 0;
+  let kvWrites = 0;
+  const trackedKv: KVNamespace = {
+    get: async (key: string) => {
+      kvReads += 1;
+      return env.PISHOCK_KV.get(key);
+    },
+    put: async (key: string, value: string, options?: { expirationTtl?: number }) => {
+      kvWrites += 1;
+      return env.PISHOCK_KV.put(key, value, options);
+    },
+    delete: async (key: string) => {
+      kvWrites += 1;
+      return env.PISHOCK_KV.delete(key);
+    },
+  };
+
+  const respond = (body: any, status = 200, headers: Record<string, string> = {}) =>
+    jsonResponse(body, status, {
+      ...headers,
+      ...createPerformanceHeaders(startedAtMs, kvReads, kvWrites),
+    });
 
   if (request.method === 'OPTIONS') {
     return new Response(null, {
@@ -72,8 +110,8 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
   const token = requireAuth(request);
   if (!token) return new Response('Unauthorized', { status: 401 });
 
-  const user = await validateDiscordTokenWithRefresh(token, env.PISHOCK_KV, {
-    PISHOCK_KV: env.PISHOCK_KV,
+  const user = await validateDiscordTokenWithRefresh(token, trackedKv, {
+    PISHOCK_KV: trackedKv,
     DISCORD_CLIENT_ID: env.DISCORD_CLIENT_ID || '',
     DISCORD_CLIENT_SECRET: env.DISCORD_CLIENT_SECRET || '',
   });
@@ -83,9 +121,9 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
     const key = warningAckKey(user.id);
 
     if (request.method === 'GET') {
-      const existingStateRaw = await env.PISHOCK_KV.get(key);
+      const existingStateRaw = await trackedKv.get(key);
       const existingState = parseStoredWarningState(existingStateRaw);
-      return jsonResponse({
+      return respond({
         userId: user.id,
         ...existingState,
       });
@@ -105,43 +143,34 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
       );
     }
 
-    let lastMerged: WarningAckState | null = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const latestRaw = await env.PISHOCK_KV.get(key);
-      const latest = parseStoredWarningState(latestRaw);
-      const merged: WarningAckState = {
-        hasSeenFirstBypassWarning: hasBypassUpdate
-          ? latest.hasSeenFirstBypassWarning || Boolean(body.hasSeenFirstBypassWarning)
-          : latest.hasSeenFirstBypassWarning,
-        hasSeenFirstOverlimitPurchaseWarning: hasPurchaseUpdate
-          ? latest.hasSeenFirstOverlimitPurchaseWarning ||
-            Boolean(body.hasSeenFirstOverlimitPurchaseWarning)
-          : latest.hasSeenFirstOverlimitPurchaseWarning,
-        updatedAt: new Date().toISOString(),
-      };
-      await env.PISHOCK_KV.put(key, JSON.stringify(merged));
-      const verify = parseStoredWarningState(await env.PISHOCK_KV.get(key));
-      const bypassOk =
-        !hasBypassUpdate ||
-        !merged.hasSeenFirstBypassWarning ||
-        verify.hasSeenFirstBypassWarning;
-      const purchaseOk =
-        !hasPurchaseUpdate ||
-        !merged.hasSeenFirstOverlimitPurchaseWarning ||
-        verify.hasSeenFirstOverlimitPurchaseWarning;
-      lastMerged = merged;
-      if (bypassOk && purchaseOk) {
-        break;
-      }
+    const latestRaw = await trackedKv.get(key);
+    const latest = parseStoredWarningState(latestRaw);
+    const merged: WarningAckState = {
+      hasSeenFirstBypassWarning: hasBypassUpdate
+        ? latest.hasSeenFirstBypassWarning || Boolean(body.hasSeenFirstBypassWarning)
+        : latest.hasSeenFirstBypassWarning,
+      hasSeenFirstOverlimitPurchaseWarning: hasPurchaseUpdate
+        ? latest.hasSeenFirstOverlimitPurchaseWarning ||
+          Boolean(body.hasSeenFirstOverlimitPurchaseWarning)
+        : latest.hasSeenFirstOverlimitPurchaseWarning,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const unchanged =
+      merged.hasSeenFirstBypassWarning === latest.hasSeenFirstBypassWarning &&
+      merged.hasSeenFirstOverlimitPurchaseWarning === latest.hasSeenFirstOverlimitPurchaseWarning;
+    if (!unchanged) {
+      await trackedKv.put(key, JSON.stringify(merged));
     }
 
-    return jsonResponse({
+    return respond({
       success: true,
       userId: user.id,
-      ...lastMerged!,
+      noOp: unchanged,
+      ...merged,
     });
   } catch (error) {
-    return jsonResponse(
+    return respond(
       {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to update warning acknowledgements',
