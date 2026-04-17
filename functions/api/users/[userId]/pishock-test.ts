@@ -257,7 +257,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           }
         }
 
-        const selectedShareCode = getGeneratedShareCodeForShocker(generatedShareCodes, selectedShockerId);
+        const explicitSelectedShareCode = typeof creds.selectedShareCode === 'string'
+          ? creds.selectedShareCode.trim()
+          : '';
+        const selectedShareCode = explicitSelectedShareCode || getGeneratedShareCodeForShocker(generatedShareCodes, selectedShockerId);
         const useDirectShockerOperation = !selectedShareCode;
         const testResult = useDirectShockerOperation
           ? await operatePiShockShocker(credentials, String(selectedShockerId), {

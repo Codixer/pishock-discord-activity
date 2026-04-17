@@ -426,7 +426,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           await env.PISHOCK_KV.put(`user:${targetUserId}:data`, JSON.stringify(userData));
         }
       }
-      const selectedShareCode = getGeneratedShareCodeForShocker(generatedShareCodes, String(selectedShockerId));
+      const explicitSelectedShareCode = typeof creds.selectedShareCode === 'string'
+        ? creds.selectedShareCode.trim()
+        : '';
+      const selectedShareCode = explicitSelectedShareCode || getGeneratedShareCodeForShocker(generatedShareCodes, String(selectedShockerId));
       const useDirectShockerOperation = !selectedShareCode;
 
       if (operation === 0 && !selectedShocker.CanShock) {

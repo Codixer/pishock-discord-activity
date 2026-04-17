@@ -40,6 +40,8 @@ export function PiShockSettingsModal({
   const [apiKey, setApiKey] = useState('');
   const [username, setUsername] = useState('');
   const [sharecode, setSharecode] = useState('');
+  const [selectedShareCode, setSelectedShareCode] = useState('');
+  const [availableShareCodesForSelected, setAvailableShareCodesForSelected] = useState<string[]>([]);
   const [selectedShockerId, setSelectedShockerId] = useState('');
   const [allowedShockerIds, setAllowedShockerIds] = useState<string[]>([]);
   const [allowOverLimitWithConsumable, setAllowOverLimitWithConsumable] = useState(false);
@@ -55,6 +57,7 @@ export function PiShockSettingsModal({
   const [saving, setSaving] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [refreshingShockers, setRefreshingShockers] = useState(false);
+  const [creatingShareCode, setCreatingShareCode] = useState(false);
   const [hasStoredCredentials, setHasStoredCredentials] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [shockerIdsHiddenNotOnDevices, setShockerIdsHiddenNotOnDevices] = useState(0);
@@ -170,6 +173,10 @@ export function PiShockSettingsModal({
           setUsername(settings.username || '');
           setSharecode(settings.sharecode || '');
           setSelectedShockerId(settings.selectedShockerId || '');
+          setSelectedShareCode(settings.selectedShareCode || '');
+          setAvailableShareCodesForSelected(
+            Array.isArray(settings.availableShareCodesForSelected) ? settings.availableShareCodesForSelected : []
+          );
           setAvailableShockers(Array.isArray(settings.availableShockers) ? settings.availableShockers : []);
           setAllowedShockerIds(Array.isArray(settings.allowedShockerIds) ? settings.allowedShockerIds : []);
           setAllowOverLimitWithConsumable(Boolean(settings.allowOverLimitWithConsumable));
@@ -271,6 +278,7 @@ export function PiShockSettingsModal({
           apiKey: apiKey || undefined,
           username,
           selectedShockerId,
+          selectedShareCode: selectedShareCode || undefined,
           allowedShockerIds,
           allowOverLimitWithConsumable,
           commandsPaused,
@@ -297,6 +305,8 @@ export function PiShockSettingsModal({
         setApiKey('');
         setUsername('');
         setSelectedShockerId('');
+        setSelectedShareCode('');
+        setAvailableShareCodesForSelected([]);
         setAllowedShockerIds([]);
         setAllowOverLimitWithConsumable(false);
         setSharecode('');
@@ -440,6 +450,10 @@ export function PiShockSettingsModal({
       } else if (!selectedShockerId) {
         setSelectedShockerId(String(ownedShockers[0].id));
       }
+      setSelectedShareCode(settings?.selectedShareCode || '');
+      setAvailableShareCodesForSelected(
+        Array.isArray(settings?.availableShareCodesForSelected) ? settings.availableShareCodesForSelected : []
+      );
       setAllowedShockerIds(Array.isArray(settings?.allowedShockerIds) ? settings.allowedShockerIds : []);
       setDeprecationMessages(Array.isArray(result.deprecations) ? result.deprecations : []);
       setShockerIdsHiddenNotOnDevices(
@@ -453,6 +467,72 @@ export function PiShockSettingsModal({
       setFormError(error instanceof Error ? error.message : 'Failed to refresh owned shockers');
     } finally {
       setRefreshingShockers(false);
+    }
+  };
+
+  const createShareCodeForSelectedShocker = async () => {
+    if (!currentUser || !auth) return;
+    if (!username.trim() || !selectedShockerId) {
+      setFormError('Username and Selected Shocker are required before creating a sharecode.');
+      return;
+    }
+
+    setFormError(null);
+    setCreatingShareCode(true);
+    try {
+      const response = await authFetch(`${getApiBaseUrl()}/users/${currentUser.id}/pishock-settings`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth.access_token}`,
+        },
+        body: JSON.stringify({
+          createShareCodeForSelected: true,
+          apiKey: apiKey || undefined,
+          username,
+          selectedShockerId,
+          selectedShareCode: selectedShareCode || undefined,
+          allowedShockerIds,
+          allowOverLimitWithConsumable,
+          commandsPaused,
+          hasOwnDevice: true,
+          maxIntensity: userMaxIntensity,
+          maxDuration: userMaxDuration,
+          bannedExecutors,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        const debugStep = result?.debug?.step ? ` (step: ${result.debug.step})` : '';
+        throw new Error(`${result?.error || 'Failed to create sharecode'}${debugStep}`);
+      }
+
+      const nextCode = String(result.selectedShareCode || '').trim();
+      if (nextCode) {
+        setSelectedShareCode(nextCode);
+        setAvailableShareCodesForSelected((prev) => {
+          const merged = new Set<string>([...prev, nextCode]);
+          return Array.from(merged);
+        });
+      }
+      setConnectionStatus({
+        connected: true,
+        message: 'Sharecode created and claimed for selected shocker',
+        color: 'green',
+      });
+      if (window.refreshAllUserStatuses) {
+        window.refreshAllUserStatuses();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create sharecode';
+      setFormError(message);
+      setConnectionStatus({
+        connected: false,
+        message: message.slice(0, 120),
+        color: 'red',
+      });
+    } finally {
+      setCreatingShareCode(false);
     }
   };
 
@@ -650,7 +730,11 @@ export function PiShockSettingsModal({
               </div>
               <select
                 value={selectedShockerId}
-                onChange={(e) => setSelectedShockerId(e.target.value)}
+                onChange={(e) => {
+                  setSelectedShockerId(e.target.value);
+                  setSelectedShareCode('');
+                  setAvailableShareCodesForSelected([]);
+                }}
                 disabled={loadingData || refreshingShockers}
                 className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
               >
@@ -663,6 +747,45 @@ export function PiShockSettingsModal({
               </select>
               <p className="text-xs text-gray-400 mt-1">
                 Enter API key + username, click Refresh, then select the device you want to share for receiving commands.
+              </p>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2 gap-2">
+                <label className="block text-sm font-medium text-gray-300">
+                  Select Sharecode <span className="text-red-400">*</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={createShareCodeForSelectedShocker}
+                  disabled={loadingData || creatingShareCode || !username.trim() || !selectedShockerId}
+                  className="px-2 py-1 text-xs bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-600 rounded transition-colors inline-flex items-center gap-1"
+                  title="Create and claim a fresh sharecode for the selected shocker"
+                >
+                  <RefreshCw className={`h-3 w-3 ${creatingShareCode ? 'animate-spin' : ''}`} />
+                  <span>{creatingShareCode ? 'Creating...' : 'Create & Claim Sharecode'}</span>
+                </button>
+              </div>
+              <select
+                value={selectedShareCode}
+                onChange={(e) => setSelectedShareCode(e.target.value)}
+                disabled={loadingData || creatingShareCode}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+              >
+                <option value="">
+                  {availableShareCodesForSelected.length > 0
+                    ? 'Select an available sharecode'
+                    : 'No sharecode selected yet'}
+                </option>
+                {availableShareCodesForSelected.map((code) => (
+                  <option key={code} value={code}>
+                    {code}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-400 mt-1">
+                If the selected shocker has no sharecode yet, click "Create & Claim Sharecode". You can click it again to
+                force a new claimed sharecode even when one already exists.
               </p>
             </div>
 

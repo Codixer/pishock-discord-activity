@@ -328,7 +328,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         creds.generatedShareCodesLastUpdated = new Date().toISOString();
         await env.PISHOCK_KV.put(`instance:${instanceId}:pishock`, btoa(JSON.stringify(creds)), { expirationTtl: 21600 });
       }
-      const selectedShareCode = getGeneratedShareCodeForShocker(generatedShareCodes, String(selectedShockerId));
+      const explicitSelectedShareCode = typeof creds.selectedShareCode === 'string'
+        ? creds.selectedShareCode.trim()
+        : '';
+      const selectedShareCode = explicitSelectedShareCode || getGeneratedShareCodeForShocker(generatedShareCodes, String(selectedShockerId));
       if (!selectedShareCode) {
         throw new Error('Selected shocker does not have a generated sharecode.');
       }

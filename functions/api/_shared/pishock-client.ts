@@ -58,6 +58,8 @@ export type PiShockGeneratedShareCodeMap = Record<string, string>;
 /** Shockers the controller may use: active on GetUserDevices for the Account userId, and present on GET /Shockers. */
 export interface AllowedShockersForControllerResult {
   allowedShockers: PiShockShocker[];
+  /** Active owned shockers from GetUserDevices; can include shockers not yet visible on GET /Shockers. */
+  activeOwnedShockers: PiShockShocker[];
   /** Shockers returned by GET /Shockers but not on the active owned-devices list (hidden from picker). */
   shockerIdsHiddenNotOnDevices: number;
 }
@@ -371,6 +373,7 @@ export async function getAllowedShockersForController(
   const foreignClientSamples: Array<{ clientUserId: number | undefined; clientId: number | undefined }> = [];
 
   const activeOwnedIds = new Set<string>();
+  const activeOwnedNames = new Map<string, string>();
   for (const client of clients) {
     if (!client) {
       continue;
@@ -394,7 +397,11 @@ export async function getAllowedShockersForController(
         shockersSkippedPaused += 1;
         continue;
       }
-      activeOwnedIds.add(String(shocker.shockerId));
+      const sid = String(shocker.shockerId);
+      activeOwnedIds.add(sid);
+      if (!activeOwnedNames.has(sid) && shocker.name) {
+        activeOwnedNames.set(sid, shocker.name);
+      }
     }
   }
 
@@ -422,6 +429,28 @@ export async function getAllowedShockersForController(
 
   const apiOnly = apiShockerIds.filter((id) => !activeOwnedIds.has(id));
   const deviceOnly = Array.from(activeOwnedIds).filter((id) => !apiShockerIds.includes(id));
+  const apiShockerById = new Map<string, PiShockShocker>(
+    shockersResult.data
+      .filter((s) => s.ShockerId !== undefined && s.ShockerId !== null)
+      .map((s) => [String(s.ShockerId), s])
+  );
+  const activeOwnedShockers: PiShockShocker[] = Array.from(activeOwnedIds).map((id) => {
+    const fromApi = apiShockerById.get(id);
+    if (fromApi) {
+      return fromApi;
+    }
+    // Device exists on GetUserDevices but not yet on /Shockers (typically no claimed share yet).
+    return {
+      ShockerId: Number(id),
+      Name: activeOwnedNames.get(id) || `Shocker ${id}`,
+      // Unknown until /Shockers starts returning this shocker. Keep permissive defaults for selection.
+      CanShock: true,
+      CanVibrate: true,
+      CanBeep: true,
+      MaxIntensity: 100,
+      MaxDuration: 15000,
+    };
+  });
   console.log(
     `${DBG} intersection allowedCount=${allowedShockers.length} hiddenFromApiNotOnDevices=${shockerIdsHiddenNotOnDevices} ` +
       `inApiNotOnDeviceListPreview=${JSON.stringify(previewIds(apiOnly))} onDeviceListNotInApiPreview=${JSON.stringify(previewIds(deviceOnly))}`
@@ -439,6 +468,7 @@ export async function getAllowedShockersForController(
     status: 200,
     data: {
       allowedShockers,
+      activeOwnedShockers,
       shockerIdsHiddenNotOnDevices,
     },
   };
@@ -776,7 +806,9 @@ export async function generateLegacyShareCodesForOwnedShockers(
   }
 
   const allowedIdSet = new Set(
-    allowedResult.data.allowedShockers
+    (allowedResult.data.activeOwnedShockers && allowedResult.data.activeOwnedShockers.length > 0
+      ? allowedResult.data.activeOwnedShockers
+      : allowedResult.data.allowedShockers)
       .filter((s) => s.ShockerId !== undefined && s.ShockerId !== null)
       .map((s) => String(s.ShockerId))
   );
