@@ -755,16 +755,21 @@ async function createLegacyPiShockShareCodeViaPs(
   }
 
   const shockerIdInt = Math.floor(shockerIdNumber);
+  const legacyAuthHeaders: Record<string, string> = {
+    'x-pishock-token': credentials.apiKey,
+    'x-pishock-userid': String(uid),
+  };
   const attempts: Array<{ label: string; path: string; init: RequestInit }> = [
     {
       label: 'json_pascal',
       path: '/PiShock/CreateShare',
       init: {
         method: 'POST',
+        headers: legacyAuthHeaders,
         body: JSON.stringify({
           ShockerId: shockerIdInt,
           Token: credentials.apiKey,
-          UserId: String(uid),
+          UserId: uid,
         }),
       },
     },
@@ -773,6 +778,7 @@ async function createLegacyPiShockShareCodeViaPs(
       path: '/PiShock/CreateShare',
       init: {
         method: 'POST',
+        headers: legacyAuthHeaders,
         body: JSON.stringify({
           shockerId: shockerIdInt,
           token: credentials.apiKey,
@@ -788,7 +794,7 @@ async function createLegacyPiShockShareCodeViaPs(
         ShockerId: String(shockerIdInt),
         api: 'true',
       }).toString()}`,
-      init: { method: 'POST' },
+      init: { method: 'POST', headers: legacyAuthHeaders },
     },
     {
       label: 'query_lower',
@@ -798,7 +804,7 @@ async function createLegacyPiShockShareCodeViaPs(
         shockerId: String(shockerIdInt),
         api: 'true',
       }).toString()}`,
-      init: { method: 'POST' },
+      init: { method: 'POST', headers: legacyAuthHeaders },
     },
   ];
 
