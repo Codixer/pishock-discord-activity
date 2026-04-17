@@ -754,32 +754,88 @@ async function createLegacyPiShockShareCodeViaPs(
     };
   }
 
+  const bodyPayload = JSON.stringify({
+    userId: uid,
+    token: credentials.apiKey,
+    shockerId: Math.floor(shockerIdNumber),
+  });
+  const createWithBody = await requestLegacy<unknown>('/PiShock/CreateShare', {
+    method: 'POST',
+    body: bodyPayload,
+  });
+  const normalizedFromBody = normalizeShareCodeFromApiResponse(createWithBody.data, createWithBody.rawBody);
+  if (createWithBody.ok && normalizedFromBody) {
+    return { ok: true, status: createWithBody.status, data: normalizedFromBody };
+  }
+  if (!createWithBody.ok && normalizedFromBody && createWithBody.status >= 200 && createWithBody.status < 300) {
+    return { ok: true, status: createWithBody.status, data: normalizedFromBody };
+  }
+
+  // Fallback for environments that still expect query-param style.
   const query = new URLSearchParams({
     UserId: String(uid),
     Token: credentials.apiKey,
     ShockerId: String(Math.floor(shockerIdNumber)),
     api: 'true',
   });
-  const createResult = await requestLegacy<unknown>(`/PiShock/CreateShare?${query.toString()}`, {
+  const createWithQuery = await requestLegacy<unknown>(`/PiShock/CreateShare?${query.toString()}`, {
     method: 'POST',
   });
-  const normalizedShareCode = normalizeShareCodeFromApiResponse(createResult.data, createResult.rawBody);
+  const normalizedFromQuery = normalizeShareCodeFromApiResponse(createWithQuery.data, createWithQuery.rawBody);
+  if (createWithQuery.ok && normalizedFromQuery) {
+    return { ok: true, status: createWithQuery.status, data: normalizedFromQuery };
+  }
+  if (!createWithQuery.ok && normalizedFromQuery && createWithQuery.status >= 200 && createWithQuery.status < 300) {
+    return { ok: true, status: createWithQuery.status, data: normalizedFromQuery };
+  }
+  return {
+    ok: false,
+    status: createWithQuery.status || createWithBody.status,
+    error:
+      createWithQuery.error ||
+      createWithBody.error ||
+      `Legacy CreateShare failed for shocker ${shockerIdNumber}.`,
+    rawBody: createWithQuery.rawBody || createWithBody.rawBody,
+  };
+}
 
-  if (createResult.ok && normalizedShareCode) {
-    return { ok: true, status: createResult.status, data: normalizedShareCode };
-  }
-  if (!createResult.ok && normalizedShareCode && createResult.status >= 200 && createResult.status < 300) {
-    return { ok: true, status: createResult.status, data: normalizedShareCode };
-  }
-  if (!normalizedShareCode) {
+/** api.pishock.com /Share with explicit payload fields (ShockerId, Token, UserId). */
+async function createPiShockShareCodeViaApiShare(
+  credentials: PiShockCredentials,
+  shockerIdNumber: number
+): Promise<PiShockShareCodeCreateResult> {
+  const uidRaw = credentials.piShockUserId;
+  const uid = uidRaw !== undefined && uidRaw !== null ? Math.floor(Number(uidRaw)) : NaN;
+  if (!Number.isFinite(uid) || uid <= 0) {
     return {
       ok: false,
-      status: createResult.status,
-      error: createResult.error || `Legacy CreateShare failed for shocker ${shockerIdNumber}.`,
-      rawBody: createResult.rawBody,
+      status: 400,
+      error: 'api.pishock.com /Share requires a valid UserId.',
     };
   }
-  return { ok: true, status: createResult.status, data: normalizedShareCode };
+
+  const body = JSON.stringify({
+    ShockerId: Math.floor(shockerIdNumber),
+    Token: credentials.apiKey,
+    UserId: String(uid),
+  });
+  const result = await request<unknown>('/Share', credentials, {
+    method: 'POST',
+    body,
+  });
+  const normalized = normalizeShareCodeFromApiResponse(result.data, result.rawBody);
+  if (result.ok && normalized) {
+    return { ok: true, status: result.status, data: normalized, omitApiClaim: false };
+  }
+  if (!result.ok && normalized && result.status >= 200 && result.status < 300) {
+    return { ok: true, status: result.status, data: normalized, omitApiClaim: false };
+  }
+  return {
+    ok: false,
+    status: result.status || 502,
+    error: result.error || `api.pishock.com /Share failed for shocker ${shockerIdNumber}.`,
+    rawBody: result.rawBody,
+  };
 }
 
 export type PiShockShareCodeCreateResult = PiShockApiResult<string> & {
@@ -787,7 +843,7 @@ export type PiShockShareCodeCreateResult = PiShockApiResult<string> & {
   omitApiClaim?: boolean;
 };
 
-/** POST /Share on api.pishock.com, with Bearer + camelCase retries; falls back to ps CreateShare on 401/403. */
+/** Create sharecode via api.pishock.com /Share payload, then fallback to legacy ps CreateShare. */
 export async function createPiShockShareCodeForShocker(
   credentials: PiShockCredentials,
   shockerId: string
@@ -802,69 +858,26 @@ export async function createPiShockShareCodeForShocker(
   }
 
   const idInt = Math.floor(shockerIdNumber);
-  const bodies = [
-    JSON.stringify({ ShockerId: idInt }),
-    JSON.stringify({ shockerId: idInt }),
-  ];
-
-  let lastResult: PiShockApiResult<unknown> | null = null;
-  for (const body of bodies) {
-    const withBearer = await request<unknown>('/Share', credentials, {
-      method: 'POST',
-      body,
-      headers: shareAuthHeaders(credentials),
-    });
-    lastResult = withBearer;
-    let normalized = normalizeShareCodeFromApiResponse(withBearer.data, withBearer.rawBody);
-    if (withBearer.ok && normalized) {
-      console.log(`${DBG} POST /Share ok (Bearer + JSON body variant len=${body.length})`);
-      return { ok: true, status: withBearer.status, data: normalized, omitApiClaim: false };
-    }
-    if (!withBearer.ok && normalized && withBearer.status >= 200 && withBearer.status < 300) {
-      return { ok: true, status: withBearer.status, data: normalized, omitApiClaim: false };
-    }
-
-    if (withBearer.status === 401 || withBearer.status === 403) {
-      const noBearer = await request<unknown>('/Share', credentials, {
-        method: 'POST',
-        body,
-      });
-      lastResult = noBearer;
-      normalized = normalizeShareCodeFromApiResponse(noBearer.data, noBearer.rawBody);
-      if (noBearer.ok && normalized) {
-        console.log(`${DBG} POST /Share ok (no Bearer, same body variant)`);
-        return { ok: true, status: noBearer.status, data: normalized, omitApiClaim: false };
-      }
-      if (!noBearer.ok && normalized && noBearer.status >= 200 && noBearer.status < 300) {
-        return { ok: true, status: noBearer.status, data: normalized, omitApiClaim: false };
-      }
-    } else if (withBearer.status >= 500) {
-      break;
-    }
+  const apiShare = await createPiShockShareCodeViaApiShare(credentials, idInt);
+  if (apiShare.ok && apiShare.data) {
+    console.log(`${DBG} CreateShare path=api_share shockerId=${idInt} status=${apiShare.status}`);
+    return apiShare;
   }
 
-  const lastStatus = lastResult?.status ?? 0;
-  if (lastStatus === 401 || lastStatus === 403) {
-    console.log(
-      `${DBG} POST /Share unauthorized/forbidden (lastStatus=${lastStatus}), trying legacy ps CreateShare`
-    );
-    const legacy = await createLegacyPiShockShareCodeViaPs(credentials, idInt);
-    if (legacy.ok && legacy.data) {
-      return { ...legacy, omitApiClaim: true };
-    }
-    return {
-      ok: false,
-      status: legacy.status || lastStatus,
-      error: legacy.error || lastResult?.error || `Failed to create share code for shocker ${shockerId}.`,
-      rawBody: legacy.rawBody || lastResult?.rawBody,
-    };
+  const legacy = await createLegacyPiShockShareCodeViaPs(credentials, idInt);
+  if (legacy.ok && legacy.data) {
+    console.log(`${DBG} CreateShare path=legacy_ps shockerId=${idInt} status=${legacy.status}`);
+    // Legacy CreateShare codes are already usable for this account; skip API claim.
+    return { ...legacy, omitApiClaim: true };
   }
-
   return {
     ok: false,
-    status: lastResult?.status || 502,
-    error: lastResult?.error || `Failed to create share code for shocker ${shockerId}.`,
-    rawBody: lastResult?.rawBody,
+    status: legacy.status || apiShare.status || 502,
+    error:
+      legacy.error ||
+      apiShare.error ||
+      `Failed to create share code for shocker ${shockerId}.`,
+    rawBody: legacy.rawBody || apiShare.rawBody,
   };
 }
 
