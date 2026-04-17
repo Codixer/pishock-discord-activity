@@ -2,6 +2,7 @@ import {
   generateLegacyShareCodesForOwnedShockers,
   getAllowedShockersForController,
   getGeneratedShareCodeForShocker,
+  getPreferredOwnedShockers,
   getPiShockAccount,
   normalizeGeneratedShareCodes,
   operatePiShockShareCode,
@@ -9,6 +10,10 @@ import {
 
 interface Env {
   PISHOCK_KV: KVNamespace;
+}
+
+interface PagesFunction<Env = unknown> {
+  (context: { request: Request; env: Env; params: Record<string, string>; waitUntil: (promise: Promise<any>) => void; passThroughOnException: () => void; }): Promise<Response> | Response;
 }
 
 function jsonResponse(body: any, status = 200) {
@@ -147,7 +152,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           error: allowedResult.error || 'Unable to list allowed shockers for this account.',
         }, 502);
       }
-      const ownedShockerIds = allowedResult.data.allowedShockers
+      const ownedShockerIds = getPreferredOwnedShockers(allowedResult.data)
         .filter((shocker: any) => shocker?.ShockerId !== undefined && shocker?.ShockerId !== null)
         .map((shocker: any) => String(shocker.ShockerId));
       if (!ownedShockerIds.includes(String(selectedShockerId))) {

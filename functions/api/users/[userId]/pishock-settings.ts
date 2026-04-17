@@ -3,6 +3,7 @@ import {
   generateLegacyShareCodesForOwnedShockers,
   getGeneratedShareCodeForShocker,
   getAllowedShockersForController,
+  getPreferredOwnedShockers,
   mapShockersToOptions,
   normalizeGeneratedShareCodes,
 } from '../../_shared/pishock-client';
@@ -100,9 +101,7 @@ async function checkUserDevices(apiKey: string, username: string, piShockUserId?
     };
   }
 
-  const devices = (allowed.data.activeOwnedShockers && allowed.data.activeOwnedShockers.length > 0)
-    ? allowed.data.activeOwnedShockers
-    : allowed.data.allowedShockers;
+  const devices = getPreferredOwnedShockers(allowed.data);
   if (devices.length === 0) {
     console.log(
       `[PiShock:pishock-settings:checkUserDevices] zero allowed shockers username=${String(username || '').trim() || '(empty)'} ` +
@@ -197,7 +196,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
             piShockUserId: resolvedPiShockUserId,
           });
           if (allowedResult.ok && allowedResult.data) {
-            availableShockers = mapShockersToOptions(allowedResult.data.allowedShockers);
+            availableShockers = mapShockersToOptions(getPreferredOwnedShockers(allowedResult.data));
             shockerIdsHiddenNotOnDevices = allowedResult.data.shockerIdsHiddenNotOnDevices;
           }
         }

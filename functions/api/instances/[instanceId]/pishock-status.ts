@@ -2,6 +2,7 @@ import {
   generateLegacyShareCodesForOwnedShockers,
   getAllowedShockersForController,
   getGeneratedShareCodeForShocker,
+  getPreferredOwnedShockers,
   normalizeGeneratedShareCodes,
   operatePiShockShareCode,
 } from '../../_shared/pishock-client';
@@ -99,7 +100,7 @@ async function testPiShockConnection(
   if (!allowedResult.ok || !allowedResult.data) {
     return { ok: false, error: allowedResult.error || 'Unable to verify allowed shockers for this account.' };
   }
-  const ownedShockerIds = allowedResult.data.allowedShockers
+  const ownedShockerIds = getPreferredOwnedShockers(allowedResult.data)
     .filter((shocker: any) => shocker?.ShockerId !== undefined && shocker?.ShockerId !== null)
     .map((shocker: any) => String(shocker.ShockerId));
   if (!ownedShockerIds.includes(String(selectedShockerId))) {

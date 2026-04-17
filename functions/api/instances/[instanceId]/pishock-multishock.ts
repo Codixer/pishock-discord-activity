@@ -3,6 +3,7 @@ import {
   generateLegacyShareCodesForOwnedShockers,
   getAllowedShockersForController,
   getGeneratedShareCodeForShocker,
+  getPreferredOwnedShockers,
   normalizeGeneratedShareCodes,
   operatePiShockShareCode,
 } from '../../_shared/pishock-client';
@@ -275,13 +276,14 @@ export const onRequest = async (context: { request: Request; env: Env; params: R
         return { failures };
       }
 
+      const preferredShockers = getPreferredOwnedShockers(allowedResult.data);
       const ownedShockerIds = new Set(
-        allowedResult.data.allowedShockers
+        preferredShockers
           .filter((shocker: any) => shocker?.ShockerId !== undefined && shocker?.ShockerId !== null)
           .map((shocker: any) => String(shocker.ShockerId))
       );
       const shockersById = new Map(
-        allowedResult.data.allowedShockers
+        preferredShockers
           .filter((shocker: any) => shocker?.ShockerId !== undefined && shocker?.ShockerId !== null)
           .map((shocker: any) => [String(shocker.ShockerId), shocker])
       );

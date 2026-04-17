@@ -1,6 +1,7 @@
 import {
   getAllowedShockersForController,
   getGeneratedShareCodeForShocker,
+  getPreferredOwnedShockers,
   getPiShockAccount,
   normalizeGeneratedShareCodes,
 } from '../../_shared/pishock-client';
@@ -170,7 +171,7 @@ async function checkUserDevices(
     return { hasDevices: false };
   }
 
-  const devices = allowed.data.allowedShockers;
+  const devices = getPreferredOwnedShockers(allowed.data);
   return {
     hasDevices: devices.length > 0,
     devices,

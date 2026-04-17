@@ -15,6 +15,21 @@ function previewIds(ids: Iterable<string>, max = 12): string[] {
   return out;
 }
 
+function dedupeShockersById(shockers: PiShockShocker[]): PiShockShocker[] {
+  const byId = new Map<string, PiShockShocker>();
+  for (const shocker of shockers) {
+    const sid =
+      shocker.ShockerId !== undefined && shocker.ShockerId !== null
+        ? String(shocker.ShockerId)
+        : '';
+    if (!sid || byId.has(sid)) {
+      continue;
+    }
+    byId.set(sid, shocker);
+  }
+  return Array.from(byId.values());
+}
+
 export interface PiShockCredentials {
   apiKey: string;
   username: string;
@@ -65,6 +80,13 @@ export interface AllowedShockersForControllerResult {
   activeOwnedShockers: PiShockShocker[];
   /** Shockers returned by GET /Shockers but not on the active owned-devices list (hidden from picker). */
   shockerIdsHiddenNotOnDevices: number;
+}
+
+export function getPreferredOwnedShockers(data: AllowedShockersForControllerResult): PiShockShocker[] {
+  if (Array.isArray(data.activeOwnedShockers) && data.activeOwnedShockers.length > 0) {
+    return data.activeOwnedShockers;
+  }
+  return Array.isArray(data.allowedShockers) ? data.allowedShockers : [];
 }
 
 interface LegacyReducedShockerModel {
@@ -422,10 +444,14 @@ export async function getAllowedShockersForController(
     };
   }
 
-  const apiShockerIds = shockersResult.data
+  const apiShockerIdsRaw = shockersResult.data
     .filter((s) => s.ShockerId !== undefined && s.ShockerId !== null)
     .map((s) => String(s.ShockerId));
-  console.log(`${DBG} GET /Shockers ok count=${shockersResult.data.length} idsPreview=${JSON.stringify(previewIds(apiShockerIds))}`);
+  const apiShockerIds = Array.from(new Set(apiShockerIdsRaw));
+  console.log(
+    `${DBG} GET /Shockers ok count=${shockersResult.data.length} uniqueCount=${apiShockerIds.length} ` +
+      `idsPreview=${JSON.stringify(previewIds(apiShockerIds))}`
+  );
 
   if (!devicesResult.ok || !Array.isArray(devicesResult.data)) {
     console.log(
@@ -488,12 +514,12 @@ export async function getAllowedShockersForController(
       `shockersUnderForeignClients=${shockersSkippedWrongUser} skippedPaused=${shockersSkippedPaused} skippedNoId=${shockersSkippedNoId}`
   );
 
-  const allowedShockers = shockersResult.data.filter(
+  const strictAllowedShockers = dedupeShockersById(shockersResult.data.filter(
     (shocker) =>
       shocker.ShockerId !== undefined &&
       shocker.ShockerId !== null &&
       activeOwnedIds.has(String(shocker.ShockerId))
-  );
+  ));
 
   const shockerIdsHiddenNotOnDevices = shockersResult.data.filter(
     (shocker) =>
@@ -509,7 +535,7 @@ export async function getAllowedShockersForController(
       .filter((s) => s.ShockerId !== undefined && s.ShockerId !== null)
       .map((s) => [String(s.ShockerId), s])
   );
-  const activeOwnedShockers: PiShockShocker[] = Array.from(activeOwnedIds).map((id) => {
+  const activeOwnedShockers: PiShockShocker[] = dedupeShockersById(Array.from(activeOwnedIds).map((id) => {
     const fromApi = apiShockerById.get(id);
     if (fromApi) {
       return fromApi;
@@ -525,11 +551,21 @@ export async function getAllowedShockersForController(
       MaxIntensity: 100,
       MaxDuration: 15000,
     };
-  });
+  }));
   console.log(
-    `${DBG} intersection allowedCount=${allowedShockers.length} hiddenFromApiNotOnDevices=${shockerIdsHiddenNotOnDevices} ` +
+    `${DBG} intersection strictAllowedCount=${strictAllowedShockers.length} hiddenFromApiNotOnDevices=${shockerIdsHiddenNotOnDevices} ` +
       `inApiNotOnDeviceListPreview=${JSON.stringify(previewIds(apiOnly))} onDeviceListNotInApiPreview=${JSON.stringify(previewIds(deviceOnly))}`
   );
+
+  let allowedShockers = strictAllowedShockers;
+  if (strictAllowedShockers.length === 0 && activeOwnedShockers.length > 0) {
+    allowedShockers = activeOwnedShockers;
+    console.log(
+      `${DBG} fallbackApplied=true reason=emptyIntersection strictAllowedCount=${strictAllowedShockers.length} ` +
+        `activeOwnedCount=${activeOwnedShockers.length} effectiveAllowedCount=${allowedShockers.length} ` +
+        `effectiveAllowedIdsPreview=${JSON.stringify(previewIds(allowedShockers.map((s) => String(s.ShockerId ?? ''))))}`
+    );
+  }
 
   if (allowedShockers.length === 0) {
     console.log(
@@ -881,9 +917,7 @@ export async function generateLegacyShareCodesForOwnedShockers(
   }
 
   const allowedIdSet = new Set(
-    (allowedResult.data.activeOwnedShockers && allowedResult.data.activeOwnedShockers.length > 0
-      ? allowedResult.data.activeOwnedShockers
-      : allowedResult.data.allowedShockers)
+    getPreferredOwnedShockers(allowedResult.data)
       .filter((s) => s.ShockerId !== undefined && s.ShockerId !== null)
       .map((s) => String(s.ShockerId))
   );

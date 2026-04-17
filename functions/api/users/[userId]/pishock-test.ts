@@ -2,6 +2,7 @@ import {
   generateLegacyShareCodesForOwnedShockers,
   getAllowedShockersForController,
   getGeneratedShareCodeForShocker,
+  getPreferredOwnedShockers,
   getPiShockAccount,
   normalizeGeneratedShareCodes,
   operatePiShockShocker,
@@ -126,7 +127,7 @@ async function checkUserDevices(apiKey: string, username: string, piShockUserId?
     };
   }
 
-  const devices = allowed.data.allowedShockers;
+  const devices = getPreferredOwnedShockers(allowed.data);
   return {
     hasDevices: devices.length > 0,
     devices,
