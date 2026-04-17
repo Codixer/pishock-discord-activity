@@ -755,9 +755,9 @@ async function createLegacyPiShockShareCodeViaPs(
   }
 
   const bodyPayload = JSON.stringify({
-    userId: uid,
-    token: credentials.apiKey,
-    shockerId: Math.floor(shockerIdNumber),
+    ShockerId: Math.floor(shockerIdNumber),
+    Token: credentials.apiKey,
+    UserId: String(uid),
   });
   const createWithBody = await requestLegacy<unknown>('/PiShock/CreateShare', {
     method: 'POST',
@@ -799,51 +799,12 @@ async function createLegacyPiShockShareCodeViaPs(
   };
 }
 
-/** api.pishock.com /Share with explicit payload fields (ShockerId, Token, UserId). */
-async function createPiShockShareCodeViaApiShare(
-  credentials: PiShockCredentials,
-  shockerIdNumber: number
-): Promise<PiShockShareCodeCreateResult> {
-  const uidRaw = credentials.piShockUserId;
-  const uid = uidRaw !== undefined && uidRaw !== null ? Math.floor(Number(uidRaw)) : NaN;
-  if (!Number.isFinite(uid) || uid <= 0) {
-    return {
-      ok: false,
-      status: 400,
-      error: 'api.pishock.com /Share requires a valid UserId.',
-    };
-  }
-
-  const body = JSON.stringify({
-    ShockerId: Math.floor(shockerIdNumber),
-    Token: credentials.apiKey,
-    UserId: String(uid),
-  });
-  const result = await request<unknown>('/Share', credentials, {
-    method: 'POST',
-    body,
-  });
-  const normalized = normalizeShareCodeFromApiResponse(result.data, result.rawBody);
-  if (result.ok && normalized) {
-    return { ok: true, status: result.status, data: normalized, omitApiClaim: false };
-  }
-  if (!result.ok && normalized && result.status >= 200 && result.status < 300) {
-    return { ok: true, status: result.status, data: normalized, omitApiClaim: false };
-  }
-  return {
-    ok: false,
-    status: result.status || 502,
-    error: result.error || `api.pishock.com /Share failed for shocker ${shockerIdNumber}.`,
-    rawBody: result.rawBody,
-  };
-}
-
 export type PiShockShareCodeCreateResult = PiShockApiResult<string> & {
   /** When true, skip PUT /Share claim (legacy ps CreateShare codes are already usable for this account). */
   omitApiClaim?: boolean;
 };
 
-/** Create sharecode via api.pishock.com /Share payload, then fallback to legacy ps CreateShare. */
+/** Create sharecode via legacy ps.pishock.com CreateShare (authoritative path while api.pishock.com /Share is unstable). */
 export async function createPiShockShareCodeForShocker(
   credentials: PiShockCredentials,
   shockerId: string
@@ -858,12 +819,6 @@ export async function createPiShockShareCodeForShocker(
   }
 
   const idInt = Math.floor(shockerIdNumber);
-  const apiShare = await createPiShockShareCodeViaApiShare(credentials, idInt);
-  if (apiShare.ok && apiShare.data) {
-    console.log(`${DBG} CreateShare path=api_share shockerId=${idInt} status=${apiShare.status}`);
-    return apiShare;
-  }
-
   const legacy = await createLegacyPiShockShareCodeViaPs(credentials, idInt);
   if (legacy.ok && legacy.data) {
     console.log(`${DBG} CreateShare path=legacy_ps shockerId=${idInt} status=${legacy.status}`);
@@ -872,12 +827,9 @@ export async function createPiShockShareCodeForShocker(
   }
   return {
     ok: false,
-    status: legacy.status || apiShare.status || 502,
-    error:
-      legacy.error ||
-      apiShare.error ||
-      `Failed to create share code for shocker ${shockerId}.`,
-    rawBody: legacy.rawBody || apiShare.rawBody,
+    status: legacy.status || 502,
+    error: legacy.error || `Failed to create share code for shocker ${shockerId}.`,
+    rawBody: legacy.rawBody,
   };
 }
 
