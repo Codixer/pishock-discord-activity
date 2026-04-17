@@ -661,6 +661,23 @@ async function resolveShareCodeFromLinks(
   return null;
 }
 
+async function resolveShareCodeFromLinksWithRetry(
+  credentials: PiShockCredentials,
+  shockerIdNumber: number
+): Promise<string | null> {
+  const tries = [0, 175, 350];
+  for (const waitMs of tries) {
+    if (waitMs > 0) {
+      await sleep(waitMs);
+    }
+    const code = await resolveShareCodeFromLinks(credentials, shockerIdNumber);
+    if (code) {
+      return code;
+    }
+  }
+  return null;
+}
+
 /** Active (not paused) shockers under clients owned by GET /Account UserId, from GetUserDevices. */
 export async function listLegacyOwnedShockers(
   credentials: PiShockCredentials
@@ -792,7 +809,7 @@ async function createLegacyPiShockShareCodeViaPs(
         body: JSON.stringify({
           ShockerId: shockerIdInt,
           Token: credentials.apiKey,
-          UserId: uid,
+          UserId: String(uid),
         }),
       },
     },
@@ -809,30 +826,11 @@ async function createLegacyPiShockShareCodeViaPs(
         }),
       },
     },
-    {
-      label: 'query_pascal',
-      path: `/PiShock/CreateShare?${new URLSearchParams({
-        UserId: String(uid),
-        Token: credentials.apiKey,
-        ShockerId: String(shockerIdInt),
-        api: 'true',
-      }).toString()}`,
-      init: { method: 'POST', headers: legacyAuthHeaders },
-    },
-    {
-      label: 'query_lower',
-      path: `/PiShock/CreateShare?${new URLSearchParams({
-        userId: String(uid),
-        token: credentials.apiKey,
-        shockerId: String(shockerIdInt),
-        api: 'true',
-      }).toString()}`,
-      init: { method: 'POST', headers: legacyAuthHeaders },
-    },
   ];
 
   const attemptDiagnostics: string[] = [];
   let lastFailure: PiShockApiResult<unknown> | null = null;
+  let acceptedWithoutCode: { label: string; status: number } | null = null;
   for (const attempt of attempts) {
     const result = await requestLegacy<unknown>(attempt.path, attempt.init);
     const normalized = normalizeShareCodeFromApiResponse(result.data, result.rawBody);
@@ -846,16 +844,27 @@ async function createLegacyPiShockShareCodeViaPs(
     }
     // Some legacy CreateShare responses return 200 without the code in body.
     if (result.status >= 200 && result.status < 300 && !normalized) {
-      const codeFromLinks = await resolveShareCodeFromLinks(credentials, shockerIdInt);
+      acceptedWithoutCode = { label: attempt.label, status: result.status };
+      const codeFromLinks = await resolveShareCodeFromLinksWithRetry(credentials, shockerIdInt);
       if (codeFromLinks) {
         console.log(
           `${DBG} CreateShare recovered-from-links attempt=${attempt.label} status=${result.status} shockerId=${shockerIdInt}`
         );
         return { ok: true, status: result.status, data: codeFromLinks };
       }
+      // Stop here: CreateShare was accepted; later fallback formats can return noisy 4xx.
+      break;
     }
     lastFailure = result;
     attemptDiagnostics.push(`${attempt.label}:${result.status}`);
+  }
+
+  if (acceptedWithoutCode) {
+    return {
+      ok: false,
+      status: acceptedWithoutCode.status,
+      error: `Legacy CreateShare accepted (attempt=${acceptedWithoutCode.label}, status=${acceptedWithoutCode.status}) but no share code was returned and /Links did not expose a code for shocker ${shockerIdInt} after retries. Attempts=${attemptDiagnostics.join(',') || acceptedWithoutCode.label + ':' + acceptedWithoutCode.status}`,
+    };
   }
 
   return {
