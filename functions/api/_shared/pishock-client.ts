@@ -754,48 +754,76 @@ async function createLegacyPiShockShareCodeViaPs(
     };
   }
 
-  const bodyPayload = JSON.stringify({
-    ShockerId: Math.floor(shockerIdNumber),
-    Token: credentials.apiKey,
-    UserId: String(uid),
-  });
-  const createWithBody = await requestLegacy<unknown>('/PiShock/CreateShare', {
-    method: 'POST',
-    body: bodyPayload,
-  });
-  const normalizedFromBody = normalizeShareCodeFromApiResponse(createWithBody.data, createWithBody.rawBody);
-  if (createWithBody.ok && normalizedFromBody) {
-    return { ok: true, status: createWithBody.status, data: normalizedFromBody };
-  }
-  if (!createWithBody.ok && normalizedFromBody && createWithBody.status >= 200 && createWithBody.status < 300) {
-    return { ok: true, status: createWithBody.status, data: normalizedFromBody };
+  const shockerIdInt = Math.floor(shockerIdNumber);
+  const attempts: Array<{ label: string; path: string; init: RequestInit }> = [
+    {
+      label: 'json_pascal',
+      path: '/PiShock/CreateShare',
+      init: {
+        method: 'POST',
+        body: JSON.stringify({
+          ShockerId: shockerIdInt,
+          Token: credentials.apiKey,
+          UserId: String(uid),
+        }),
+      },
+    },
+    {
+      label: 'json_lower',
+      path: '/PiShock/CreateShare',
+      init: {
+        method: 'POST',
+        body: JSON.stringify({
+          shockerId: shockerIdInt,
+          token: credentials.apiKey,
+          userId: uid,
+        }),
+      },
+    },
+    {
+      label: 'query_pascal',
+      path: `/PiShock/CreateShare?${new URLSearchParams({
+        UserId: String(uid),
+        Token: credentials.apiKey,
+        ShockerId: String(shockerIdInt),
+        api: 'true',
+      }).toString()}`,
+      init: { method: 'POST' },
+    },
+    {
+      label: 'query_lower',
+      path: `/PiShock/CreateShare?${new URLSearchParams({
+        userId: String(uid),
+        token: credentials.apiKey,
+        shockerId: String(shockerIdInt),
+        api: 'true',
+      }).toString()}`,
+      init: { method: 'POST' },
+    },
+  ];
+
+  const attemptDiagnostics: string[] = [];
+  let lastFailure: PiShockApiResult<unknown> | null = null;
+  for (const attempt of attempts) {
+    const result = await requestLegacy<unknown>(attempt.path, attempt.init);
+    const normalized = normalizeShareCodeFromApiResponse(result.data, result.rawBody);
+    if (result.ok && normalized) {
+      console.log(`${DBG} CreateShare success attempt=${attempt.label} status=${result.status} shockerId=${shockerIdInt}`);
+      return { ok: true, status: result.status, data: normalized };
+    }
+    if (!result.ok && normalized && result.status >= 200 && result.status < 300) {
+      console.log(`${DBG} CreateShare success-normalized attempt=${attempt.label} status=${result.status} shockerId=${shockerIdInt}`);
+      return { ok: true, status: result.status, data: normalized };
+    }
+    lastFailure = result;
+    attemptDiagnostics.push(`${attempt.label}:${result.status}`);
   }
 
-  // Fallback for environments that still expect query-param style.
-  const query = new URLSearchParams({
-    UserId: String(uid),
-    Token: credentials.apiKey,
-    ShockerId: String(Math.floor(shockerIdNumber)),
-    api: 'true',
-  });
-  const createWithQuery = await requestLegacy<unknown>(`/PiShock/CreateShare?${query.toString()}`, {
-    method: 'POST',
-  });
-  const normalizedFromQuery = normalizeShareCodeFromApiResponse(createWithQuery.data, createWithQuery.rawBody);
-  if (createWithQuery.ok && normalizedFromQuery) {
-    return { ok: true, status: createWithQuery.status, data: normalizedFromQuery };
-  }
-  if (!createWithQuery.ok && normalizedFromQuery && createWithQuery.status >= 200 && createWithQuery.status < 300) {
-    return { ok: true, status: createWithQuery.status, data: normalizedFromQuery };
-  }
   return {
     ok: false,
-    status: createWithQuery.status || createWithBody.status,
-    error:
-      createWithQuery.error ||
-      createWithBody.error ||
-      `Legacy CreateShare failed for shocker ${shockerIdNumber}.`,
-    rawBody: createWithQuery.rawBody || createWithBody.rawBody,
+    status: lastFailure?.status || 502,
+    error: `${lastFailure?.error || `Legacy CreateShare failed for shocker ${shockerIdNumber}.`} Attempts=${attemptDiagnostics.join(',')}`,
+    rawBody: lastFailure?.rawBody,
   };
 }
 
