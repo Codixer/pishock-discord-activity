@@ -638,6 +638,29 @@ export async function listPiShockLinks(credentials: PiShockCredentials): Promise
   return request<PiShockLink[]>('/Links', credentials, { method: 'GET' });
 }
 
+async function resolveShareCodeFromLinks(
+  credentials: PiShockCredentials,
+  shockerIdNumber: number
+): Promise<string | null> {
+  const linksResult = await listPiShockLinks(credentials);
+  if (!linksResult.ok || !Array.isArray(linksResult.data)) {
+    return null;
+  }
+
+  const exact = linksResult.data.find(
+    (link) =>
+      link?.Code &&
+      link?.ShockerId !== undefined &&
+      link?.ShockerId !== null &&
+      Number(link.ShockerId) === shockerIdNumber
+  );
+  if (exact?.Code) {
+    return String(exact.Code).trim();
+  }
+
+  return null;
+}
+
 /** Active (not paused) shockers under clients owned by GET /Account UserId, from GetUserDevices. */
 export async function listLegacyOwnedShockers(
   credentials: PiShockCredentials
@@ -820,6 +843,16 @@ async function createLegacyPiShockShareCodeViaPs(
     if (!result.ok && normalized && result.status >= 200 && result.status < 300) {
       console.log(`${DBG} CreateShare success-normalized attempt=${attempt.label} status=${result.status} shockerId=${shockerIdInt}`);
       return { ok: true, status: result.status, data: normalized };
+    }
+    // Some legacy CreateShare responses return 200 without the code in body.
+    if (result.status >= 200 && result.status < 300 && !normalized) {
+      const codeFromLinks = await resolveShareCodeFromLinks(credentials, shockerIdInt);
+      if (codeFromLinks) {
+        console.log(
+          `${DBG} CreateShare recovered-from-links attempt=${attempt.label} status=${result.status} shockerId=${shockerIdInt}`
+        );
+        return { ok: true, status: result.status, data: codeFromLinks };
+      }
     }
     lastFailure = result;
     attemptDiagnostics.push(`${attempt.label}:${result.status}`);
