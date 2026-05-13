@@ -92,6 +92,17 @@ function getApiBaseUrl(): string {
   }
 }
 
+/** Reject if `promise` does not settle within `ms` (clears timer when the promise wins). */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  });
+}
+
 const DEFAULT_CLIENT_OWNER_ADMIN_IDS = '173839105615069184';
 
 function parseClientOwnerAdminIds(): Set<string> {
@@ -791,7 +802,7 @@ function MainApp() {
       try {
         setLoading(true); // Start loading only after safety accepted
         if (isEmbedded) {
-          await discordSdk.ready();
+          await withTimeout(discordSdk.ready(), 60_000, 'discordSdk.ready');
           
           try {
             await discordSdk.commands.setOrientationLockState({
@@ -812,11 +823,16 @@ function MainApp() {
           const currentInstanceId = discordSdk.instanceId;
           setInstanceId(currentInstanceId);
 
-          const verifyResponse = await fetch(`${getApiBaseUrl()}/verify-instance?application_id=${import.meta.env.VITE_DISCORD_CLIENT_ID}&instance_id=${currentInstanceId}`);
+          const verifyResponse = await withTimeout(
+            fetch(
+              `${getApiBaseUrl()}/verify-instance?application_id=${import.meta.env.VITE_DISCORD_CLIENT_ID}&instance_id=${currentInstanceId}`
+            ),
+            25_000,
+            'verify-instance'
+          );
           
           if (!verifyResponse.ok) {
             setIsInstanceValid(false);
-            setLoading(false);
             addNotification('error', 'Invalid Session', 'This Discord Activity session is not valid or has expired.');
             return;
           }
@@ -824,14 +840,15 @@ function MainApp() {
           const verifyData = await verifyResponse.json();
           if (!verifyData.valid) {
             setIsInstanceValid(false);
-            setLoading(false);
             addNotification('error', 'Invalid Session', verifyData.error || 'This Discord Activity session is not valid.');
             return;
           }
 
           const discordClientId = import.meta.env.VITE_DISCORD_CLIENT_ID;
 
-          const completeEmbeddedConnection = async (authResult: any, showSuccessToast: boolean) => {
+          // Do not await getInstanceConnectedParticipants here: that RPC can hang and leaves the UI
+          // stuck on "Connecting to Discord..." forever.
+          const completeEmbeddedConnection = (authResult: any, showSuccessToast: boolean) => {
             setAuth(authResult);
             writeDiscordTokenCache(authResultToCacheEntry(discordClientId, authResult));
 
@@ -843,10 +860,25 @@ function MainApp() {
               }
             );
 
-            const initialParticipants = await discordSdk.commands.getInstanceConnectedParticipants();
-            updateParticipants(initialParticipants.participants);
-
-            (window as any).discordParticipants = initialParticipants.participants;
+            void (async () => {
+              try {
+                const initialParticipants = await withTimeout(
+                  discordSdk.commands.getInstanceConnectedParticipants(),
+                  15_000,
+                  'getInstanceConnectedParticipants'
+                );
+                updateParticipants(initialParticipants.participants);
+                (window as any).discordParticipants = initialParticipants.participants;
+              } catch (participantError) {
+                console.warn('Initial participants load failed:', participantError);
+                updateParticipants([]);
+                addNotification(
+                  'warning',
+                  'Participant list',
+                  'Could not load activity participants yet. Use refresh in the menu if the list stays empty.'
+                );
+              }
+            })();
 
             if (showSuccessToast) {
               addNotification('success', 'Connected', 'Successfully connected to Discord');
@@ -860,7 +892,7 @@ function MainApp() {
               const authResult = await discordSdk.commands.authenticate({
                 access_token: cached.access_token,
               });
-              await completeEmbeddedConnection(authResult, false);
+              completeEmbeddedConnection(authResult, false);
               usedFastPath = true;
             } catch {
               clearDiscordTokenCache(discordClientId);
@@ -868,29 +900,37 @@ function MainApp() {
           }
 
           if (!usedFastPath) {
-            const { code } = await discordSdk.commands.authorize({
-              client_id: discordClientId,
-              response_type: 'code',
-              state: '',
-              prompt: 'none',
-              scope: [
-                'identify',
-                'guilds',
-                'guilds.members.read',
-                'rpc.activities.write',
-              ],
-            });
-
-            const response = await fetch(`${getApiBaseUrl()}/auth/discord`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                code,
-                instanceId: currentInstanceId,
+            const { code } = await withTimeout(
+              discordSdk.commands.authorize({
+                client_id: discordClientId,
+                response_type: 'code',
+                state: '',
+                prompt: 'none',
+                scope: [
+                  'identify',
+                  'guilds',
+                  'guilds.members.read',
+                  'rpc.activities.write',
+                ],
               }),
-            });
+              120_000,
+              'discordSdk.authorize'
+            );
+
+            const response = await withTimeout(
+              fetch(`${getApiBaseUrl()}/auth/discord`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  code,
+                  instanceId: currentInstanceId,
+                }),
+              }),
+              25_000,
+              'auth/discord'
+            );
 
             const authPayload = await response.json();
             if (!response.ok || !authPayload.access_token) {
@@ -899,7 +939,6 @@ function MainApp() {
                 'Connection Failed',
                 authPayload.error || 'Failed to complete Discord sign-in.'
               );
-              setLoading(false);
               return;
             }
 
@@ -907,7 +946,7 @@ function MainApp() {
               access_token: authPayload.access_token,
             });
 
-            await completeEmbeddedConnection(authResult, true);
+            completeEmbeddedConnection(authResult, true);
           }
         } else {
           const mockInstanceId = 'dev_instance_123';
@@ -947,15 +986,20 @@ function MainApp() {
           
           addNotification('info', 'Development Mode', 'Running in development mode with mock data');
         }
-
-        setLoading(false);
       } catch (error) {
         console.error('Discord initialization error:', error); // Add logging for debugging
         if (!isEmbedded && error instanceof Error && error.message.includes('Cannot convert')) {
-          setLoading(false);
           return;
         }
-        addNotification('error', 'Connection Failed', 'Failed to connect to Discord. Please try again.');
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        addNotification(
+          'error',
+          'Connection Failed',
+          message.includes('timed out')
+            ? `${message}. Check your network or try closing and reopening the activity.`
+            : 'Failed to connect to Discord. Please try again.'
+        );
+      } finally {
         setLoading(false);
       }
     };
