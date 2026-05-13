@@ -512,7 +512,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         shockerId: finalSelectedShockerId,
         deviceCount: deviceCheck.devices?.length || 0,
         lastUpdated: new Date().toISOString(),
-        bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : [],
+        bannedExecutors: Array.isArray(body.bannedExecutors)
+          ? body.bannedExecutors
+          : Array.isArray(existingUserData?.bannedExecutors)
+            ? existingUserData.bannedExecutors
+            : [],
         commandsPaused: typeof commandsPaused === 'boolean'
           ? commandsPaused
           : Boolean(existingUserData?.commandsPaused),
