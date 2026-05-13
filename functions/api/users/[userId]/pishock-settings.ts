@@ -515,6 +515,16 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       };
       
       const encrypted = await encrypt(credentialsToStore);
+
+      const nextBannedExecutors = hasBannedExecutorsField
+        ? (Array.isArray(body.bannedExecutors)
+            ? body.bannedExecutors
+            : Array.isArray(existingUserData?.bannedExecutors)
+              ? existingUserData.bannedExecutors
+              : [])
+        : (Array.isArray(existingUserData?.bannedExecutors)
+            ? existingUserData.bannedExecutors
+            : []);
       
       const userData = {
         credentials: encrypted,
@@ -527,7 +537,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         shockerId: finalSelectedShockerId,
         deviceCount: deviceCheck.devices?.length || 0,
         lastUpdated: new Date().toISOString(),
-        bannedExecutors: Array.isArray(bannedExecutors) ? bannedExecutors : [],
+        bannedExecutors: nextBannedExecutors,
         commandsPaused: typeof commandsPaused === 'boolean'
           ? commandsPaused
           : Boolean(existingUserData?.commandsPaused),
