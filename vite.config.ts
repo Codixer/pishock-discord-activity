@@ -4,10 +4,9 @@ import react from '@vitejs/plugin-react';
 const getDiscordClientId = () => {
   const viteEnv = process.env.VITE_DISCORD_CLIENT_ID;
   const directEnv = process.env.DISCORD_CLIENT_ID;
-  const wranglerVar = process.env.DISCORD_CLIENT_ID;
-  
+  const wranglerVar = process.env.DISCORD_CLIENT_ID;  
   const clientId = viteEnv || directEnv || wranglerVar;
-  
+
   if (!clientId && process.env.NODE_ENV === 'production') {
     throw new Error('Discord Client ID is required for production build');
   }
