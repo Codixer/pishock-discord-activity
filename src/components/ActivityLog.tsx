@@ -39,7 +39,7 @@ function getApiBaseUrl(): string {
   }
 }
 
-export function ActivityLog({ instanceId: _instanceId, auth, addNotification, authFetch = fetch }: ActivityLogProps) {
+export function ActivityLog({ auth, addNotification, authFetch = fetch }: ActivityLogProps) {
   const [entries, setEntries] = useState<ActivityLogEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
@@ -106,7 +106,7 @@ export function ActivityLog({ instanceId: _instanceId, auth, addNotification, au
       } else {
         throw new Error('Failed to load activity log');
       }
-    } catch (error) {
+    } catch {
       if (!silent) {
         addNotification('error', 'Load Failed', 'Failed to load activity log');
       }
@@ -175,23 +175,23 @@ export function ActivityLog({ instanceId: _instanceId, auth, addNotification, au
         }
         return Math.abs(hash) % 6;
       }
-    } catch (error) {
+    } catch {
       return 0;
     }
   };
 
   if (!isVisible) {
     return (
-      <div className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-4">
+      <div className="ps-panel-shell rounded-md p-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <Clock className="h-5 w-5 text-purple-400" />
-            <h3 className="text-lg font-semibold">Public Activity Log</h3>
-            <span className="text-sm text-gray-400">(Hidden)</span>
+            <Clock className="h-4 w-4 text-cyan-300" />
+            <h3 className="text-xs font-semibold uppercase tracking-[0.12em]">Activity Feed</h3>
+            <span className="text-[10px] ps-muted-text">(Hidden)</span>
           </div>
           <button
             onClick={() => setIsVisible(true)}
-            className="flex items-center space-x-2 px-3 py-1 rounded-md bg-purple-600 hover:bg-purple-700 text-sm transition-colors"
+            className="ps-btn-compact ps-btn-compact-primary text-[10px]"
           >
             <Eye className="h-4 w-4" />
             <span>Show Log</span>
@@ -202,23 +202,23 @@ export function ActivityLog({ instanceId: _instanceId, auth, addNotification, au
   }
 
   return (
-    <div className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 flex flex-col h-full">
+    <div className="ps-panel-shell rounded-md flex flex-col h-full">
       {/* Header */}
-      <div className="p-4 pb-3 flex-shrink-0">
+      <div className="p-3 pb-2 flex-shrink-0 border-b border-cyan-500/25">
         <div className="flex items-center space-x-3">
-          <Clock className="h-5 w-5 text-purple-400" />
+          <Clock className="h-4 w-4 text-cyan-300" />
           <div>
-            <h3 className="text-base sm:text-lg font-semibold">Public Activity Log</h3>
-            <span className="text-sm text-gray-400">({entries.length} entries)</span>
+            <h3 className="text-xs sm:text-sm font-semibold uppercase tracking-[0.12em]">Activity Feed</h3>
+            <span className="text-[10px] ps-muted-text">({entries.length} entries)</span>
           </div>
         </div>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-2 mt-3">
+        <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
           <button
             onClick={() => setAutoRefresh(!autoRefresh)}
-            className={`flex items-center space-x-1 px-2 py-1 rounded text-xs transition-colors ${
+            className={`ps-btn-compact text-[10px] ${
               autoRefresh 
-                ? 'bg-green-600 hover:bg-green-700 text-white' 
-                : 'bg-gray-600 hover:bg-gray-700 text-gray-300'
+                ? 'border-emerald-500/55 text-emerald-200 bg-emerald-950/25' 
+                : 'ps-btn-compact-ghost'
             }`}
             title={autoRefresh ? 'Auto-refresh enabled (auto-disables after 3min)' : 'Enable auto-refresh (2min intervals)'}
           >
@@ -228,13 +228,13 @@ export function ActivityLog({ instanceId: _instanceId, auth, addNotification, au
           <button
             onClick={() => loadActivityLog()}
             disabled={loading}
-            className="px-2 py-1 rounded bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 text-xs transition-colors w-full sm:w-auto text-center"
+            className="ps-btn-compact ps-btn-compact-primary text-[10px]"
           >
             Refresh Now
           </button>
           <button
             onClick={() => setIsVisible(false)}
-            className="flex items-center space-x-1 px-2 py-1 rounded bg-gray-600 hover:bg-gray-700 text-xs transition-colors"
+            className="ps-btn-compact text-[10px]"
           >
             <EyeOff className="h-3 w-3" />
             <span>Hide Log</span>
@@ -242,12 +242,12 @@ export function ActivityLog({ instanceId: _instanceId, auth, addNotification, au
         </div>
       </div>
 
-      <div className="text-xs text-gray-400 px-4 pb-3 flex-shrink-0">
+      <div className="text-[10px] ps-muted-text px-3 py-1.5 flex-shrink-0 border-b border-cyan-500/15 uppercase tracking-[0.09em]">
         Last updated: {lastRefresh.toLocaleTimeString()}
         {autoRefresh && <span className="ml-2 text-green-400">(Auto-refresh enabled)</span>}
       </div>
 
-      <div className="flex-1 overflow-hidden px-4 pb-4">
+      <div className="flex-1 overflow-hidden px-2.5 py-2">
         {loading ? (
           <div className="flex items-center justify-center h-full">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-400"></div>
@@ -261,12 +261,12 @@ export function ActivityLog({ instanceId: _instanceId, auth, addNotification, au
         ) : (
           <div 
             ref={logContainerRef}
-            className="h-full overflow-y-auto space-y-3 pr-2"
+            className="h-full overflow-y-auto space-y-1.5 pr-1"
           >
             {entries.map((entry) => (
               <div
                 key={entry.id}
-                className={`p-3 rounded-lg border transition-all ${getActionColor(entry.action)}`}
+                className={`p-2 rounded border transition-all ${getActionColor(entry.action)}`}
               >
                 <div className="flex items-start space-x-3">
                   <div className="flex-shrink-0 mt-1">
@@ -274,17 +274,17 @@ export function ActivityLog({ instanceId: _instanceId, auth, addNotification, au
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center space-x-2 mb-2">
+                    <div className="flex items-center space-x-1.5 mb-1.5">
                       <img
                         src={entry.executorAvatar || `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(entry.executorUserId)}.png`}
                         alt={`${entry.executorUsername}'s avatar`}
-                        className="w-5 h-5 rounded-full flex-shrink-0"
+                        className="w-4 h-4 rounded-full flex-shrink-0"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
                           target.src = `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(entry.executorUserId)}.png`;
                         }}
                       />
-                      <span className="font-semibold text-sm truncate">
+                      <span className="font-semibold text-xs truncate">
                         <span 
                           className="hover:bg-white/10 px-1 -mx-1 rounded transition-colors cursor-help"
                           title={entry.executorUsername}
@@ -296,13 +296,13 @@ export function ActivityLog({ instanceId: _instanceId, auth, addNotification, au
                       <img
                         src={entry.targetAvatar || `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(entry.targetUserId)}.png`}
                         alt={`${entry.targetUsername}'s avatar`}
-                        className="w-5 h-5 rounded-full flex-shrink-0"
+                        className="w-4 h-4 rounded-full flex-shrink-0"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
                           target.src = `https://cdn.discordapp.com/embed/avatars/${getDefaultAvatarIndex(entry.targetUserId)}.png`;
                         }}
                       />
-                      <span className="font-semibold text-sm truncate">
+                      <span className="font-semibold text-xs truncate">
                         <span 
                           className="hover:bg-white/10 px-1 -mx-1 rounded transition-colors cursor-help"
                           title={entry.targetUsername}
@@ -313,7 +313,7 @@ export function ActivityLog({ instanceId: _instanceId, auth, addNotification, au
                     </div>
 
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3 text-xs">
+                      <div className="flex items-center space-x-2 text-[10px] uppercase tracking-[0.07em]">
                         <span className="capitalize font-medium">
                           {entry.action}
                         </span>
@@ -324,7 +324,7 @@ export function ActivityLog({ instanceId: _instanceId, auth, addNotification, au
                           {entry.duration}s
                         </span>
                         {entry.guildName && (
-                          <span className="text-gray-400 truncate max-w-24">
+                          <span className="text-gray-400 truncate max-w-20">
                             in {entry.guildName}
                           </span>
                         )}

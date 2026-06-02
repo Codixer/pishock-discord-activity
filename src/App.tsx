@@ -1390,34 +1390,34 @@ function MainApp() {
         shockPastLimitPriceLabel={shockPastLimitPriceLabel}
       />
       
-      <div className="bg-slate-950/70 border-b border-cyan-500/35 flex-shrink-0">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
+      <div className="ps-topbar-shell flex-shrink-0">
+        <div className="max-w-[1440px] mx-auto px-3 sm:px-4 py-2.5">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-lg overflow-hidden bg-black/20 flex items-center justify-center">
+            <div className="flex items-center space-x-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-md overflow-hidden bg-black/30 border border-cyan-500/30 flex items-center justify-center flex-shrink-0">
                 <img 
                   src="/kVApvT6y_400x400 copy.jpg" 
                   alt="PiShock Controller Logo" 
                   className="w-8 h-8 object-contain"
                 />
               </div>
-              <div>
-                <h1 className="text-lg font-bold">PiShock Controller</h1>
-                <p className="text-xs text-gray-300">
+              <div className="min-w-0">
+                <h1 className="text-sm sm:text-base font-bold tracking-wide truncate">PiShock Controller</h1>
+                <p className="text-[10px] sm:text-xs ps-muted-text uppercase tracking-[0.14em] truncate">
                   Discord Activity • {participants.length} participant{participants.length !== 1 ? 's' : ''}
                 </p>
               </div>
             </div>
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               {auth?.user?.id && (
                 <button
                   type="button"
                   onClick={toggleEmergencyStop}
                   disabled={togglingEmergencyStop}
-                  className={`ps-btn-compact text-xs font-semibold transition-colors ${
+                  className={`ps-btn-compact text-[10px] font-semibold transition-colors ${
                     ownCommandsPaused
                       ? 'ps-btn-compact-warn'
-                      : 'border-emerald-500/60 text-emerald-200'
+                      : 'border-emerald-500/60 text-emerald-200 bg-emerald-900/10'
                   } disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center space-x-1`}
                   title="Emergency stop for incoming commands to your PiShock"
                 >
@@ -1426,13 +1426,13 @@ function MainApp() {
                 </button>
               )}
               {instanceId && (
-                <div className="text-xs text-gray-400">
+                <div className="hidden lg:block text-[10px] ps-muted-text uppercase tracking-[0.12em]">
                   Instance: {instanceId.slice(-8)}
                 </div>
               )}
               <button
                 onClick={openShop}
-                className="ps-btn-compact ps-btn-compact-primary text-xs transition-colors flex items-center space-x-1"
+                className="ps-btn-compact ps-btn-compact-primary text-[10px] transition-colors flex items-center space-x-1"
                 title="Open Controller+ shop"
               >
                 <Crown className="h-3 w-3" />
@@ -1450,7 +1450,7 @@ function MainApp() {
               )}
               <button
                 onClick={() => handleMultishockToggle(!multishockMode)}
-                className={`ps-btn-compact flex items-center gap-2 text-xs border transition-colors ${
+                className={`ps-btn-compact flex items-center gap-1.5 text-[10px] border transition-colors ${
                   hasControllerPlus
                     ? 'text-cyan-100 border-cyan-500/45'
                     : 'text-gray-500 border-gray-700'
@@ -1459,12 +1459,12 @@ function MainApp() {
               >
                 <span>Multishock</span>
                 <span
-                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                    className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors ${
                     multishockMode && hasControllerPlus ? 'bg-indigo-500' : 'bg-gray-500/60'
                   }`}
                 >
                   <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
                       multishockMode && hasControllerPlus ? 'translate-x-4' : 'translate-x-0.5'
                     }`}
                   />
@@ -1472,21 +1472,21 @@ function MainApp() {
               </button>
               <button
                 onClick={() => navigate('/terms')}
-                className="ps-btn-compact text-xs transition-colors flex items-center space-x-1"
+                className="ps-btn-compact text-[10px] transition-colors flex items-center space-x-1"
               >
                 <FileText className="h-3 w-3" />
                 <span className="hidden sm:inline">Terms</span>
               </button>
               <button
                 onClick={() => navigate('/privacy')}
-                className="ps-btn-compact text-xs transition-colors flex items-center space-x-1"
+                className="ps-btn-compact text-[10px] transition-colors flex items-center space-x-1"
               >
                 <Shield className="h-3 w-3" />
                 <span className="hidden sm:inline">Privacy</span>
               </button>
               <button
                 onClick={() => setShowActivityLog(!showActivityLog)}
-                className={`ps-btn-compact px-3 py-1 text-sm transition-colors ${
+                className={`ps-btn-compact px-2.5 py-1 text-[10px] transition-colors ${
                   showActivityLog 
                     ? 'ps-btn-compact-primary text-white' 
                     : 'ps-btn-compact-ghost'
@@ -1500,9 +1500,9 @@ function MainApp() {
       </div>
 
       <div className="flex-1 overflow-hidden">
-        <div className="h-full max-w-7xl mx-auto px-4 sm:px-6 py-4">
-          <div className={`h-full grid gap-2 sm:gap-4 ${showActivityLog ? 'grid-cols-1 lg:grid-cols-4' : 'grid-cols-1 lg:grid-cols-3'}`}>
-            <div className="lg:col-span-1 flex flex-col min-h-0">
+        <div className="h-full max-w-[1440px] mx-auto px-3 sm:px-4 py-3">
+          <div className={`h-full grid gap-2 sm:gap-3 ${showActivityLog ? 'grid-cols-1 xl:grid-cols-12' : 'grid-cols-1 xl:grid-cols-10'}`}>
+            <div className={`${showActivityLog ? 'xl:col-span-3' : 'xl:col-span-3'} flex flex-col min-h-0`}>
               <UserSelector
                 members={participants}
                 selectedUser={selectedUser}
@@ -1516,7 +1516,7 @@ function MainApp() {
               />
             </div>
 
-            <div className={`${showActivityLog ? 'lg:col-span-2' : 'lg:col-span-2'} flex flex-col min-h-0 order-1 lg:order-none`}>
+            <div className={`${showActivityLog ? 'xl:col-span-6' : 'xl:col-span-7'} flex flex-col min-h-0 order-1 xl:order-none`}>
               <PiShockController
                 selectedUser={selectedUser}
                 onConnectionChange={setPiShockConnected}
@@ -1544,7 +1544,7 @@ function MainApp() {
             </div>
 
             {showActivityLog && (
-              <div className="lg:col-span-1 flex flex-col min-h-0 order-2 lg:order-none">
+              <div className="xl:col-span-3 flex flex-col min-h-0 order-2 xl:order-none">
                 <ActivityLog
                   instanceId={instanceId}
                   auth={auth}
@@ -1557,14 +1557,14 @@ function MainApp() {
         </div>
       </div>
 
-      <div className="flex-shrink-0 bg-red-950/25 border-t border-red-500/35 px-4 sm:px-6 py-2">
-        <div className="max-w-7xl mx-auto">
+      <div className="flex-shrink-0 bg-red-950/20 border-t border-red-500/30 px-3 sm:px-4 py-1.5">
+        <div className="max-w-[1440px] mx-auto">
           <div className="flex items-center justify-between">
-            <div className="flex items-start space-x-3 flex-1">
-            <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
+            <div className="flex items-start space-x-2.5 flex-1">
+            <AlertTriangle className="h-4 w-4 text-red-400 flex-shrink-0 mt-0.5" />
             <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-red-300 mb-1">Safety Reminders</h3>
-              <div className="text-xs text-red-200 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-red-300 mb-1">Safety Reminders</h3>
+              <div className="text-[11px] text-red-200 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-0.5">
                 <span>• Always ensure explicit consent</span>
                 <span>• Start with lowest intensity</span>
                 <span>• Have emergency procedures ready</span>
@@ -1577,7 +1577,7 @@ function MainApp() {
         </div>
       </div>
       
-      <div className="fixed bottom-4 right-4 z-40 flex items-center space-x-2 bg-slate-950/80 border border-cyan-500/30 rounded-md px-3 py-2 text-xs">
+      <div className="fixed bottom-3 right-3 z-40 flex items-center space-x-2 bg-slate-950/85 border border-cyan-500/35 rounded px-2.5 py-1.5 text-[10px] uppercase tracking-[0.12em]">
         <div className="flex items-center space-x-2">
           <div className="w-2 h-2 rounded-full bg-green-400"></div>
           <span className="text-gray-300 font-medium">

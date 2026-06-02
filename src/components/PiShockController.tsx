@@ -256,7 +256,7 @@ export function PiShockController({
       } else {
         // Silently handle failed status check
       }
-    } catch (error) {
+    } catch {
       // Silently handle credential check errors
     }
   };
@@ -567,17 +567,17 @@ export function PiShockController({
         authFetch={authFetch}
       />
 
-      <div className="h-full flex flex-col space-y-4 overflow-y-auto">
-        <div className={`ps-panel-shell rounded-md p-6 flex-1 flex flex-col min-h-0 ${isPipMode ? 'p-2' : ''}`}>
-          <div className="flex items-center justify-between mb-6 flex-shrink-0">
-            <h3 className={`font-semibold ${isPipMode ? 'text-sm' : 'text-lg sm:text-xl'}`}>
+      <div className="h-full flex flex-col space-y-2 overflow-y-auto">
+        <div className={`ps-panel-shell rounded-md p-3 flex-1 flex flex-col min-h-0 ${isPipMode ? 'p-2' : ''}`}>
+          <div className="flex items-center justify-between mb-3 flex-shrink-0">
+            <h3 className={`font-semibold uppercase tracking-[0.12em] ${isPipMode ? 'text-[10px]' : 'text-xs sm:text-sm'}`}>
               Control Panel
             </h3>
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-4">
-                <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1.5 border border-cyan-500/30 bg-slate-950/65 rounded px-2 py-1">
                   <div className={`w-2 h-2 rounded-full ${discordConnected ? 'bg-green-400' : 'bg-red-400'}`} />
-                  <span className={`text-sm text-gray-300 ${isPipMode ? 'hidden' : ''}`}>Discord</span>
+                  <span className={`text-[10px] uppercase tracking-[0.08em] text-gray-300 ${isPipMode ? 'hidden' : ''}`}>Discord</span>
                   {discordConnected ? (
                     <Wifi className="h-4 w-4 text-green-400" />
                   ) : (
@@ -585,9 +585,9 @@ export function PiShockController({
                   )}
                 </div>
                 
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1.5 border border-cyan-500/30 bg-slate-950/65 rounded px-2 py-1">
                   <div className={`w-2 h-2 rounded-full ${effectivePiShockConnected ? 'bg-green-400' : 'bg-red-400'}`} />
-                  <span className={`text-sm text-gray-300 ${isPipMode ? 'hidden' : ''}`}>PiShock</span>
+                  <span className={`text-[10px] uppercase tracking-[0.08em] text-gray-300 ${isPipMode ? 'hidden' : ''}`}>PiShock</span>
                   <Zap className={`h-4 w-4 ${effectivePiShockConnected ? 'text-green-400' : 'text-red-400'}`} />
                 </div>
               </div>
@@ -595,7 +595,7 @@ export function PiShockController({
               {!isPipMode && (
                 <button
                   onClick={() => setShowSettings(true)}
-                  className="ps-btn-compact ps-btn-compact-primary flex items-center space-x-2 px-4 py-2 transition-colors text-sm font-medium"
+                  className="ps-btn-compact ps-btn-compact-primary flex items-center space-x-2 px-2.5 py-1.5 transition-colors text-[10px] font-medium"
                 >
                   <Settings className="h-4 w-4" />
                   <span>PiShock Settings</span>
@@ -606,25 +606,25 @@ export function PiShockController({
 
         {!selectedUser && !multishockMode ? (
           <div className="text-center py-12 text-gray-400 flex-1 flex flex-col justify-center">
-            <AlertTriangle className="h-16 w-16 mx-auto mb-4 opacity-50" />
-            <p className="text-lg mb-2">Please select a participant to continue</p>
-            <p className="text-sm opacity-75">Only users with PiShock accounts can be targeted</p>
+            <AlertTriangle className="h-12 w-12 mx-auto mb-3 opacity-50" />
+            <p className="text-sm mb-1 uppercase tracking-[0.08em]">Select a target to continue</p>
+            <p className="text-xs opacity-75">Only users with PiShock accounts can be targeted</p>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col space-y-6 min-h-0">
+          <div className="flex-1 flex flex-col space-y-2.5 min-h-0">
             {!isPipMode && multishockMode && (
-              <div className="p-3 bg-cyan-950/20 border border-cyan-500/35 rounded-md">
+              <div className="p-2 bg-cyan-950/20 border border-cyan-500/35 rounded">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm text-indigo-100 font-medium">Multishock mode enabled</p>
-                    <p className="text-xs text-indigo-200 mt-1">
+                    <p className="text-xs text-indigo-100 font-medium uppercase tracking-[0.1em]">Multishock mode enabled</p>
+                    <p className="text-[10px] text-indigo-200 mt-1">
                       Over-limit bypass is disabled for multishock commands.
                     </p>
-                    <p className="text-xs text-indigo-200 mt-1">
+                    <p className="text-[10px] text-indigo-200 mt-1">
                       Controller+: {entitlementsLoading ? 'Checking...' : hasControllerPlus ? 'Active' : 'Inactive'} •
                       Consumable: {entitlementsLoading ? 'Checking...' : hasOverlimitConsumable ? 'Available' : 'Not available'}
                     </p>
-                    <p className="text-xs text-indigo-200 mt-1">
+                    <p className="text-[10px] text-indigo-200 mt-1">
                       Consumables owned: {entitlementsLoading ? '...' : overlimitConsumableCount}
                     </p>
                   </div>
@@ -652,8 +652,8 @@ export function PiShockController({
               </div>
             )}
             {!isPipMode && selectedUser && (
-              <div className="p-3 bg-slate-950/70 border border-cyan-500/35 rounded-md">
-                <p className="text-sm text-blue-200">
+              <div className="p-2 bg-slate-950/70 border border-cyan-500/35 rounded">
+                <p className="text-xs text-blue-200 uppercase tracking-[0.09em]">
                   Target device: <span className="font-semibold">
                     {(window as any).userPiShockStatus?.[selectedUser.id]?.selectedShockerName ||
                      (window as any).userPiShockStatus?.[selectedUser.id]?.selectedShockerId ||
@@ -661,44 +661,44 @@ export function PiShockController({
                   </span>
                 </p>
                 {(window as any).userPiShockStatus?.[selectedUser.id]?.usingLegacySharecodeFallback && (
-                  <p className="text-xs text-yellow-300 mt-1">
+                  <p className="text-[10px] text-yellow-300 mt-1">
                     Legacy share code fallback is active for this user.
                   </p>
                 )}
                 {typeof (window as any).userPiShockStatus?.[selectedUser.id]?.shockerIdsHiddenNotOnDevices === 'number' &&
                   (window as any).userPiShockStatus[selectedUser.id].shockerIdsHiddenNotOnDevices > 0 && (
-                  <p className="text-xs text-slate-300 mt-1">
+                  <p className="text-[10px] text-slate-300 mt-1">
                     Some shockers on this user&apos;s PiShock account are not listed here because they are not active on
                     their linked devices list (paused or offline). Only listed shockers can receive commands.
                   </p>
                 )}
                 {selectedUserCommandsPaused && (
-                  <p className="text-xs text-red-300 mt-1">
+                  <p className="text-[10px] text-red-300 mt-1">
                     This user has paused all incoming commands.
                   </p>
                 )}
                 {!selectedUserCapabilities.canShock && (
-                  <p className="text-xs text-orange-300 mt-1">Shock is disabled by the selected PiShock device.</p>
+                  <p className="text-[10px] text-orange-300 mt-1">Shock is disabled by the selected PiShock device.</p>
                 )}
                 {!selectedUserCapabilities.canVibrate && (
-                  <p className="text-xs text-orange-300 mt-1">Vibrate is disabled by the selected PiShock device.</p>
+                  <p className="text-[10px] text-orange-300 mt-1">Vibrate is disabled by the selected PiShock device.</p>
                 )}
                 {!selectedUserCapabilities.canBeep && (
-                  <p className="text-xs text-orange-300 mt-1">Beep is disabled by the selected PiShock device.</p>
+                  <p className="text-[10px] text-orange-300 mt-1">Beep is disabled by the selected PiShock device.</p>
                 )}
               </div>
             )}
             {!isPipMode && multishockMode && selectedUser && (
-              <div className="p-3 bg-slate-950/70 border border-cyan-500/35 rounded-md">
-                <p className="text-sm text-purple-200 font-medium">
+              <div className="p-2 bg-slate-950/70 border border-cyan-500/35 rounded">
+                <p className="text-xs text-purple-200 font-medium uppercase tracking-[0.09em]">
                   Multishock selection for {getDisplayName(selectedUser)}
                 </p>
-                <p className="text-xs text-purple-300 mt-1">
+                <p className="text-[10px] text-purple-300 mt-1">
                   Select which of this user&apos;s allowed shockers should be included in multishock.
                 </p>
                 <div className="mt-2 grid grid-cols-1 gap-1 max-h-32 overflow-y-auto">
                   {getSelectableShockersForUser(selectedUser.id).map((shocker) => (
-                    <label key={shocker.id} className="flex items-center gap-2 text-xs text-purple-100">
+                    <label key={shocker.id} className="flex items-center gap-2 text-[10px] text-purple-100">
                       <input
                         type="checkbox"
                         checked={(multishockSelections[selectedUser.id] || []).includes(shocker.id)}
@@ -708,7 +708,7 @@ export function PiShockController({
                     </label>
                   ))}
                   {getSelectableShockersForUser(selectedUser.id).length === 0 && (
-                    <p className="text-xs text-purple-300">
+                    <p className="text-[10px] text-purple-300">
                       This user has no allowed shockers configured for multishock.
                     </p>
                   )}
@@ -716,7 +716,7 @@ export function PiShockController({
               </div>
             )}
             {!isPipMode && selectedUser && !multishockMode && (
-              <div className={`p-3 rounded-md border ${
+              <div className={`p-2 rounded border ${
                 limitIndicatorColor === 'red'
                   ? 'bg-red-900/20 border-red-500/40'
                   : limitIndicatorColor === 'green'
@@ -725,24 +725,24 @@ export function PiShockController({
               }`}>
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className={`text-sm font-medium ${limitTextColorClass}`}>
+                    <p className={`text-xs font-medium uppercase tracking-[0.09em] ${limitTextColorClass}`}>
                       Over-limit bypass for Shock/Vibrate
                     </p>
-                    <p className="text-xs text-gray-200 mt-1">
+                    <p className="text-[10px] text-gray-200 mt-1">
                       Yellow = normal limits, Green = bypass armed, Red = consumable will be spent on activation.
                     </p>
                     {!targetAllowsBypass && (
-                      <p className="text-xs text-red-300 mt-1">
+                      <p className="text-[10px] text-red-300 mt-1">
                         Target has not enabled over-limit bypass in their settings.
                       </p>
                     )}
                     {targetAllowsBypass && !hasOverlimitConsumable && (
-                      <p className="text-xs text-red-300 mt-1">
+                      <p className="text-[10px] text-red-300 mt-1">
                         You do not currently have an over-limit consumable.
                       </p>
                     )}
                     {targetAllowsBypass && hasOverlimitConsumable && (
-                      <p className="text-xs text-emerald-300 mt-1">
+                      <p className="text-[10px] text-emerald-300 mt-1">
                         Consumables available: {overlimitConsumableCount}
                       </p>
                     )}
@@ -762,13 +762,13 @@ export function PiShockController({
                 </div>
               </div>
             )}
-            <div className="flex-1 flex flex-col space-y-4 min-h-0">
+            <div className="flex-1 flex flex-col space-y-3 min-h-0">
               <div>
-                <label className={`block font-medium text-gray-300 mb-3 ${isPipMode ? 'text-xs' : 'text-sm sm:text-base'}`}>
+                <label className={`block font-medium text-gray-300 mb-2 ${isPipMode ? 'text-[10px]' : 'text-xs sm:text-sm uppercase tracking-[0.09em]'}`}>
                   <div className="flex items-center justify-between">
                     <span>Intensity: {intensity}%</span>
                     {effectiveLimits.maxIntensity < 100 && !isPipMode && (
-                      <div className={`flex items-center space-x-1 text-sm ${limitTextColorClass}`}>
+                      <div className={`flex items-center space-x-1 text-xs ${limitTextColorClass}`}>
                         <Lock className="h-3 w-3" />
                         <span>
                           Max: {effectiveLimits.maxIntensity}%
@@ -788,7 +788,7 @@ export function PiShockController({
                   } slider-large`}
                 />
                 {!isPipMode && (
-                  <div className="flex justify-between text-sm text-gray-400 mt-2">
+                  <div className="flex justify-between text-[10px] text-gray-400 mt-2 uppercase tracking-[0.08em]">
                   <span>1%</span>
                   <span>{Math.floor(sliderMaxIntensity / 2)}%</span>
                   <span className={bypassModeEnabled || effectiveLimits.maxIntensity < 100 ? limitTextColorClass : ''}>
@@ -799,11 +799,11 @@ export function PiShockController({
               </div>
 
               <div>
-                <label className={`block font-medium text-gray-300 mb-3 ${isPipMode ? 'text-xs' : 'text-sm sm:text-base'}`}>
+                <label className={`block font-medium text-gray-300 mb-2 ${isPipMode ? 'text-[10px]' : 'text-xs sm:text-sm uppercase tracking-[0.09em]'}`}>
                   <div className="flex items-center justify-between">
                     <span>Duration: {duration}s</span>
                     {effectiveLimits.maxDuration < 15 && !isPipMode && (
-                      <div className={`flex items-center space-x-1 text-sm ${limitTextColorClass}`}>
+                      <div className={`flex items-center space-x-1 text-xs ${limitTextColorClass}`}>
                         <Lock className="h-3 w-3" />
                         <span>
                           Max: {effectiveLimits.maxDuration}s
@@ -823,7 +823,7 @@ export function PiShockController({
                   } slider-large`}
                 />
                 {!isPipMode && (
-                  <div className="flex justify-between text-sm text-gray-400 mt-2">
+                  <div className="flex justify-between text-[10px] text-gray-400 mt-2 uppercase tracking-[0.08em]">
                   <span>1s</span>
                   <span>{Math.floor(sliderMaxDuration / 2)}s</span>
                   <span className={bypassModeEnabled || effectiveLimits.maxDuration < 15 ? limitTextColorClass : ''}>
@@ -833,7 +833,7 @@ export function PiShockController({
                 )}
               </div>
 
-              <div className={`grid gap-3 flex-shrink-0 ${isPipMode ? 'grid-cols-3 gap-2' : 'grid-cols-1 sm:grid-cols-3 sm:gap-3'}`}>
+              <div className={`grid gap-2 flex-shrink-0 ${isPipMode ? 'grid-cols-3 gap-2' : 'grid-cols-3 sm:grid-cols-3 sm:gap-2'}`}>
                 <button
                   onClick={() => (multishockMode ? runMultishock(0) : handleShock(0))}
                   disabled={
@@ -841,10 +841,10 @@ export function PiShockController({
                     isMultishocking ||
                     (!multishockMode && (selectedUserCommandsPaused || !selectedUserCapabilities.canShock))
                   }
-                  className={`ps-btn-compact ps-btn-compact-warn disabled:cursor-not-allowed rounded-md font-semibold flex items-center justify-center transition-all ${
+                  className={`ps-btn-compact ps-btn-compact-warn disabled:cursor-not-allowed rounded font-semibold flex items-center justify-center transition-all ${
                     isPipMode 
                       ? 'py-2 px-2 text-xs flex-col space-y-1' 
-                      : 'py-4 sm:py-5 px-4 sm:px-6 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-2 text-sm sm:text-base'
+                      : 'py-2.5 px-2.5 flex-col space-y-1 text-[10px] uppercase tracking-[0.08em]'
                   }`}
                 >
                   <Zap className={isPipMode ? 'h-3 w-3' : 'h-5 w-5 sm:h-6 sm:w-6'} />
@@ -858,10 +858,10 @@ export function PiShockController({
                     isMultishocking ||
                     (!multishockMode && (selectedUserCommandsPaused || !selectedUserCapabilities.canVibrate))
                   }
-                  className={`ps-btn-compact ps-btn-compact-primary disabled:cursor-not-allowed rounded-md font-semibold flex items-center justify-center transition-all ${
+                  className={`ps-btn-compact ps-btn-compact-primary disabled:cursor-not-allowed rounded font-semibold flex items-center justify-center transition-all ${
                     isPipMode 
                       ? 'py-2 px-2 text-xs flex-col space-y-1' 
-                      : 'py-4 sm:py-5 px-4 sm:px-6 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-2 text-sm sm:text-base'
+                      : 'py-2.5 px-2.5 flex-col space-y-1 text-[10px] uppercase tracking-[0.08em]'
                   }`}
                 >
                   <Play className={isPipMode ? 'h-3 w-3' : 'h-5 w-5 sm:h-6 sm:w-6'} />
@@ -875,10 +875,10 @@ export function PiShockController({
                     isMultishocking ||
                     (!multishockMode && (selectedUserCommandsPaused || !selectedUserCapabilities.canBeep))
                   }
-                  className={`ps-btn-compact border-emerald-500/60 text-emerald-200 disabled:cursor-not-allowed rounded-md font-semibold flex items-center justify-center transition-all ${
+                  className={`ps-btn-compact border-emerald-500/60 text-emerald-200 disabled:cursor-not-allowed rounded font-semibold flex items-center justify-center transition-all ${
                     isPipMode 
                       ? 'py-2 px-2 text-xs flex-col space-y-1' 
-                      : 'py-4 sm:py-5 px-4 sm:px-6 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-2 text-sm sm:text-base'
+                      : 'py-2.5 px-2.5 flex-col space-y-1 text-[10px] uppercase tracking-[0.08em]'
                   }`}
                 >
                   <Square className={isPipMode ? 'h-3 w-3' : 'h-5 w-5 sm:h-6 sm:w-6'} />
@@ -887,16 +887,16 @@ export function PiShockController({
               </div>
 
               {!isPipMode && selectedUser && !(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected && (
-                <div className="p-3 bg-yellow-950/20 border border-yellow-500/35 rounded-md flex-shrink-0">
+                <div className="p-2 bg-yellow-950/20 border border-yellow-500/35 rounded flex-shrink-0">
                   <div className="flex items-start space-x-3">
                     <AlertTriangle className="h-5 w-5 text-yellow-400 flex-shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-yellow-300 mb-2">No PiShock Device</p>
-                      <p className="text-sm text-yellow-200 mb-3">
+                      <p className="text-xs font-medium uppercase tracking-[0.08em] text-yellow-300 mb-2">No PiShock Device</p>
+                      <p className="text-xs text-yellow-200 mb-2">
                         {getDisplayName(selectedUser)} hasn't configured their PiShock device yet. 
                         Commands cannot be sent until they set up their credentials.
                       </p>
-                      <p className="text-sm text-yellow-200">
+                      <p className="text-xs text-yellow-200">
                         They need to click the "PiShock Settings" button to configure their device.
                       </p>
                     </div>
