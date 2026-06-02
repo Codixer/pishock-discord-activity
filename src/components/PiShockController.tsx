@@ -499,7 +499,7 @@ export function PiShockController({
     <>
       {embeddedBypassModalOpen && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4">
-          <div className="max-w-md rounded-xl border border-amber-500/40 bg-gray-900 p-5 shadow-xl">
+          <div className="max-w-md rounded-md border border-amber-500/40 bg-slate-950 p-5 shadow-xl">
             <h4 className="text-lg font-semibold text-amber-100 mb-2">Bypass warning</h4>
             <p className="text-sm text-gray-300 mb-4">
               Target may disable bypass; delivery is not guaranteed; consumable purchases go to the developer, not
@@ -508,7 +508,7 @@ export function PiShockController({
             <div className="flex flex-wrap gap-2 justify-end">
               <button
                 type="button"
-                className="px-3 py-2 rounded-lg bg-gray-700 text-sm text-gray-100 hover:bg-gray-600"
+                className="ps-btn-compact text-sm text-gray-100"
                 onClick={() => {
                   embeddedBypassWaiter.current?.resolve(false);
                   embeddedBypassWaiter.current = null;
@@ -519,7 +519,7 @@ export function PiShockController({
               </button>
               <button
                 type="button"
-                className="px-3 py-2 rounded-lg bg-amber-600 text-sm text-white hover:bg-amber-500"
+                className="ps-btn-compact ps-btn-compact-warn text-sm text-white"
                 onClick={async () => {
                   try {
                     const ackResponse = await authFetch(`${getApiBaseUrl()}/monetization/warning-acks`, {
@@ -568,7 +568,7 @@ export function PiShockController({
       />
 
       <div className="h-full flex flex-col space-y-4 overflow-y-auto">
-        <div className={`bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6 flex-1 flex flex-col min-h-0 ${isPipMode ? 'p-2' : ''}`}>
+        <div className={`ps-panel-shell rounded-md p-6 flex-1 flex flex-col min-h-0 ${isPipMode ? 'p-2' : ''}`}>
           <div className="flex items-center justify-between mb-6 flex-shrink-0">
             <h3 className={`font-semibold ${isPipMode ? 'text-sm' : 'text-lg sm:text-xl'}`}>
               Control Panel
@@ -595,7 +595,7 @@ export function PiShockController({
               {!isPipMode && (
                 <button
                   onClick={() => setShowSettings(true)}
-                  className="flex items-center space-x-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors text-sm font-medium"
+                  className="ps-btn-compact ps-btn-compact-primary flex items-center space-x-2 px-4 py-2 transition-colors text-sm font-medium"
                 >
                   <Settings className="h-4 w-4" />
                   <span>PiShock Settings</span>
@@ -613,7 +613,7 @@ export function PiShockController({
         ) : (
           <div className="flex-1 flex flex-col space-y-6 min-h-0">
             {!isPipMode && multishockMode && (
-              <div className="p-3 bg-indigo-900/20 border border-indigo-500/30 rounded-lg">
+              <div className="p-3 bg-cyan-950/20 border border-cyan-500/35 rounded-md">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm text-indigo-100 font-medium">Multishock mode enabled</p>
@@ -631,19 +631,19 @@ export function PiShockController({
                   <div className="flex gap-2">
                     <button
                       onClick={() => onMultishockModeChange(false)}
-                      className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs"
+                      className="ps-btn-compact text-xs"
                     >
                       Disable
                     </button>
                     <button
                       onClick={onRefreshEntitlements}
-                      className="px-2 py-1 bg-indigo-700 hover:bg-indigo-800 rounded text-xs"
+                      className="ps-btn-compact ps-btn-compact-primary text-xs"
                     >
                       Refresh
                     </button>
                     <button
                       onClick={onOpenShop}
-                      className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 rounded text-xs"
+                      className="ps-btn-compact ps-btn-compact-primary text-xs"
                     >
                       Shop
                     </button>
@@ -652,7 +652,7 @@ export function PiShockController({
               </div>
             )}
             {!isPipMode && selectedUser && (
-              <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg">
+              <div className="p-3 bg-slate-950/70 border border-cyan-500/35 rounded-md">
                 <p className="text-sm text-blue-200">
                   Target device: <span className="font-semibold">
                     {(window as any).userPiShockStatus?.[selectedUser.id]?.selectedShockerName ||
@@ -689,7 +689,7 @@ export function PiShockController({
               </div>
             )}
             {!isPipMode && multishockMode && selectedUser && (
-              <div className="p-3 bg-purple-900/20 border border-purple-500/30 rounded-lg">
+              <div className="p-3 bg-slate-950/70 border border-cyan-500/35 rounded-md">
                 <p className="text-sm text-purple-200 font-medium">
                   Multishock selection for {getDisplayName(selectedUser)}
                 </p>
@@ -716,7 +716,7 @@ export function PiShockController({
               </div>
             )}
             {!isPipMode && selectedUser && !multishockMode && (
-              <div className={`p-3 rounded-lg border ${
+              <div className={`p-3 rounded-md border ${
                 limitIndicatorColor === 'red'
                   ? 'bg-red-900/20 border-red-500/40'
                   : limitIndicatorColor === 'green'
@@ -751,10 +751,10 @@ export function PiShockController({
                     type="button"
                     onClick={() => setBypassModeEnabled((previous) => !previous)}
                     disabled={!canArmBypassMode}
-                    className={`px-3 py-1.5 rounded text-xs font-semibold transition-colors ${
+                    className={`ps-btn-compact px-3 py-1.5 text-xs font-semibold transition-colors ${
                       bypassModeEnabled
-                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                        : 'bg-gray-700 hover:bg-gray-600 text-gray-100'
+                        ? 'border-emerald-500/70 text-emerald-200'
+                        : 'ps-btn-compact-ghost'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
                     {bypassModeEnabled ? 'Bypass ON' : 'Bypass OFF'}
@@ -841,7 +841,7 @@ export function PiShockController({
                     isMultishocking ||
                     (!multishockMode && (selectedUserCommandsPaused || !selectedUserCapabilities.canShock))
                   }
-                  className={`bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
+                  className={`ps-btn-compact ps-btn-compact-warn disabled:cursor-not-allowed rounded-md font-semibold flex items-center justify-center transition-all ${
                     isPipMode 
                       ? 'py-2 px-2 text-xs flex-col space-y-1' 
                       : 'py-4 sm:py-5 px-4 sm:px-6 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-2 text-sm sm:text-base'
@@ -858,7 +858,7 @@ export function PiShockController({
                     isMultishocking ||
                     (!multishockMode && (selectedUserCommandsPaused || !selectedUserCapabilities.canVibrate))
                   }
-                  className={`bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
+                  className={`ps-btn-compact ps-btn-compact-primary disabled:cursor-not-allowed rounded-md font-semibold flex items-center justify-center transition-all ${
                     isPipMode 
                       ? 'py-2 px-2 text-xs flex-col space-y-1' 
                       : 'py-4 sm:py-5 px-4 sm:px-6 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-2 text-sm sm:text-base'
@@ -875,7 +875,7 @@ export function PiShockController({
                     isMultishocking ||
                     (!multishockMode && (selectedUserCommandsPaused || !selectedUserCapabilities.canBeep))
                   }
-                  className={`bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed rounded-lg font-semibold flex items-center justify-center transition-all ${
+                  className={`ps-btn-compact border-emerald-500/60 text-emerald-200 disabled:cursor-not-allowed rounded-md font-semibold flex items-center justify-center transition-all ${
                     isPipMode 
                       ? 'py-2 px-2 text-xs flex-col space-y-1' 
                       : 'py-4 sm:py-5 px-4 sm:px-6 flex-row sm:flex-col space-x-2 sm:space-x-0 sm:space-y-2 text-sm sm:text-base'
@@ -887,7 +887,7 @@ export function PiShockController({
               </div>
 
               {!isPipMode && selectedUser && !(window as any).userPiShockStatus?.[selectedUser.id]?.isConnected && (
-                <div className="p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex-shrink-0">
+                <div className="p-3 bg-yellow-950/20 border border-yellow-500/35 rounded-md flex-shrink-0">
                   <div className="flex items-start space-x-3">
                     <AlertTriangle className="h-5 w-5 text-yellow-400 flex-shrink-0 mt-0.5" />
                     <div className="flex-1 min-w-0">

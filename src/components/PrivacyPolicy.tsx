@@ -29,13 +29,13 @@ export function PrivacyPolicy({ onBack }: PrivacyPolicyProps) {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white overflow-y-auto">
+    <div className="min-h-screen ps-app-shell text-white overflow-y-auto">
       <div className="max-w-4xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
           <button
             onClick={onBack}
-            className="flex items-center space-x-2 text-blue-400 hover:text-blue-300 transition-colors mb-4"
+            className="ps-btn-compact ps-btn-compact-ghost inline-flex items-center space-x-2 transition-colors mb-4"
           >
             <ArrowLeft className="h-4 w-4" />
             <span>Back to Application</span>
@@ -51,7 +51,7 @@ export function PrivacyPolicy({ onBack }: PrivacyPolicyProps) {
             </div>
           </div>
           
-          <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
+          <div className="ps-panel-shell rounded-md p-4">
             <p className="text-blue-200 text-sm">
               <strong>Last Updated:</strong> {new Date().toLocaleDateString()}<br />
               <strong>Effective Date:</strong> {new Date().toLocaleDateString()}
@@ -62,7 +62,7 @@ export function PrivacyPolicy({ onBack }: PrivacyPolicyProps) {
         {/* Content */}
         <div className="space-y-8">
           {/* Introduction */}
-          <section className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6">
+          <section className="ps-panel-shell rounded-md p-6">
             <h2 className="text-2xl font-semibold mb-4 flex items-center space-x-2">
               <Eye className="h-6 w-6 text-purple-400" />
               <span>Introduction</span>
@@ -81,7 +81,7 @@ export function PrivacyPolicy({ onBack }: PrivacyPolicyProps) {
           </section>
 
           {/* Information We Collect */}
-          <section className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6">
+          <section className="ps-panel-shell rounded-md p-6">
             <h2 className="text-2xl font-semibold mb-4 flex items-center space-x-2">
               <Database className="h-6 w-6 text-green-400" />
               <span>Information We Collect</span>
@@ -129,7 +129,7 @@ export function PrivacyPolicy({ onBack }: PrivacyPolicyProps) {
           </section>
 
           {/* How We Use Information */}
-          <section className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6">
+          <section className="ps-panel-shell rounded-md p-6">
             <h2 className="text-2xl font-semibold mb-4 flex items-center space-x-2">
               <Globe className="h-6 w-6 text-blue-400" />
               <span>How We Use Your Information</span>
@@ -167,7 +167,7 @@ export function PrivacyPolicy({ onBack }: PrivacyPolicyProps) {
           </section>
 
           {/* Data Storage and Security */}
-          <section className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6">
+          <section className="ps-panel-shell rounded-md p-6">
             <h2 className="text-2xl font-semibold mb-4 flex items-center space-x-2">
               <Lock className="h-6 w-6 text-yellow-400" />
               <span>Data Storage and Security</span>
@@ -202,7 +202,7 @@ export function PrivacyPolicy({ onBack }: PrivacyPolicyProps) {
           </section>
 
           {/* Data Retention */}
-          <section className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6">
+          <section className="ps-panel-shell rounded-md p-6">
             <h2 className="text-2xl font-semibold mb-4 flex items-center space-x-2">
               <Clock className="h-6 w-6 text-orange-400" />
               <span>Data Retention</span>
@@ -236,7 +236,7 @@ export function PrivacyPolicy({ onBack }: PrivacyPolicyProps) {
           </section>
 
           {/* Third-Party Services */}
-          <section className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6">
+          <section className="ps-panel-shell rounded-md p-6">
             <h2 className="text-2xl font-semibold mb-4">Third-Party Services</h2>
             <div className="space-y-4 text-gray-300">
               <div>
@@ -269,7 +269,7 @@ export function PrivacyPolicy({ onBack }: PrivacyPolicyProps) {
           </section>
 
           {/* Your Rights */}
-          <section className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6">
+          <section className="ps-panel-shell rounded-md p-6">
             <h2 className="text-2xl font-semibold mb-4">Your Rights and Choices</h2>
             <div className="space-y-4 text-gray-300">
               <ul className="space-y-2">
@@ -283,7 +283,7 @@ export function PrivacyPolicy({ onBack }: PrivacyPolicyProps) {
           </section>
 
           {/* Safety Notice */}
-          <section className="bg-red-900/20 border border-red-500/30 rounded-xl p-6">
+          <section className="bg-red-950/20 border border-red-500/35 rounded-md p-6">
             <h2 className="text-2xl font-semibold mb-4 flex items-center space-x-2">
               <AlertTriangle className="h-6 w-6 text-red-400" />
               <span>Important Safety Notice</span>
@@ -304,7 +304,7 @@ export function PrivacyPolicy({ onBack }: PrivacyPolicyProps) {
           </section>
 
           {/* Contact */}
-          <section className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6">
+          <section className="ps-panel-shell rounded-md p-6">
             <h2 className="text-2xl font-semibold mb-4">Contact and Updates</h2>
             <div className="space-y-4 text-gray-300">
               <p>

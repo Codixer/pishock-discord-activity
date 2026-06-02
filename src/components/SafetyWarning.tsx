@@ -27,10 +27,10 @@ export function SafetyWarning({ onAccept }: SafetyWarningProps) {
   const allAcknowledged = acknowledgedItems.every(item => item);
 
   return (
-    <div className="h-screen w-screen bg-gradient-to-br from-red-900 via-red-800 to-orange-900 flex items-center justify-center p-4 overflow-hidden">
-      <div className="max-w-2xl w-full bg-black/40 backdrop-blur-sm rounded-2xl border border-red-500/20 p-6">
+    <div className="h-screen w-screen ps-app-shell flex items-center justify-center p-4 overflow-hidden">
+      <div className="max-w-2xl w-full ps-panel-shell rounded-md border-red-500/35 p-6">
         <div className="text-center mb-6">
-          <div className="mx-auto w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center mb-3">
+          <div className="mx-auto w-12 h-12 bg-red-500/20 rounded-md flex items-center justify-center mb-3 border border-red-500/30">
             <AlertTriangle className="h-6 w-6 text-red-400" />
           </div>
           <h1 className="text-2xl font-bold text-white mb-2">Safety Warning</h1>
@@ -59,7 +59,7 @@ export function SafetyWarning({ onAccept }: SafetyWarningProps) {
           ))}
         </div>
 
-        <div className="bg-red-900/30 border border-red-500/50 rounded-lg p-3 mb-4">
+        <div className="bg-red-950/30 border border-red-500/50 rounded-md p-3 mb-4">
           <div className="flex items-start space-x-3">
             <Shield className="h-4 w-4 text-red-400 flex-shrink-0 mt-0.5" />
             <div className="text-xs text-red-200">
@@ -75,10 +75,10 @@ export function SafetyWarning({ onAccept }: SafetyWarningProps) {
         <button
           onClick={onAccept}
           disabled={!allAcknowledged}
-          className={`w-full py-3 px-6 rounded-xl font-semibold transition-all ${
+          className={`w-full py-3 px-6 rounded-md font-semibold transition-all ${
             allAcknowledged
-              ? 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white'
-              : 'bg-gray-600 text-gray-400 cursor-not-allowed'
+              ? 'ps-btn-compact ps-btn-compact-primary text-white'
+              : 'ps-btn-compact ps-btn-compact-ghost text-gray-400 cursor-not-allowed'
           }`}
         >
           I Acknowledge and Accept All Terms

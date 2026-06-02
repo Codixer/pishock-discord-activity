@@ -29,13 +29,13 @@ export function TermsOfService({ onBack }: TermsOfServiceProps) {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white overflow-y-auto">
+    <div className="min-h-screen ps-app-shell text-white overflow-y-auto">
       <div className="max-w-4xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
           <button
             onClick={onBack}
-            className="flex items-center space-x-2 text-blue-400 hover:text-blue-300 transition-colors mb-4"
+            className="ps-btn-compact ps-btn-compact-ghost inline-flex items-center space-x-2 transition-colors mb-4"
           >
             <ArrowLeft className="h-4 w-4" />
             <span>Back to Application</span>
@@ -51,7 +51,7 @@ export function TermsOfService({ onBack }: TermsOfServiceProps) {
             </div>
           </div>
           
-          <div className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-4">
+          <div className="ps-panel-shell rounded-md p-4">
             <p className="text-purple-200 text-sm">
               <strong>Last Updated:</strong> {new Date().toLocaleDateString()}<br />
               <strong>Effective Date:</strong> {new Date().toLocaleDateString()}
@@ -60,7 +60,7 @@ export function TermsOfService({ onBack }: TermsOfServiceProps) {
         </div>
 
         {/* Critical Safety Warning */}
-        <div className="bg-red-900/30 border border-red-500/50 rounded-xl p-6 mb-8">
+        <div className="bg-red-950/30 border border-red-500/50 rounded-md p-6 mb-8">
           <div className="flex items-start space-x-3">
             <AlertTriangle className="h-8 w-8 text-red-400 flex-shrink-0 mt-1" />
             <div>
@@ -82,7 +82,7 @@ export function TermsOfService({ onBack }: TermsOfServiceProps) {
         {/* Content */}
         <div className="space-y-8">
           {/* Acceptance */}
-          <section className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6">
+          <section className="ps-panel-shell rounded-md p-6">
             <h2 className="text-2xl font-semibold mb-4 flex items-center space-x-2">
               <Scale className="h-6 w-6 text-blue-400" />
               <span>Acceptance of Terms</span>
@@ -102,7 +102,7 @@ export function TermsOfService({ onBack }: TermsOfServiceProps) {
           </section>
 
           {/* Service Description */}
-          <section className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6">
+          <section className="ps-panel-shell rounded-md p-6">
             <h2 className="text-2xl font-semibold mb-4 flex items-center space-x-2">
               <Zap className="h-6 w-6 text-yellow-400" />
               <span>Service Description</span>
@@ -125,7 +125,7 @@ export function TermsOfService({ onBack }: TermsOfServiceProps) {
           </section>
 
           {/* User Responsibilities */}
-          <section className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6">
+          <section className="ps-panel-shell rounded-md p-6">
             <h2 className="text-2xl font-semibold mb-4 flex items-center space-x-2">
               <Users className="h-6 w-6 text-green-400" />
               <span>User Responsibilities</span>
@@ -165,7 +165,7 @@ export function TermsOfService({ onBack }: TermsOfServiceProps) {
           </section>
 
           {/* Prohibited Uses */}
-          <section className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6">
+          <section className="ps-panel-shell rounded-md p-6">
             <h2 className="text-2xl font-semibold mb-4 flex items-center space-x-2">
               <AlertTriangle className="h-6 w-6 text-red-400" />
               <span>Prohibited Uses</span>
@@ -186,7 +186,7 @@ export function TermsOfService({ onBack }: TermsOfServiceProps) {
           </section>
 
           {/* Data and Privacy */}
-          <section className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6">
+          <section className="ps-panel-shell rounded-md p-6">
             <h2 className="text-2xl font-semibold mb-4 flex items-center space-x-2">
               <Shield className="h-6 w-6 text-blue-400" />
               <span>Data and Privacy</span>
@@ -221,7 +221,7 @@ export function TermsOfService({ onBack }: TermsOfServiceProps) {
           </section>
 
           {/* Disclaimers and Limitations */}
-          <section className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6">
+          <section className="ps-panel-shell rounded-md p-6">
             <h2 className="text-2xl font-semibold mb-4">Disclaimers and Limitations of Liability</h2>
             <div className="space-y-4 text-gray-300">
               <div>
@@ -256,7 +256,7 @@ export function TermsOfService({ onBack }: TermsOfServiceProps) {
           </section>
 
           {/* Indemnification */}
-          <section className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6">
+          <section className="ps-panel-shell rounded-md p-6">
             <h2 className="text-2xl font-semibold mb-4">Indemnification</h2>
             <div className="space-y-4 text-gray-300">
               <p>
@@ -276,7 +276,7 @@ export function TermsOfService({ onBack }: TermsOfServiceProps) {
           </section>
 
           {/* Termination */}
-          <section className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6">
+          <section className="ps-panel-shell rounded-md p-6">
             <h2 className="text-2xl font-semibold mb-4 flex items-center space-x-2">
               <Clock className="h-6 w-6 text-orange-400" />
               <span>Termination</span>
@@ -298,7 +298,7 @@ export function TermsOfService({ onBack }: TermsOfServiceProps) {
           </section>
 
           {/* Governing Law */}
-          <section className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6">
+          <section className="ps-panel-shell rounded-md p-6">
             <h2 className="text-2xl font-semibold mb-4">Governing Law and Jurisdiction</h2>
             <div className="space-y-4 text-gray-300">
               <p>
@@ -313,7 +313,7 @@ export function TermsOfService({ onBack }: TermsOfServiceProps) {
           </section>
 
           {/* Changes to Terms */}
-          <section className="bg-black/20 backdrop-blur-sm rounded-xl border border-white/10 p-6">
+          <section className="ps-panel-shell rounded-md p-6">
             <h2 className="text-2xl font-semibold mb-4">Changes to Terms</h2>
             <div className="space-y-4 text-gray-300">
               <p>
@@ -345,7 +345,7 @@ export function TermsOfService({ onBack }: TermsOfServiceProps) {
 
         {/* Footer */}
         <div className="mt-12 pt-8 border-t border-white/10">
-          <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4 mb-4">
+          <div className="bg-red-950/20 border border-red-500/35 rounded-md p-4 mb-4">
             <p className="text-red-200 text-sm text-center">
               <strong>By using this Service, you acknowledge that you have read, understood, 
               and agree to be bound by these Terms of Service and understand the serious 

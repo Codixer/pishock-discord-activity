@@ -2,6 +2,149 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Shared PiShock retro design tokens */
+:root {
+  --ps-bg-main: #060b12;
+  --ps-bg-shell: #0a1220;
+  --ps-bg-panel: #0d1626;
+  --ps-bg-panel-soft: #0f1b30;
+  --ps-text-primary: #d9f8ff;
+  --ps-text-muted: #7f9eb0;
+  --ps-text-subtle: #5c7486;
+  --ps-accent: #2ad1ff;
+  --ps-accent-soft: #13769e;
+  --ps-accent-strong: #65e8ff;
+  --ps-border: rgba(42, 209, 255, 0.28);
+  --ps-border-strong: rgba(101, 232, 255, 0.45);
+  --ps-glow: 0 0 0 1px rgba(42, 209, 255, 0.22), 0 0 16px rgba(42, 209, 255, 0.09);
+  --ps-warning: #ff5a78;
+  --ps-warning-soft: rgba(255, 90, 120, 0.18);
+  --ps-success: #30e3a0;
+}
+
+@layer utilities {
+  .ps-app-shell {
+    background: radial-gradient(circle at top, rgba(22, 50, 74, 0.35), transparent 40%), var(--ps-bg-main);
+    color: var(--ps-text-primary);
+  }
+
+  .ps-panel-shell {
+    background: linear-gradient(180deg, var(--ps-bg-panel) 0%, var(--ps-bg-panel-soft) 100%);
+    border: 1px solid var(--ps-border);
+    box-shadow: var(--ps-glow);
+    border-radius: 6px;
+  }
+
+  .ps-panel-shell-strong {
+    border-color: var(--ps-border-strong);
+    box-shadow: 0 0 0 1px rgba(101, 232, 255, 0.32), 0 0 20px rgba(42, 209, 255, 0.13);
+  }
+
+  .ps-btn-compact {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    min-height: 1.9rem;
+    padding: 0.3rem 0.62rem;
+    border-radius: 4px;
+    border: 1px solid var(--ps-border);
+    background: linear-gradient(180deg, rgba(11, 23, 39, 0.92) 0%, rgba(7, 15, 28, 0.97) 100%);
+    color: var(--ps-text-primary);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease, color 140ms ease;
+  }
+
+  .ps-btn-compact:hover {
+    border-color: var(--ps-border-strong);
+    box-shadow: 0 0 0 1px rgba(101, 232, 255, 0.22), 0 0 14px rgba(42, 209, 255, 0.15);
+  }
+
+  .ps-btn-compact:focus-visible {
+    outline: none;
+    border-color: var(--ps-accent-strong);
+    box-shadow: 0 0 0 1px rgba(101, 232, 255, 0.5), 0 0 0 3px rgba(42, 209, 255, 0.22);
+  }
+
+  .ps-btn-compact:disabled,
+  .ps-btn-compact[aria-disabled="true"] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .ps-btn-compact-primary {
+    background: linear-gradient(180deg, rgba(17, 52, 77, 0.95) 0%, rgba(11, 35, 56, 0.98) 100%);
+    border-color: rgba(42, 209, 255, 0.45);
+    color: #ebfdff;
+  }
+
+  .ps-btn-compact-ghost {
+    background: rgba(9, 16, 28, 0.7);
+    border-color: rgba(42, 209, 255, 0.2);
+    color: var(--ps-text-muted);
+  }
+
+  .ps-btn-compact-warn {
+    border-color: rgba(255, 90, 120, 0.48);
+    background: linear-gradient(180deg, rgba(57, 16, 30, 0.88) 0%, rgba(39, 10, 20, 0.95) 100%);
+    color: #ffd6de;
+  }
+
+  .ps-micro-label {
+    color: var(--ps-text-muted);
+    font-size: 0.64rem;
+    line-height: 1.1;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+  }
+
+  .ps-separator {
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent 0%, rgba(42, 209, 255, 0.24) 20%, rgba(42, 209, 255, 0.44) 50%, rgba(42, 209, 255, 0.24) 80%, transparent 100%);
+  }
+
+  .ps-loading-ring {
+    width: 2.45rem;
+    height: 2.45rem;
+    border-radius: 9999px;
+    border: 2px solid rgba(217, 248, 255, 0.16);
+    border-top-color: var(--ps-accent);
+    border-right-color: rgba(101, 232, 255, 0.72);
+    animation: ps-spin 0.85s linear infinite;
+    box-shadow: 0 0 16px rgba(42, 209, 255, 0.2);
+  }
+
+  .ps-muted-text {
+    color: var(--ps-text-muted);
+  }
+
+  .ps-subtle-text {
+    color: var(--ps-text-subtle);
+  }
+
+  .ps-warning-text {
+    color: var(--ps-warning);
+  }
+
+  .ps-warning-chip {
+    color: var(--ps-warning);
+    border: 1px solid rgba(255, 90, 120, 0.45);
+    background: var(--ps-warning-soft);
+    border-radius: 4px;
+    padding: 0.18rem 0.4rem;
+  }
+}
+
+@keyframes ps-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Ensure no scrollbars appear */
 html, body {
   overflow: hidden;
