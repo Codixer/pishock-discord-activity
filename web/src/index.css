@@ -1,0 +1,79 @@
+@import './styles/pishock.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+.legal-page {
+  overflow-y: auto !important;
+  height: 100vh !important;
+}
+
+.legal-page html,
+.legal-page body,
+.legal-page #root {
+  overflow-y: auto !important;
+}
+
+/* Loading spinner for boot screens */
+.ps-loading-ring {
+  width: 2.45rem;
+  height: 2.45rem;
+  border-radius: 9999px;
+  border: 2px solid rgba(189, 189, 189, 0.2);
+  border-top-color: var(--q-color-secondary);
+  animation: ps-spin 0.85s linear infinite;
+}
+
+@keyframes ps-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Boot / modal helpers using official palette */
+.boot-screen {
+  min-height: 100vh;
+  background: var(--q-dark);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.boot-panel {
+  background: var(--q-dark);
+  border: 1px solid var(--q-color-secondary);
+  border-radius: 4px;
+  padding: 2rem;
+  max-width: 28rem;
+}
+
+.boot-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--q-color-secondary);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--q-color-secondary);
+  cursor: pointer;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.boot-btn:hover {
+  background: rgba(121, 198, 219, 0.1);
+}
+
+.boot-btn-warn {
+  border-color: var(--q-negative);
+  color: var(--q-negative);
+}

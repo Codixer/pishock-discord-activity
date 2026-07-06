@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - '5432:5432' 
+    environment:
+      POSTGRES_USER: pishock
+      POSTGRES_PASSWORD: pishock
+      POSTGRES_DB: pishock
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U pishock -d pishock']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      DATABASE_URL: postgresql://pishock:pishock@postgres:5432/pishock
+      NODE_ENV: production
+      PORT: 3000
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
+      DISCORD_CLIENT_SECRET: ${DISCORD_CLIENT_SECRET}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      DISCORD_REDIRECT_URI: ${DISCORD_REDIRECT_URI:-}
+      OWNER_ADMIN_USER_IDS: ${OWNER_ADMIN_USER_IDS:-}
+      VITE_DISCORD_CLIENT_ID: ${VITE_DISCORD_CLIENT_ID:-${DISCORD_CLIENT_ID}}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/api/health']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  postgres_data:

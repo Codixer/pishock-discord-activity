@@ -1,0 +1,149 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model DiscordUser {
+  id           String   @id
+  username     String?
+  globalName   String?  @map("global_name")
+  discriminator String?
+  avatar       String?
+  profileJson  Json?    @map("profile_json")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  token        DiscordToken?
+  pishockSettings PiShockSettings?
+  monetizationAck MonetizationAck?
+  statusCache  StatusCache?
+
+  @@map("discord_users")
+}
+
+model DiscordToken {
+  discordUserId  String   @id @map("discord_user_id")
+  accessToken    String   @map("access_token")
+  refreshToken   String?  @map("refresh_token")
+  expiresAt      Int      @map("expires_at")
+  expiresIn      Int      @map("expires_in")
+  tokenType      String   @default("Bearer") @map("token_type")
+  createdAt      Int      @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user DiscordUser @relation(fields: [discordUserId], references: [id], onDelete: Cascade)
+
+  @@map("discord_tokens")
+}
+
+model PiShockSettings {
+  discordUserId    String   @id @map("discord_user_id")
+  encryptedCreds   String   @map("encrypted_creds")
+  maxIntensity     Int      @default(100) @map("max_intensity")
+  maxDuration      Int      @default(15) @map("max_duration")
+  bannedExecutors  Json     @default("[]") @map("banned_executors")
+  commandsPaused   Boolean  @default(false) @map("commands_paused")
+  hasOwnDevice     Boolean  @default(false) @map("has_own_device")
+  piShockUserId    String?  @map("pishock_user_id")
+  shockerId        String?  @map("shocker_id")
+  deviceCount      Int      @default(0) @map("device_count")
+  lastTested       DateTime? @map("last_tested")
+  configuredBy     String?  @map("configured_by")
+  lastUpdated      DateTime @updatedAt @map("last_updated")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  user DiscordUser @relation(fields: [discordUserId], references: [id], onDelete: Cascade)
+
+  @@map("pishock_settings")
+}
+
+model ActivityInstance {
+  instanceId           String   @id @map("instance_id")
+  status               String   @default("active")
+  participantCount     Int      @default(0) @map("participant_count")
+  lastActivity         DateTime @map("last_activity")
+  lastVerified         DateTime? @map("last_verified")
+  lastAuthenticatedUser String? @map("last_authenticated_user")
+  discordVerified      Boolean  @default(false) @map("discord_verified")
+  locationJson         Json?    @map("location_json")
+  expiresAt            DateTime @map("expires_at")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  data InstanceData?
+
+  @@map("activity_instances")
+}
+
+model InstanceData {
+  instanceId       String   @id @map("instance_id")
+  selectedUserId   String?  @map("selected_user_id")
+  multishockMap    Json?    @map("multishock_map")
+  participantIds   Json?    @map("participant_ids")
+  payloadJson      Json?    @map("payload_json")
+  updatedBy        String?  @map("updated_by")
+  lastUpdated      DateTime @updatedAt @map("last_updated")
+  expiresAt        DateTime @map("expires_at")
+
+  instance ActivityInstance @relation(fields: [instanceId], references: [instanceId], onDelete: Cascade)
+
+  @@map("instance_data")
+}
+
+model ActivityLogEntry {
+  id               String   @id @default(uuid())
+  timestamp        DateTime @default(now())
+  instanceId       String   @default("global") @map("instance_id")
+  executorUserId   String   @map("executor_user_id")
+  executorUsername String   @map("executor_username")
+  executorAvatar   String?  @map("executor_avatar")
+  targetUserId     String   @map("target_user_id")
+  targetUsername   String   @map("target_username")
+  targetAvatar     String?  @map("target_avatar")
+  action           String
+  intensity        Int
+  duration         Int
+  guildId          String?  @map("guild_id")
+  guildName        String?  @map("guild_name")
+
+  @@index([timestamp(sort: Desc)])
+  @@index([executorUserId])
+  @@index([targetUserId])
+  @@map("activity_log_entries")
+}
+
+model MonetizationAck {
+  discordUserId                        String   @id @map("discord_user_id")
+  hasSeenFirstBypassWarning            Boolean  @default(false) @map("has_seen_first_bypass_warning")
+  hasSeenFirstOverlimitPurchaseWarning Boolean  @default(false) @map("has_seen_first_overlimit_purchase_warning")
+  updatedAt                            DateTime @updatedAt @map("updated_at")
+
+  user DiscordUser @relation(fields: [discordUserId], references: [id], onDelete: Cascade)
+
+  @@map("monetization_acks")
+}
+
+model StatusCache {
+  discordUserId String   @id @map("discord_user_id")
+  cacheKey      String   @map("cache_key")
+  payloadJson   Json     @map("payload_json")
+  expiresAt     DateTime @map("expires_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user DiscordUser @relation(fields: [discordUserId], references: [id], onDelete: Cascade)
+
+  @@index([cacheKey])
+  @@map("status_caches")
+}
+
+model TokenValidationCache {
+  tokenSuffix   String   @id @map("token_suffix")
+  discordUserId String   @map("discord_user_id")
+  payloadJson   Json     @map("payload_json")
+  expiresAt     DateTime @map("expires_at")
+
+  @@map("token_validation_cache")
+}
